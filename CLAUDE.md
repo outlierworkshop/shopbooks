@@ -87,6 +87,9 @@ columns on existing tables are NOT** — add a guarded `ALTER TABLE` in `db.init
 
 ## Process expectations for agents
 
+- This repo lives at https://github.com/outlierworkshop/shopbooks (private). Commit logical
+  units of work with clear messages and push when a change is verified. `data/` is gitignored
+  because it holds the user's real books and secrets — **never force-add it**.
 - Update `docs/ROADMAP.md` (changelog section) when you ship a change.
 - Keep this file and ARCHITECTURE.md truthful — if you change a convention, update the doc
   in the same change.
