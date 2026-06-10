@@ -40,6 +40,11 @@ def categories(con, types=("expense", "income", "asset", "liability", "equity"))
                        types).fetchall()
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(BASE / "static" / "favicon.ico")
+
+
 # ---------- dashboard ----------
 
 @app.get("/", response_class=HTMLResponse)
