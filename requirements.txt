@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+pdfplumber
+anthropic
+fpdf2
+httpx        # only needed to run tests (fastapi TestClient)

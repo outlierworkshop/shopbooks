@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post">
+
+<h2>Business</h2>
+<div class="formgrid">
+  <label>Business name</label><input type="text" name="business_name" value="{{ s.business_name }}">
+  <label>Address</label><input type="text" name="business_address" value="{{ s.business_address }}">
+  <label>Email</label><input type="email" name="business_email" value="{{ s.business_email }}">
+  <label>Phone</label><input type="text" name="business_phone" value="{{ s.business_phone }}">
+  <label>Mileage rate ($/mi)</label><input type="text" name="mileage_rate" value="{{ s.mileage_rate }}">
+</div>
+
+<h2>Invoicing</h2>
+<div class="formgrid">
+  <label>Invoice terms / footer</label><input type="text" name="invoice_terms" value="{{ s.invoice_terms }}">
+  <label>Email subject</label><input type="text" name="email_subject" value="{{ s.email_subject }}">
+  <label>Email message</label><textarea name="email_body" rows="5">{{ s.email_body }}</textarea>
+</div>
+<p class="muted">Placeholders for subject/message: {number} {business} {customer} {total} {due_date} {date}</p>
+
+<h2>Email sending (SMTP)</h2>
+<div class="formgrid">
+  <label>SMTP host</label><input type="text" name="smtp_host" value="{{ s.smtp_host }}">
+  <label>SMTP port</label><input type="text" name="smtp_port" value="{{ s.smtp_port }}">
+  <label>SMTP user (email)</label><input type="text" name="smtp_user" value="{{ s.smtp_user }}">
+  <label>SMTP password</label>
+  <input type="password" name="smtp_password"
+         placeholder="{{ 'saved - enter new to replace, CLEAR to remove' if smtp_set else 'app password' }}">
+</div>
+<p class="muted">For Gmail: keep host smtp.gmail.com / port 587, use your Gmail address as the user, and create an
+<strong>App Password</strong> at myaccount.google.com → Security → 2-Step Verification → App passwords
+(your normal password won't work).</p>
+
+<h2>AI</h2>
+<div class="formgrid">
+  <label>Claude API key</label>
+  <input type="password" name="anthropic_api_key"
+         placeholder="{{ 'saved - enter new key to replace, or CLEAR to remove' if key_set else 'sk-ant-...' }}">
+  <label>AI model</label><input type="text" name="ai_model" value="{{ s.ai_model }}">
+</div>
+<p class="muted">The API key powers PDF statement parsing, receipt reading, and smart categorization.
+Get one at console.anthropic.com - costs are typically pennies per statement. Without a key the app still
+works: CSV imports, keyword rules, and manual receipt entry.</p>
+
+<div class="toolbar"><button type="submit">Save all settings</button></div>
+</form>
+
+<p class="muted">Your entire books live in <code>data/books.db</code> and receipt images in <code>data/docs/</code>.
+Back that folder up (it's just files). Secrets are stored locally and never leave this machine except in
+calls to the Anthropic API / your SMTP server.</p>
+{% endblock %}

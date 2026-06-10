@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<h1>Invoices</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+{% if not email_on %}
+<p class="muted">Tip: add SMTP details in <a href="/settings">Settings</a> to email invoices directly from here.</p>
+{% endif %}
+<div class="toolbar">
+  <a class="btn" href="/invoices/new">+ New invoice</a>
+</div>
+<table>
+  <tr><th>#</th><th>Customer</th><th>Date</th><th>Due</th><th class="num">Total</th><th>Status</th></tr>
+  {% for i in invoices %}
+  <tr>
+    <td><a href="/invoices/{{ i.id }}">{{ i.number }}</a></td>
+    <td>{{ i.customer }}</td>
+    <td>{{ i.date }}</td>
+    <td>{{ i.due_date }}</td>
+    <td class="num">${{ i.total|money }}</td>
+    <td>
+      {% if i.status == 'paid' %}<span class="pos">paid {{ i.paid_date }}</span>
+      {% elif i.overdue %}<span class="neg">overdue</span>
+      {% elif i.status == 'void' %}<span class="muted">void</span>
+      {% else %}{{ i.status }}{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No invoices yet.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Customers</h2>
+<form method="post" action="/customers" class="toolbar">
+  <input type="text" name="name" placeholder="customer name" required>
+  <input type="email" name="email" placeholder="email">
+  <input type="text" name="phone" placeholder="phone" style="width:120px">
+  <input type="text" name="address" placeholder="address" style="width:240px">
+  <button type="submit">Add customer</button>
+</form>
+<table>
+  <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th></th></tr>
+  {% for c in customers %}
+  <tr>
+    <form method="post" action="/customers/update">
+    <td><input type="hidden" name="customer_id" value="{{ c.id }}">
+        <input type="text" name="name" value="{{ c.name }}" style="width:160px"></td>
+    <td><input type="email" name="email" value="{{ c.email }}" style="width:200px"></td>
+    <td><input type="text" name="phone" value="{{ c.phone }}" style="width:110px"></td>
+    <td><input type="text" name="address" value="{{ c.address }}" style="width:240px"></td>
+    <td><button class="small ghost" type="submit">Save</button></td>
+    </form>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No customers yet - add one above, then create an invoice.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

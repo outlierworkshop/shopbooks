@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Rules{% endblock %}
+{% block content %}
+<h1>Categorization rules</h1>
+<p class="muted">If a transaction description contains the pattern (case-insensitive), it is auto-categorized
+on import. Longer patterns win. Rules are also created from the "Remember" checkbox in Review.</p>
+<form method="post" class="toolbar">
+  <input type="text" name="pattern" placeholder="e.g. HARBOR FREIGHT" required>
+  <select name="account_id">
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+  </select>
+  <button type="submit">Add rule</button>
+</form>
+<table>
+  <tr><th>Pattern</th><th>Category</th><th></th></tr>
+  {% for r in rules %}
+  <tr>
+    <td>{{ r.pattern }}</td><td>{{ r.account }}</td>
+    <td><form class="inline" method="post" action="/rules/delete">
+      <input type="hidden" name="rule_id" value="{{ r.id }}">
+      <button class="small danger" type="submit">✕</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

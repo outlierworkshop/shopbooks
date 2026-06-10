@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="cards">
+  {% for a in accounts %}
+  <div class="card">
+    <div class="label">{{ a.name }} {{ '(card)' if a.kind == 'card' else '' }}</div>
+    <div class="big {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</div>
+    <a class="muted" href="/register/{{ a.id }}">view register →</a>
+  </div>
+  {% endfor %}
+  <div class="card">
+    <div class="label">{{ year }} net profit</div>
+    <div class="big {{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</div>
+    <div class="muted">income ${{ pnl.total_income|money }} · expenses ${{ pnl.total_expenses|money }}</div>
+  </div>
+</div>
+
+{% if pending_count %}
+<p class="note">{{ pending_count }} imported transaction(s) waiting in <a href="/review">Review</a>.</p>
+{% endif %}
+{% if unmatched_count %}
+<p class="note">{{ unmatched_count }} receipt(s) not yet matched - see <a href="/receipts">Receipts</a>.</p>
+{% endif %}
+
+<h2>Recent activity</h2>
+<table>
+  <tr><th>Date</th><th>Payee</th><th>Accounts</th><th class="num">Amount</th></tr>
+  {% for e in recent %}
+  <tr>
+    <td>{{ e.date }}</td>
+    <td>{{ e.payee }}</td>
+    <td class="muted">{{ e.accts }}</td>
+    <td class="num">${{ e.amt|money }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">Nothing here yet. Start by <a href="/import">importing a statement</a>.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

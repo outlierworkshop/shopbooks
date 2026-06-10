@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ acct.name }}{% endblock %}
+{% block content %}
+<h1>{{ acct.name }} <span class="muted">({{ acct.type }})</span></h1>
+<p>Current balance: <strong class="{{ 'neg' if balance < 0 else '' }}">${{ balance|money }}</strong></p>
+<table>
+  <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.date }}</td>
+    <td>{{ r.payee }}{% if r.memo %} <span class="muted">- {{ r.memo }}</span>{% endif %}</td>
+    <td class="muted">{{ r.other }}</td>
+    <td>{% if r.doc_id %}<a href="/doc/{{ r.doc_id }}" title="receipt attached">📎</a>{% endif %}</td>
+    <td class="num {{ 'neg' if r.amount < 0 else '' }}">${{ r.amount|money }}</td>
+    <td class="num">${{ r.balance|money }}</td>
+    <td>
+      <form class="inline" method="post" action="/entry/delete/{{ r.entry_id }}"
+            onsubmit="return confirm('Delete this entry? Imported lines return to Review.')">
+        <input type="hidden" name="back" value="/register/{{ acct.id }}">
+        <button class="small danger" type="submit">✕</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">No activity yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

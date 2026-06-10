@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}New entry{% endblock %}
+{% block content %}
+<h1>New manual entry</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" class="formgrid">
+  <label>Date</label><input type="date" name="date" value="{{ today }}" required>
+  <label>Payee / description</label><input type="text" name="payee" required>
+  <label>Amount ($)</label><input type="text" name="amount" placeholder="125.00" required>
+  <label>Money to (debit)</label>
+  <select name="to_account" required>
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+  </select>
+  <label>Money from (credit)</label>
+  <select name="from_account" required>
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+  </select>
+  <label>Memo</label><input type="text" name="memo">
+  <span></span><span><button type="submit">Post entry</button></span>
+</form>
+<p class="muted">Examples - bought supplies on a card: to = Materials &amp; Supplies, from = the card.
+Customer paid by ACH: to = Business Checking, from = Sales - ACH / Invoices.
+Paid a card from checking: to = the card, from = Business Checking.</p>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Taxes{% endblock %}
+{% block content %}
+<h1>Tax package</h1>
+<form method="get" class="toolbar">
+  <label>Year</label>
+  <input type="number" name="year" value="{{ year }}" style="width:90px">
+  <button type="submit">Run</button>
+  <a class="btn" href="/taxes/package.zip?year={{ year }}">Download {{ year }} package (ZIP)</a>
+</form>
+
+<div class="cards">
+  <div class="card"><div class="label">{{ year }} income</div><div class="big">${{ pnl.total_income|money }}</div></div>
+  <div class="card"><div class="label">{{ year }} expenses</div><div class="big">${{ pnl.total_expenses|money }}</div></div>
+  <div class="card"><div class="label">Net profit</div>
+    <div class="big {{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</div></div>
+  <div class="card"><div class="label">Mileage deduction</div>
+    <div class="big">${{ mileage_deduction|money }}</div>
+    <div class="muted">{{ '%.1f'|format(miles) }} mi × ${{ '%.2f'|format(rate) }}</div></div>
+</div>
+
+<h2>Pre-flight checklist</h2>
+<table style="max-width:760px">
+  <tr>
+    <td>{% if pending == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+    <td>Imported transactions reviewed</td>
+    <td>{% if pending %}<a href="/review">{{ pending }} still pending</a>{% else %}all posted{% endif %}</td>
+  </tr>
+  <tr>
+    <td>{% if uncat == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+    <td>Nothing left in Uncategorized Expense</td>
+    <td>{% if uncat %}{{ uncat }} entries to re-categorize{% else %}clean{% endif %}</td>
+  </tr>
+  <tr>
+    <td>{% if receipts_unmatched == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+    <td>Receipts matched</td>
+    <td>{{ receipts_matched }} matched{% if receipts_unmatched %}, <a href="/receipts">{{ receipts_unmatched }} unmatched</a>{% endif %}</td>
+  </tr>
+</table>
+
+<h2>What's in the ZIP</h2>
+<p class="muted">
+{{ year }}_profit_and_loss.csv · {{ year }}_balance_sheet.csv · {{ year }}_transactions.csv
+(every line, with receipt filenames) · {{ year }}_mileage.csv · receipts/ (all receipt images for the year).
+Email the whole thing to your tax advisor and you're done.
+</p>
+{% endblock %}

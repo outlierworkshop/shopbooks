@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Mileage{% endblock %}
+{% block content %}
+<h1>Mileage log</h1>
+<div class="cards">
+  <div class="card"><div class="label">{{ year }} miles</div><div class="big">{{ '%.1f'|format(ytd) }}</div></div>
+  <div class="card"><div class="label">Rate</div><div class="big">${{ '%.2f'|format(rate) }}/mi</div>
+    <a class="muted" href="/settings">change in settings</a></div>
+  <div class="card"><div class="label">{{ year }} deduction</div><div class="big pos">${{ deduction_cents|money }}</div></div>
+</div>
+
+<h2>Add a trip</h2>
+<form method="post" class="toolbar">
+  <input type="date" name="date" value="{{ today }}" required>
+  <input type="number" name="miles" step="0.1" min="0" placeholder="miles" style="width:90px" required>
+  <input type="text" name="purpose" placeholder="purpose (client visit, supply run...)" style="width:240px">
+  <input type="text" name="from_loc" placeholder="from" style="width:120px">
+  <input type="text" name="to_loc" placeholder="to" style="width:120px">
+  <button type="submit">Add</button>
+</form>
+
+<table>
+  <tr><th>Date</th><th class="num">Miles</th><th>Purpose</th><th>From</th><th>To</th><th></th></tr>
+  {% for t in trips %}
+  <tr>
+    <td>{{ t.date }}</td><td class="num">{{ '%.1f'|format(t.miles) }}</td>
+    <td>{{ t.purpose }}</td><td class="muted">{{ t.from_loc }}</td><td class="muted">{{ t.to_loc }}</td>
+    <td><form class="inline" method="post" action="/mileage/delete">
+      <input type="hidden" name="trip_id" value="{{ t.id }}">
+      <button class="small danger" type="submit">✕</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No trips logged yet.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">The IRS standard mileage rate changes each January - update it in Settings.
+The deduction shows on Reports for your tax advisor; it is not posted to the books.</p>
+{% endblock %}

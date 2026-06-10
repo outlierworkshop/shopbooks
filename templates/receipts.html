@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Receipts{% endblock %}
+{% block content %}
+<h1>Receipts</h1>
+<form method="post" action="/receipts/upload" enctype="multipart/form-data" class="toolbar">
+  <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
+  <button type="submit">Upload</button>
+  <span class="muted">{{ 'Vendor, date and total are read automatically.' if ai_on else 'AI is off - fill in vendor/date/total by hand after upload.' }}</span>
+</form>
+
+{% for it in items %}
+<div class="card section">
+  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+    <a href="/doc/{{ it.doc.id }}" target="_blank">
+      {% if it.doc.filename.lower().endswith('.pdf') %}<span style="font-size:48px">📄</span>
+      {% else %}<img class="thumb" src="/doc/{{ it.doc.id }}" alt="receipt">{% endif %}
+    </a>
+    <div style="flex:1; min-width:280px;">
+      <form method="post" action="/receipts/update" class="toolbar">
+        <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+        <input type="text" name="vendor" value="{{ it.doc.vendor }}" placeholder="vendor" style="width:160px">
+        <input type="date" name="doc_date" value="{{ it.doc.doc_date }}">
+        <input type="text" name="amount" value="{{ it.doc.amount_cents|money if it.doc.amount_cents else '' }}" placeholder="total" style="width:90px">
+        <button class="small ghost" type="submit">Save</button>
+      </form>
+      {% if it.doc.status == 'matched' and it.entry %}
+        <p class="pos">✓ Matched to {{ it.entry.date }} - {{ it.entry.payee }}
+        <form class="inline" method="post" action="/receipts/unmatch">
+          <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+          <button class="small ghost" type="submit">Unmatch</button>
+        </form></p>
+      {% elif it.candidates %}
+        <p class="muted">Possible matches:</p>
+        {% for c in it.candidates %}
+        <form class="inline" method="post" action="/receipts/match">
+          <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+          <input type="hidden" name="entry_id" value="{{ c.id }}">
+          <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
+        </form>
+        {% endfor %}
+      {% else %}
+        <p class="warn">No matching transaction found yet - import the statement that contains this purchase,
+           or check the amount/date above.</p>
+      {% endif %}
+      <form class="inline" method="post" action="/receipts/delete"
+            onsubmit="return confirm('Delete this receipt image?')">
+        <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+        <button class="small danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% else %}
+<p class="muted">No receipts yet. Snap photos and drop them here.</p>
+{% endfor %}
+{% endblock %}

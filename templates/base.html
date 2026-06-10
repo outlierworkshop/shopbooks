@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ShopBooks{% endblock %} - {{ business_name }}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav>
+  <span class="brand">📒 ShopBooks</span>
+  <a href="/">Dashboard</a>
+  <a href="/import">Import</a>
+  <a href="/review">Review{% if pending_count %} <span class="badge">{{ pending_count }}</span>{% endif %}</a>
+  <a href="/receipts">Receipts{% if unmatched_count %} <span class="badge">{{ unmatched_count }}</span>{% endif %}</a>
+  <a href="/entry/new">+ Entry</a>
+  <a href="/invoices">Invoices</a>
+  <a href="/mileage">Mileage</a>
+  <a href="/reports">Reports</a>
+  <a href="/taxes">Taxes</a>
+  <a href="/accounts">Accounts</a>
+  <a href="/rules">Rules</a>
+  <a href="/settings">Settings</a>
+  <span class="ai-pill {{ 'on' if ai_on else 'off' }}">{{ 'AI on' if ai_on else 'AI off' }}</span>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

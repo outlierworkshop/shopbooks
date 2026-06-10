@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<form method="get" class="toolbar">
+  <label>From</label><input type="date" name="start" value="{{ start }}">
+  <label>To</label><input type="date" name="end" value="{{ end }}">
+  <button type="submit">Run</button>
+  <a class="btn" href="/reports/pnl.csv?start={{ start }}&end={{ end }}">Download P&amp;L CSV</a>
+  <a class="btn" href="/reports/transactions.csv?start={{ start }}&end={{ end }}">Download all transactions CSV</a>
+</form>
+
+<div class="section">
+<h2>Profit &amp; Loss ({{ start }} → {{ end }})</h2>
+<table>
+  <tr><th colspan="2">Income</th></tr>
+  {% for i in pnl.income %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  <tr><td><strong>Total income</strong></td><td class="num"><strong>${{ pnl.total_income|money }}</strong></td></tr>
+  <tr><th colspan="2">Expenses</th></tr>
+  {% for x in pnl.expenses %}<tr><td>{{ x.name }}</td><td class="num">${{ x.amount|money }}</td></tr>{% endfor %}
+  <tr><td><strong>Total expenses</strong></td><td class="num"><strong>${{ pnl.total_expenses|money }}</strong></td></tr>
+  <tr><td><strong>Net profit</strong></td><td class="num"><strong class="{{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</strong></td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Mileage deduction (not in P&amp;L)</h2>
+<p>{{ '%.1f'|format(miles) }} miles × ${{ '%.2f'|format(rate) }} = <strong>${{ mileage_deduction|money }}</strong></p>
+</div>
+
+<div class="section">
+<h2>Balance sheet (as of {{ end }})</h2>
+<table>
+  <tr><th colspan="2">Assets</th></tr>
+  {% for i in bs.assets %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  <tr><td><strong>Total assets</strong></td><td class="num"><strong>${{ bs.total_assets|money }}</strong></td></tr>
+  <tr><th colspan="2">Liabilities</th></tr>
+  {% for i in bs.liabilities %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  <tr><td><strong>Total liabilities</strong></td><td class="num"><strong>${{ bs.total_liabilities|money }}</strong></td></tr>
+  <tr><th colspan="2">Equity</th></tr>
+  {% for i in bs.equity %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  <tr><td><strong>Total equity</strong></td><td class="num"><strong>${{ bs.total_equity|money }}</strong></td></tr>
+</table>
+</div>
+{% endblock %}

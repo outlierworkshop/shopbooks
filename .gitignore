@@ -1,0 +1,11 @@
+# Real financial data - NEVER commit (books.db also holds the API key & SMTP password)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS noise
+Thumbs.db
+desktop.ini

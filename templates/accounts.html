@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Accounts{% endblock %}
+{% block content %}
+<h1>Chart of accounts</h1>
+<form method="post" class="toolbar">
+  <input type="text" name="name" placeholder="new account name" required>
+  <select name="type">
+    <option value="expense">expense</option><option value="income">income</option>
+    <option value="asset">asset</option><option value="liability">liability</option>
+    <option value="equity">equity</option>
+  </select>
+  <select name="kind">
+    <option value="category">category</option>
+    <option value="bank">bank (importable)</option>
+    <option value="card">credit card (importable)</option>
+  </select>
+  <button type="submit">Add</button>
+</form>
+<table>
+  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th></th></tr>
+  {% for a in accounts %}
+  <tr>
+    <td>
+      <form class="inline" method="post" action="/accounts/rename">
+        <input type="hidden" name="account_id" value="{{ a.id }}">
+        <input type="text" name="name" value="{{ a.name }}" style="width:240px">
+        <button class="small ghost" type="submit">Rename</button>
+      </form>
+    </td>
+    <td>{{ a.type }}</td><td class="muted">{{ a.kind }}</td>
+    <td class="num {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</td>
+    <td><a href="/register/{{ a.id }}">register</a></td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="muted">Rename the three credit cards to match your real cards (e.g. "Amex Blue", "Chase Ink").</p>
+{% endblock %}
