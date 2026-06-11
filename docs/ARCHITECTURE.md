@@ -161,6 +161,12 @@ Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in setti
 - **Failure contract: return `None`, never raise to a route.** Callers fall back to
   `importer.regex_parse_statement`, keyword rules, or manual fields.
 - Categorization precedence on import: rules first (deterministic, free), AI fills the gaps.
+- **Statement years are NOT trusted from the model.** Statement lines print only MM/DD; the
+  year lives in the header. The schema asks for `statement_end_date`, and `importer.reconcile_years`
+  recomputes each transaction's year from month/day + that closing date (most-recent-on-or-before,
+  so Dec→Jan rollover is correct), with a hard guardrail that no date is ever in the future. This
+  fixed a real bug where the model emitted 2028 for MM/DD-only lines. The regex fallback keeps its
+  own year but runs `importer.clamp_future_dates`.
 
 ### Pluggable backend (Claude / Ollama / Hybrid)
 

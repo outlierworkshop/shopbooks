@@ -2,8 +2,74 @@
 import csv
 import io
 import re
+from datetime import date, datetime
 
 from ledger import normalize_date, parse_amount_to_cents
+
+
+# ---------------------------------------------------------------- year correction
+
+def _make_date(y, m, d):
+    try:
+        return date(y, m, d)
+    except ValueError:
+        return None  # e.g. Feb 29 in a non-leap year
+
+
+def _safe_anchor(end_date_str, today):
+    """The statement's closing date, used to assign years. Falls back to today if the
+    closing date is missing, unparseable, or implausible (e.g. an AI-hallucinated future date)."""
+    try:
+        a = datetime.strptime(str(end_date_str).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return today
+    return today if (a > today or a.year < 2000) else a
+
+
+def reconcile_years(txns, statement_end_date="", today=None):
+    """Re-derive every transaction's YEAR from the statement period.
+
+    Statement lines usually show only MM/DD; the year is only in the header. We keep the
+    month/day the model read off each line and recompute the year from the closing date
+    ('most recent MM/DD on or before the closing date', which handles Dec->Jan rollover),
+    ignoring whatever year the model guessed. A transaction can never be dated in the future.
+    Mutates and returns txns.
+    """
+    today = today or date.today()
+    anchor = _safe_anchor(statement_end_date, today)
+    for t in txns:
+        try:
+            d = datetime.strptime(str(t.get("date", "")), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        m, day = d.month, d.day
+        year = anchor.year if (m, day) <= (anchor.month, anchor.day) else anchor.year - 1
+        nd = _make_date(year, m, day)
+        if nd and nd > today:  # guardrail: never the future
+            nd = _make_date(year - 1, m, day)
+        if nd:
+            t["date"] = nd.isoformat()
+    return txns
+
+
+def clamp_future_dates(txns, today=None):
+    """Lighter safety net (used on the regex fallback, which keeps its own year): pull any
+    future-dated transaction back by whole years until it's no longer in the future."""
+    today = today or date.today()
+    for t in txns:
+        try:
+            d = datetime.strptime(str(t.get("date", "")), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        while d > today:
+            nd = _make_date(d.year - 1, d.month, d.day)
+            if not nd:
+                break
+            d = nd
+        t["date"] = d.isoformat()
+    return txns
+
+
 
 DATE_HEADERS = ("transaction date", "posted date", "post date", "posting date", "date")
 DESC_HEADERS = ("description", "payee", "merchant", "name", "details", "memo")
@@ -97,12 +163,12 @@ def regex_parse_statement(text):
                 continue
             d = f"{d}/{year}"
         try:
-            date = normalize_date(d)
+            normalized = normalize_date(d)
             cents = parse_amount_to_cents(m.group("amt"))
         except ValueError:
             continue
-        out.append({"date": date, "description": m.group("desc").strip(), "amount_cents": cents})
-    return out
+        out.append({"date": normalized, "description": m.group("desc").strip(), "amount_cents": cents})
+    return clamp_future_dates(out)
 
 
 def apply_rules(con, description):

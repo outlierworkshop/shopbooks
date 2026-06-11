@@ -16,6 +16,7 @@ import json
 import os
 
 import db
+import importer
 
 MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -73,6 +74,7 @@ def available(con):
 STATEMENT_SCHEMA = {
     "type": "object",
     "properties": {
+        "statement_end_date": {"type": "string", "description": "the statement closing / period-end date as YYYY-MM-DD, read from the statement header; empty string if not shown"},
         "transactions": {
             "type": "array",
             "items": {
@@ -87,7 +89,7 @@ STATEMENT_SCHEMA = {
             },
         }
     },
-    "required": ["transactions"],
+    "required": ["statement_end_date", "transactions"],
     "additionalProperties": False,
 }
 
@@ -113,14 +115,23 @@ RECEIPT_PROMPT = ("Read this receipt. Return the vendor name, the date as YYYY-M
                   "total actually paid as a number (the final total, not the subtotal or tax line).")
 
 
+_STATEMENT_RULES = (
+    "Extract every individual transaction (skip running balances, summary totals, "
+    "interest-rate tables, and payment-due boilerplate). "
+    "Sign convention: positive amount = money out (purchase, charge, withdrawal, fee); "
+    "negative amount = money in (deposit, payment received, credit, refund). "
+    "IMPORTANT ABOUT YEARS: transaction lines usually show only month and day (MM/DD); the full "
+    "year appears only in the statement header (the statement/closing/period date). First read "
+    "that closing date into statement_end_date (YYYY-MM-DD). For each transaction use the month "
+    "and day from its line; do not invent a year that isn't supported by the statement. Output "
+    "each transaction date as YYYY-MM-DD."
+)
+
+
 def _statement_prompt(text, account_name):
     return (
         f"This is the text of a bank or credit card statement for the account '{account_name}'. "
-        "Extract every individual transaction (skip running balances, summary totals, "
-        "interest-rate tables, and payment-due boilerplate). "
-        "Sign convention: positive amount = money out (purchase, charge, withdrawal, fee); "
-        "negative amount = money in (deposit, payment received, credit, refund). "
-        "Dates as YYYY-MM-DD; infer the year from the statement period.\n\n" + text[:150000]
+        + _STATEMENT_RULES + "\n\n" + text[:150000]
     )
 
 
@@ -162,7 +173,8 @@ def _claude_json(con, content, schema, max_tokens=16000):
 
 def _claude_statement(con, text, account_name):
     try:
-        return _claude_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA).get("transactions", [])
+        data = _claude_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA)
+        return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
     except Exception:
         return None
 
@@ -171,13 +183,11 @@ def _claude_statement_pdf(con, pdf_path, account_name):
     data_b64 = base64.standard_b64encode(open(pdf_path, "rb").read()).decode()
     content = [
         {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data_b64}},
-        {"type": "text", "text": (
-            f"This is a bank or credit card statement for '{account_name}'. Extract every individual "
-            "transaction (skip balances, totals, boilerplate). Positive amount = money out; "
-            "negative = money in. Dates as YYYY-MM-DD, inferring the year from the statement period.")},
+        {"type": "text", "text": f"This is a bank or credit card statement for '{account_name}'. " + _STATEMENT_RULES},
     ]
     try:
-        return _claude_json(con, content, STATEMENT_SCHEMA).get("transactions", [])
+        data = _claude_json(con, content, STATEMENT_SCHEMA)
+        return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
     except Exception:
         return None
 
@@ -241,7 +251,7 @@ def _ollama_statement(con, text, account_name):
         return None
     try:
         data = _ollama_chat_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA)
-        return data.get("transactions", [])
+        return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
     except Exception:
         return None
 

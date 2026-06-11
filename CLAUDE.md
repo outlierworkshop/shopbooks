@@ -53,6 +53,8 @@ suppressed when `SHOPBOOKS_DATA_DIR` is set, so tests never write to the user's 
    - Posting a staged txn: `[(category, +a), (source, -a)]`. This one formula handles
      expenses, income, and transfers uniformly.
 4. **Dates are ISO `YYYY-MM-DD` TEXT.** Normalize all inputs through `ledger.normalize_date`.
+   Statement lines are MM/DD only — never trust the model's year; `importer.reconcile_years`
+   derives it from the extracted `statement_end_date` and forbids future dates.
 5. **`ledger.delete_entry` must clear every FK that references entries** — currently
    `staged.entry_id`, `documents.entry_id`, `invoices.paid_entry_id`. If you add a table
    referencing `entries(id)`, update `delete_entry` or deletion will raise IntegrityError.

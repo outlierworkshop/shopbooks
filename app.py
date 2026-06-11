@@ -124,7 +124,12 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
             ai_cats = ai_all
         importer.stage_transactions(con, batch_id, txns, account_id, cats, ai_cats)
         con.commit()
-        return RedirectResponse(f"/review?note={note}", status_code=303)
+        from urllib.parse import quote
+        dates = sorted(t["date"] for t in txns if t.get("date"))
+        if dates:
+            note = (note + f" Imported {len(txns)} transactions dated {dates[0]} to {dates[-1]} "
+                    "- check the year looks right before posting.").strip()
+        return RedirectResponse("/review?note=" + quote(note), status_code=303)
     except ValueError as e:
         sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "import.html", ctx(request, con, sources=sources, error=str(e)))

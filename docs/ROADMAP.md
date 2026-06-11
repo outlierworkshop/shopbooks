@@ -14,6 +14,14 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Fix wrong statement years (deterministic year reconciliation)
+- Bug: statement lines show only MM/DD, so the model guessed years and emitted e.g. 2028.
+- Schema now extracts `statement_end_date`; `importer.reconcile_years` recomputes each year from
+  month/day + the closing date (handles Dec→Jan rollover), ignoring the model's year, and never
+  allows a future date. Regex fallback runs `importer.clamp_future_dates`.
+- Import → Review note now shows the imported date range to sanity-check at a glance.
+- Covered by `test_years.py`.
+
 ### 2026-06-11 — Local AI via Ollama (pluggable backend)
 - `ai_backend` setting: **claude** (default) | **ollama** (fully local) | **hybrid** (local
   receipts + categorize, Claude statements). `ai.py` refactored into `_claude_*`/`_ollama_*`
