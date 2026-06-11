@@ -17,6 +17,9 @@
   {% for b in batches %}
   <button type="submit" name="flip_batch" value="{{ b }}" class="ghost"
           title="If amounts look backwards (deposits showing as charges), flip the whole batch.">Flip signs (batch {{ b }})</button>
+  <button type="submit" name="discard_batch" value="{{ b }}" class="ghost"
+          title="Delete the not-yet-posted rows of this import (e.g. to re-import). Posted rows are kept."
+          onclick="return confirm('Discard the unposted rows of batch {{ b }}? You can re-import the statement.')">Discard batch {{ b }}</button>
   {% endfor %}
 </div>
 <table>

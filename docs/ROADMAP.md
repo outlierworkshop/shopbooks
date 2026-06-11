@@ -20,7 +20,8 @@ boring tech, built for exactly one user.
   month/day + the closing date (handles Dec→Jan rollover), ignoring the model's year, and never
   allows a future date. Regex fallback runs `importer.clamp_future_dates`.
 - Import → Review note now shows the imported date range to sanity-check at a glance.
-- Covered by `test_years.py`.
+- Added a "Discard batch" button in Review (deletes a batch's unposted rows, keeps posted ones)
+  so a bad import can be thrown away and redone. Covered by `test_years.py`, `test_discard.py`.
 
 ### 2026-06-11 — Local AI via Ollama (pluggable backend)
 - `ai_backend` setting: **claude** (default) | **ollama** (fully local) | **hybrid** (local

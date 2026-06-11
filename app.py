@@ -193,6 +193,9 @@ async def review_action(request: Request):
         elif "flip_batch" in form:
             con.execute("UPDATE staged SET amount_cents=-amount_cents WHERE batch_id=? AND status='pending'",
                         (int(form["flip_batch"]),))
+        elif "discard_batch" in form:
+            # drop the not-yet-posted rows of one import (e.g. to redo an import); posted rows untouched
+            con.execute("DELETE FROM staged WHERE batch_id=? AND status='pending'", (int(form["discard_batch"]),))
         elif "ai_review" in form:
             return _ai_review_pending(con)
         con.commit()
