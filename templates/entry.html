@@ -9,11 +9,11 @@
   <label>Amount ($)</label><input type="text" name="amount" placeholder="125.00" required>
   <label>Money to (debit)</label>
   <select name="to_account" required>
-    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
   </select>
   <label>Money from (credit)</label>
   <select name="from_account" required>
-    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
   </select>
   <label>Memo</label><input type="text" name="memo">
   <span></span><span><button type="submit">Post entry</button></span>

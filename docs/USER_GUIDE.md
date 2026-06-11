@@ -128,6 +128,19 @@ included in reports — you don't need to do anything else with it.
    - Mileage log with the computed deduction
    - All the receipt images
 
+## Sub-accounts (granular categories)
+
+Want more detail than a single "Vehicle Expenses" line? On the **Accounts** page, use **Add a
+sub-account** — give it a name and pick the parent (e.g. "Vehicle Fuel" under "Vehicle
+Expenses"). Then categorize transactions to the sub-account. On **Reports**, sub-accounts are
+listed under their parent with a rolled-up subtotal, so you see both the detail and the total.
+
+- A sub-account takes its parent's type automatically.
+- Two levels (Category → Subcategory). Account names must be unique, so use distinct names like
+  "Vehicle Fuel" instead of a second "Fuel".
+- Anything you'd categorized directly to the parent still counts — it shows as a "(direct)" line.
+- Change a sub-account's parent anytime with the Parent dropdown on the Accounts page.
+
 ## Fixing mistakes
 
 - Wrong category after posting: open the account's **register** (Dashboard → "view register"),

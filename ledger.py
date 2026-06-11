@@ -84,14 +84,53 @@ def display_balance(acct_type, raw):
 
 
 def accounts_with_balances(con, kinds=None):
-    rows = con.execute("SELECT * FROM accounts WHERE active=1 ORDER BY type, name").fetchall()
+    """Active accounts in tree order (each parent followed by its sub-accounts)."""
+    rows = con.execute("SELECT * FROM accounts WHERE active=1").fetchall()
+    names = {r["id"]: r["name"] for r in rows}
+
+    def mk(a, is_parent):
+        return {"id": a["id"], "name": a["name"], "type": a["type"], "kind": a["kind"],
+                "parent_id": a["parent_id"], "parent_name": names.get(a["parent_id"]),
+                "is_parent": is_parent, "balance": display_balance(a["type"], raw_balance(con, a["id"]))}
+
+    tops = sorted((r for r in rows if not r["parent_id"]), key=lambda r: (r["type"], r["name"]))
     out = []
-    for a in rows:
-        if kinds and a["kind"] not in kinds:
+    for p in tops:
+        kids = sorted((r for r in rows if r["parent_id"] == p["id"]), key=lambda r: r["name"])
+        if not kinds or p["kind"] in kinds:
+            out.append(mk(p, bool(kids)))
+        for c in kids:
+            if not kinds or c["kind"] in kinds:
+                out.append(mk(c, False))
+    return out
+
+
+def _range_total(con, account_id, start, end):
+    row = con.execute(
+        "SELECT COALESCE(SUM(s.amount_cents),0) t FROM splits s JOIN entries e ON e.id=s.entry_id "
+        "WHERE s.account_id=? AND e.date BETWEEN ? AND ?", (account_id, start, end)).fetchone()
+    return row["t"]
+
+
+def _account_tree(con, types, raw_fn):
+    """Roll sub-accounts up under their parent. `raw_fn(account_id)` -> raw cents.
+    Returns a list of {name, type, amount (rolled-up, display-signed), own, children:[{name,amount}]}."""
+    placeholders = ",".join("?" * len(types))
+    parents = con.execute(
+        f"SELECT * FROM accounts WHERE type IN ({placeholders}) AND active=1 AND parent_id IS NULL "
+        "ORDER BY type, name", types).fetchall()
+    out = []
+    for p in parents:
+        own = display_balance(p["type"], raw_fn(p["id"]))
+        kids = []
+        for c in con.execute("SELECT * FROM accounts WHERE parent_id=? AND active=1 ORDER BY name", (p["id"],)).fetchall():
+            camt = display_balance(c["type"], raw_fn(c["id"]))
+            if camt != 0:
+                kids.append({"name": c["name"], "amount": camt})
+        if own == 0 and not kids:
             continue
-        raw = raw_balance(con, a["id"])
-        out.append({"id": a["id"], "name": a["name"], "type": a["type"], "kind": a["kind"],
-                    "balance": display_balance(a["type"], raw)})
+        out.append({"name": p["name"], "type": p["type"], "own": own,
+                    "amount": own + sum(k["amount"] for k in kids), "children": kids})
     return out
 
 
@@ -121,15 +160,9 @@ def register(con, account_id):
 
 
 def pnl(con, start, end):
-    income, expenses = [], []
-    for a in con.execute("SELECT * FROM accounts WHERE type IN ('income','expense') AND active=1 ORDER BY name"):
-        row = con.execute(
-            "SELECT COALESCE(SUM(s.amount_cents),0) t FROM splits s JOIN entries e ON e.id=s.entry_id "
-            "WHERE s.account_id=? AND e.date BETWEEN ? AND ?", (a["id"], start, end)).fetchone()
-        amt = display_balance(a["type"], row["t"])
-        if row["t"] == 0:
-            continue
-        (income if a["type"] == "income" else expenses).append({"name": a["name"], "amount": amt})
+    raw_fn = lambda aid: _range_total(con, aid, start, end)
+    income = _account_tree(con, ("income",), raw_fn)
+    expenses = _account_tree(con, ("expense",), raw_fn)
     total_income = sum(i["amount"] for i in income)
     total_expenses = sum(x["amount"] for x in expenses)
     return {"income": income, "expenses": expenses, "total_income": total_income,
@@ -137,13 +170,10 @@ def pnl(con, start, end):
 
 
 def balance_sheet(con, as_of):
-    assets, liabilities, equity = [], [], []
-    for a in con.execute("SELECT * FROM accounts WHERE type IN ('asset','liability','equity') AND active=1 ORDER BY type, name"):
-        raw = raw_balance(con, a["id"], as_of)
-        if raw == 0:
-            continue
-        item = {"name": a["name"], "amount": display_balance(a["type"], raw)}
-        {"asset": assets, "liability": liabilities, "equity": equity}[a["type"]].append(item)
+    raw_fn = lambda aid: raw_balance(con, aid, as_of)
+    assets = _account_tree(con, ("asset",), raw_fn)
+    liabilities = _account_tree(con, ("liability",), raw_fn)
+    equity = _account_tree(con, ("equity",), raw_fn)
     total_assets = sum(i["amount"] for i in assets)
     total_liab = sum(i["amount"] for i in liabilities)
     total_eq = sum(i["amount"] for i in equity)
@@ -154,7 +184,7 @@ def balance_sheet(con, as_of):
         (as_of,)).fetchone()
     retained = -row["t"]
     if retained:
-        equity.append({"name": "Retained Earnings (calculated)", "amount": retained})
+        equity.append({"name": "Retained Earnings (calculated)", "amount": retained, "own": retained, "children": []})
         total_eq += retained
     return {"assets": assets, "liabilities": liabilities, "equity": equity,
             "total_assets": total_assets, "total_liabilities": total_liab, "total_equity": total_eq}

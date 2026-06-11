@@ -37,7 +37,7 @@
       <select name="cat_{{ it.id }}">
         <option value="">- choose -</option>
         {% for c in cats %}
-        <option value="{{ c.id }}" {{ 'selected' if it.category_id == c.id else '' }}>{{ c.name }} ({{ c.type }})</option>
+        <option value="{{ c.id }}" {{ 'selected' if it.category_id == c.id else '' }}>{{ c.label }} ({{ c.type }})</option>
         {% endfor %}
       </select>
     </td>

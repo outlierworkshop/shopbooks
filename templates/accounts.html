@@ -2,6 +2,9 @@
 {% block title %}Accounts{% endblock %}
 {% block content %}
 <h1>Chart of accounts</h1>
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<h2>Add a top-level account</h2>
 <form method="post" class="toolbar">
   <input type="text" name="name" placeholder="new account name" required>
   <select name="type">
@@ -16,22 +19,53 @@
   </select>
   <button type="submit">Add</button>
 </form>
+
+<h2>Add a sub-account</h2>
+<form method="post" class="toolbar">
+  <input type="text" name="name" placeholder="sub-account name (e.g. Fuel)" required>
+  <label>under</label>
+  <select name="parent_id" required>
+    {% for p in parents %}<option value="{{ p.id }}">{{ p.name }} ({{ p.type }})</option>{% endfor %}
+  </select>
+  <button type="submit">Add sub-account</button>
+</form>
+<p class="muted">A sub-account inherits its parent's type. Reports roll sub-accounts up under their
+parent with a subtotal. Two levels max. Account names must be unique, so use distinct names
+(e.g. "Vehicle Fuel" rather than a second "Fuel").</p>
+
 <table>
-  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th></th></tr>
+  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th></th></tr>
   {% for a in accounts %}
   <tr>
     <td>
       <form class="inline" method="post" action="/accounts/rename">
         <input type="hidden" name="account_id" value="{{ a.id }}">
-        <input type="text" name="name" value="{{ a.name }}" style="width:240px">
+        {% if a.parent_id %}<span class="muted">↳ </span>{% endif %}
+        <input type="text" name="name" value="{{ a.name }}" style="width:200px">
         <button class="small ghost" type="submit">Rename</button>
       </form>
     </td>
     <td>{{ a.type }}</td><td class="muted">{{ a.kind }}</td>
     <td class="num {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</td>
+    <td>
+      {% if not a.is_parent %}
+      <form class="inline" method="post" action="/accounts/parent">
+        <input type="hidden" name="account_id" value="{{ a.id }}">
+        <select name="parent_id" onchange="this.form.submit()">
+          <option value="">— top level —</option>
+          {% for p in parents %}
+          {% if p.id != a.id and p.type == a.type %}
+          <option value="{{ p.id }}" {{ 'selected' if a.parent_id == p.id else '' }}>{{ p.name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </form>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
     <td><a href="/register/{{ a.id }}">register</a></td>
   </tr>
   {% endfor %}
 </table>
-<p class="muted">Rename the three credit cards to match your real cards (e.g. "Amex Blue", "Chase Ink").</p>
+<p class="muted">Rename the three credit cards to match your real cards (e.g. "Amex Blue", "Chase Ink").
+Change a sub-account's parent with the Parent dropdown (same type only).</p>
 {% endblock %}

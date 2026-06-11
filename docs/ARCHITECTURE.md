@@ -46,9 +46,10 @@ Dependency direction: `app.py` → everything; modules don't import `app.py`;
 ## Data model
 
 ```
-accounts(id, name UNIQUE, type, kind, active)
+accounts(id, name UNIQUE, parent_id→accounts, type, kind, active)
   type ∈ asset | liability | equity | income | expense   (accounting identity)
   kind ∈ bank | card | category                          (UI behavior: bank/card are importable)
+  parent_id NULL = top-level; else a sub-account (TWO levels max; child.type == parent.type)
 
 entries(id, date, payee, memo, created_at)               (journal entry header)
 splits(id, entry_id→entries, account_id→accounts, amount_cents)
@@ -139,9 +140,16 @@ double-counts. Handled automatically:
 
 - **P&L** (`ledger.pnl`): per income/expense account, sum splits joined to entries in the date
   range, display-signed. Cash basis by construction (entries exist only when money moved).
-- **Balance sheet** (`ledger.balance_sheet`): asset/liability/equity balances as of date, plus
-  a computed "Retained Earnings" line = −Σ(all income+expense splits ≤ date) so the sheet
-  balances without closing entries (the app never closes periods).
+- **Sub-account roll-up** (`ledger._account_tree`): both reports group sub-accounts under their
+  top-level parent. Each parent node = `{own (direct postings to the parent), children:[{name,
+  amount}], amount (own + Σ children)}`. Because hierarchy is capped at **two levels**, the
+  parent total never double-counts: every account is either a top-level or a direct child, so
+  the section total = Σ parent totals = Σ all postings. The dropdown helper `app.categories`
+  returns the same accounts in tree order with a `label` (`'Parent : Child'`). CSV exports use
+  `app._write_account_section` to indent children + a subtotal line.
+- **Balance sheet** (`ledger.balance_sheet`): asset/liability/equity balances as of date (same
+  roll-up), plus a computed "Retained Earnings" line = −Σ(all income+expense splits ≤ date) so
+  the sheet balances without closing entries (the app never closes periods).
 - **Mileage** is a tax-return deduction, *not* a ledger entry — reported alongside, never posted.
 - **Tax package** (`/taxes/package.zip`): P&L, balance sheet, transaction detail (each line
   cross-referenced to its receipt filename), mileage log, all receipt images for the year.

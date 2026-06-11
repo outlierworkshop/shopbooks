@@ -1,5 +1,6 @@
 """ShopBooks - local double-entry accounting for a one-person business."""
 import io
+import sqlite3
 from datetime import date as date_cls, datetime
 from pathlib import Path
 
@@ -37,9 +38,41 @@ def ctx(request, con, **kw):
 
 
 def categories(con, types=("expense", "income", "asset", "liability", "equity")):
+    """Account options in tree order, each as a dict with a hierarchical `label`
+    ('Parent : Child' for sub-accounts) for use in <select> menus."""
     qmarks = ",".join("?" * len(types))
-    return con.execute(f"SELECT * FROM accounts WHERE active=1 AND type IN ({qmarks}) ORDER BY type, name",
-                       types).fetchall()
+    rows = con.execute(f"SELECT * FROM accounts WHERE active=1 AND type IN ({qmarks})", types).fetchall()
+    names = {r["id"]: r["name"] for r in rows}
+    tops = sorted((r for r in rows if not r["parent_id"]), key=lambda r: (r["type"], r["name"]))
+    out, placed = [], set()
+
+    def add(r, label):
+        out.append({"id": r["id"], "name": r["name"], "type": r["type"], "label": label})
+        placed.add(r["id"])
+
+    for p in tops:
+        add(p, p["name"])
+        for c in sorted((r for r in rows if r["parent_id"] == p["id"]), key=lambda r: r["name"]):
+            add(c, f"{p['name']} : {c['name']}")
+    for r in rows:  # sub-accounts whose parent was filtered out by `types`
+        if r["id"] not in placed:
+            label = f"{names.get(r['parent_id'], '')} : {r['name']}".lstrip(" :") if r["parent_id"] else r["name"]
+            add(r, label)
+    return out
+
+
+def _write_account_section(w, items):
+    """Write a P&L / balance-sheet section to a CSV writer, sub-accounts indented under parents."""
+    for it in items:
+        if it.get("children"):
+            w.writerow([it["name"], ""])
+            if it.get("own"):
+                w.writerow([f"  {it['name']} (direct)", f"{it['own'] / 100:.2f}"])
+            for c in it["children"]:
+                w.writerow([f"  {c['name']}", f"{c['amount'] / 100:.2f}"])
+            w.writerow([f"  Total {it['name']}", f"{it['amount'] / 100:.2f}"])
+        else:
+            w.writerow([it["name"], f"{it['amount'] / 100:.2f}"])
 
 
 @app.get("/favicon.ico")
@@ -583,13 +616,11 @@ def pnl_csv(start: str, end: str):
         w.writerow(["Profit & Loss", f"{start} to {end}"])
         w.writerow([])
         w.writerow(["INCOME"])
-        for i in p["income"]:
-            w.writerow([i["name"], f"{i['amount']/100:.2f}"])
+        _write_account_section(w, p["income"])
         w.writerow(["Total Income", f"{p['total_income']/100:.2f}"])
         w.writerow([])
         w.writerow(["EXPENSES"])
-        for x in p["expenses"]:
-            w.writerow([x["name"], f"{x['amount']/100:.2f}"])
+        _write_account_section(w, p["expenses"])
         w.writerow(["Total Expenses", f"{p['total_expenses']/100:.2f}"])
         w.writerow([])
         w.writerow(["Net Profit", f"{p['net']/100:.2f}"])
@@ -998,11 +1029,9 @@ def tax_package(year: int):
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             def pnl_rows(w):
                 w.writerow(["Profit & Loss", f"{start} to {end}"]); w.writerow([])
-                w.writerow(["INCOME"])
-                for i in p["income"]: w.writerow([i["name"], f"{i['amount']/100:.2f}"])
+                w.writerow(["INCOME"]); _write_account_section(w, p["income"])
                 w.writerow(["Total Income", f"{p['total_income']/100:.2f}"]); w.writerow([])
-                w.writerow(["EXPENSES"])
-                for x in p["expenses"]: w.writerow([x["name"], f"{x['amount']/100:.2f}"])
+                w.writerow(["EXPENSES"]); _write_account_section(w, p["expenses"])
                 w.writerow(["Total Expenses", f"{p['total_expenses']/100:.2f}"]); w.writerow([])
                 w.writerow(["Net Profit", f"{p['net']/100:.2f}"])
             z.writestr(f"{year}_profit_and_loss.csv", make_csv(pnl_rows))
@@ -1012,8 +1041,7 @@ def tax_package(year: int):
                 for section, items_, tot in (("ASSETS", bs["assets"], bs["total_assets"]),
                                              ("LIABILITIES", bs["liabilities"], bs["total_liabilities"]),
                                              ("EQUITY", bs["equity"], bs["total_equity"])):
-                    w.writerow([section])
-                    for i in items_: w.writerow([i["name"], f"{i['amount']/100:.2f}"])
+                    w.writerow([section]); _write_account_section(w, items_)
                     w.writerow([f"Total {section.title()}", f"{tot/100:.2f}"]); w.writerow([])
             z.writestr(f"{year}_balance_sheet.csv", make_csv(bs_rows))
 
@@ -1054,23 +1082,61 @@ def tax_package(year: int):
 
 # ---------- accounts, rules, settings ----------
 
+def _set_parent(con, account_id, parent_id):
+    """Validate and set/clear an account's parent. Raises ValueError on an invalid move."""
+    if not parent_id:
+        con.execute("UPDATE accounts SET parent_id=NULL WHERE id=?", (account_id,))
+        return
+    if parent_id == account_id:
+        raise ValueError("An account can't be its own parent.")
+    child = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    parent = con.execute("SELECT * FROM accounts WHERE id=?", (parent_id,)).fetchone()
+    if not child or not parent:
+        raise ValueError("Account not found.")
+    if parent["type"] != child["type"]:
+        raise ValueError("A sub-account must have the same type as its parent.")
+    if parent["parent_id"] is not None:
+        raise ValueError("Only two levels are allowed - the parent must be a top-level account.")
+    if con.execute("SELECT 1 FROM accounts WHERE parent_id=?", (account_id,)).fetchone():
+        raise ValueError("This account has sub-accounts, so it can't also become a sub-account.")
+    con.execute("UPDATE accounts SET parent_id=? WHERE id=?", (parent_id, account_id))
+
+
 @app.get("/accounts", response_class=HTMLResponse)
-def accounts_page(request: Request):
+def accounts_page(request: Request, err: str = ""):
     con = db.connect()
     try:
         accounts = ledger.accounts_with_balances(con)
-        return templates.TemplateResponse(request, "accounts.html", ctx(request, con, accounts=accounts))
+        parents = [a for a in accounts if a["parent_id"] is None]
+        return templates.TemplateResponse(request, "accounts.html", ctx(
+            request, con, accounts=accounts, parents=parents, err=err))
     finally:
         con.close()
 
 
 @app.post("/accounts")
-def accounts_add(name: str = Form(...), type: str = Form(...), kind: str = Form("category")):
+def accounts_add(name: str = Form(...), type: str = Form("expense"), kind: str = Form("category"),
+                 parent_id: str = Form("")):
+    from urllib.parse import quote
     con = db.connect()
     try:
-        con.execute("INSERT OR IGNORE INTO accounts(name,type,kind) VALUES(?,?,?)", (name.strip(), type, kind))
+        if parent_id:  # sub-account inherits type/kind from its (top-level) parent
+            p = con.execute("SELECT * FROM accounts WHERE id=?", (int(parent_id),)).fetchone()
+            if not p:
+                raise ValueError("Parent account not found.")
+            if p["parent_id"] is not None:
+                raise ValueError("Pick a top-level account as the parent (only two levels are allowed).")
+            cur = con.execute("INSERT INTO accounts(name,type,kind,parent_id) VALUES(?,?,?,?)",
+                              (name.strip(), p["type"], p["kind"], p["id"]))
+        else:
+            cur = con.execute("INSERT INTO accounts(name,type,kind) VALUES(?,?,?)", (name.strip(), type, kind))
         con.commit()
         return RedirectResponse("/accounts", status_code=303)
+    except sqlite3.IntegrityError:
+        return RedirectResponse("/accounts?err=" + quote(f"An account named '{name.strip()}' already exists (names must be unique)."),
+                                status_code=303)
+    except ValueError as e:
+        return RedirectResponse("/accounts?err=" + quote(str(e)), status_code=303)
     finally:
         con.close()
 
@@ -1082,6 +1148,20 @@ def accounts_rename(account_id: int = Form(...), name: str = Form(...)):
         con.execute("UPDATE accounts SET name=? WHERE id=?", (name.strip(), account_id))
         con.commit()
         return RedirectResponse("/accounts", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/accounts/parent")
+def accounts_set_parent(account_id: int = Form(...), parent_id: str = Form("")):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        _set_parent(con, account_id, int(parent_id) if parent_id else None)
+        con.commit()
+        return RedirectResponse("/accounts", status_code=303)
+    except ValueError as e:
+        return RedirectResponse("/accounts?err=" + quote(str(e)), status_code=303)
     finally:
         con.close()
 

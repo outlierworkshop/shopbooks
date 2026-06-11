@@ -7,7 +7,7 @@ on import. Longer patterns win. Rules are also created from the "Remember" check
 <form method="post" class="toolbar">
   <input type="text" name="pattern" placeholder="e.g. HARBOR FREIGHT" required>
   <select name="account_id">
-    {% for c in cats %}<option value="{{ c.id }}">{{ c.name }} ({{ c.type }})</option>{% endfor %}
+    {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
   </select>
   <button type="submit">Add rule</button>
 </form>

@@ -14,6 +14,16 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Sub-accounts (granular chart of accounts)
+- `accounts.parent_id` (column migration) enables two-level Category→Subcategory hierarchy;
+  sub-accounts inherit the parent's type. Accounts page adds create-sub-account + re-parent
+  with validation (same type, parent must be top-level, no 3rd level, unique names).
+- Reports roll children under their parent with a subtotal and a "(direct)" line for postings
+  made straight to the parent (`ledger._account_tree`); category dropdowns show `Parent : Child`
+  labels (`app.categories`); CSV/tax exports indent via `app._write_account_section`.
+- Two levels chosen to keep roll-up math un-double-counted; multi-level + per-parent unique
+  names left as future work. Covered by `test_subaccounts.py`.
+
 ### 2026-06-11 — Automatic credit-card-payment (transfer) matching
 - The two sides of a CC payment (bank withdrawal + card payment, equal amount, within 7 days)
   are auto-detected by shape (money-out-of-bank ↔ money-in-to-card, direction-enforced so an

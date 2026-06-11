@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
 {% block content %}
+{% macro section(items) %}
+  {% for it in items %}
+    {% if it.children %}
+      <tr><td><strong>{{ it.name }}</strong></td><td class="num"><strong>${{ it.amount|money }}</strong></td></tr>
+      {% if it.own %}<tr><td class="muted" style="padding-left:26px">{{ it.name }} (direct)</td><td class="num muted">${{ it.own|money }}</td></tr>{% endif %}
+      {% for c in it.children %}<tr><td style="padding-left:26px">{{ c.name }}</td><td class="num">${{ c.amount|money }}</td></tr>{% endfor %}
+    {% else %}
+      <tr><td>{{ it.name }}</td><td class="num">${{ it.amount|money }}</td></tr>
+    {% endif %}
+  {% endfor %}
+{% endmacro %}
 <h1>Reports</h1>
 <form method="get" class="toolbar">
   <label>From</label><input type="date" name="start" value="{{ start }}">
@@ -14,13 +25,14 @@
 <h2>Profit &amp; Loss ({{ start }} → {{ end }})</h2>
 <table>
   <tr><th colspan="2">Income</th></tr>
-  {% for i in pnl.income %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  {{ section(pnl.income) }}
   <tr><td><strong>Total income</strong></td><td class="num"><strong>${{ pnl.total_income|money }}</strong></td></tr>
   <tr><th colspan="2">Expenses</th></tr>
-  {% for x in pnl.expenses %}<tr><td>{{ x.name }}</td><td class="num">${{ x.amount|money }}</td></tr>{% endfor %}
+  {{ section(pnl.expenses) }}
   <tr><td><strong>Total expenses</strong></td><td class="num"><strong>${{ pnl.total_expenses|money }}</strong></td></tr>
   <tr><td><strong>Net profit</strong></td><td class="num"><strong class="{{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</strong></td></tr>
 </table>
+<p class="muted">Sub-accounts are listed under their parent; the parent line shows the rolled-up total.</p>
 </div>
 
 <div class="section">
@@ -32,13 +44,13 @@
 <h2>Balance sheet (as of {{ end }})</h2>
 <table>
   <tr><th colspan="2">Assets</th></tr>
-  {% for i in bs.assets %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  {{ section(bs.assets) }}
   <tr><td><strong>Total assets</strong></td><td class="num"><strong>${{ bs.total_assets|money }}</strong></td></tr>
   <tr><th colspan="2">Liabilities</th></tr>
-  {% for i in bs.liabilities %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  {{ section(bs.liabilities) }}
   <tr><td><strong>Total liabilities</strong></td><td class="num"><strong>${{ bs.total_liabilities|money }}</strong></td></tr>
   <tr><th colspan="2">Equity</th></tr>
-  {% for i in bs.equity %}<tr><td>{{ i.name }}</td><td class="num">${{ i.amount|money }}</td></tr>{% endfor %}
+  {{ section(bs.equity) }}
   <tr><td><strong>Total equity</strong></td><td class="num"><strong>${{ bs.total_equity|money }}</strong></td></tr>
 </table>
 </div>

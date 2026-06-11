@@ -68,6 +68,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts(
   id INTEGER PRIMARY KEY,
   name TEXT UNIQUE NOT NULL,
+  parent_id INTEGER REFERENCES accounts(id),  -- NULL = top-level; else a sub-account (2 levels max)
   type TEXT NOT NULL CHECK(type IN ('asset','liability','equity','income','expense')),
   kind TEXT NOT NULL DEFAULT 'category',   -- 'bank','card','category'
   active INTEGER NOT NULL DEFAULT 1
@@ -252,6 +253,9 @@ def _column_migrations(con):
     have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
     if "sha256" not in have:
         con.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
+    acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
+    if "parent_id" not in acct:
+        con.execute("ALTER TABLE accounts ADD COLUMN parent_id INTEGER REFERENCES accounts(id)")
 
 
 def init():
