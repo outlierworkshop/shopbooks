@@ -189,10 +189,56 @@ async def review_action(request: Request):
         elif "flip_batch" in form:
             con.execute("UPDATE staged SET amount_cents=-amount_cents WHERE batch_id=? AND status='pending'",
                         (int(form["flip_batch"]),))
+        elif "ai_review" in form:
+            return _ai_review_pending(con)
         con.commit()
         return RedirectResponse("/review", status_code=303)
     finally:
         con.close()
+
+
+def _ai_review_pending(con):
+    """Run rules + AI categorization over all pending staged rows. Suggestions only; nothing posts."""
+    from urllib.parse import quote
+
+    def back(note):
+        return RedirectResponse("/review?note=" + quote(note), status_code=303)
+
+    if not ai.available(con):
+        return back("AI is off - add a Claude API key in Settings to use AI review.")
+    pending = con.execute("SELECT * FROM staged WHERE status='pending'").fetchall()
+    if not pending:
+        return back("Nothing pending to review.")
+
+    cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
+    name_to_id = {v: k for k, v in cats.items()}
+    ruled, ai_targets = 0, []
+    for s in pending:
+        rid = importer.apply_rules(con, s["description"])
+        if rid:
+            con.execute("UPDATE staged SET category_id=? WHERE id=?", (rid, s["id"]))
+            ruled += 1
+        else:
+            ai_targets.append(s)
+
+    filled = 0
+    if ai_targets:
+        suggestions = ai.categorize(
+            con, [{"description": s["description"], "amount": s["amount_cents"]} for s in ai_targets],
+            list(cats.values()))
+        if suggestions is None:
+            con.commit()
+            return back("AI couldn't categorize this batch - try again, or set categories manually.")
+        for s, name in zip(ai_targets, suggestions):
+            cid = name_to_id.get(name)
+            if cid:
+                con.execute("UPDATE staged SET category_id=? WHERE id=?", (cid, s["id"]))
+                filled += 1
+    con.commit()
+    parts = [f"{filled} categorized by AI"]
+    if ruled:
+        parts.append(f"{ruled} matched a rule")
+    return back("AI review done: " + ", ".join(parts) + ". Check the suggestions and post.")
 
 
 # ---------- registers & entries ----------

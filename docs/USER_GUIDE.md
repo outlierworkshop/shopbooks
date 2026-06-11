@@ -61,7 +61,9 @@ account it belongs to.
 
 ### 2. Review
 Each transaction shows up with a suggested category (from your rules, then AI). Fix any wrong
-ones, then **Post all categorized**. Tips:
+ones, then **Post all categorized**. If you imported before setting a Claude API key (or added
+new rules since), click **🤖 AI categorize pending** to have Claude take a fresh pass over every
+unapproved transaction — it fills in the suggested categories but posts nothing; you still approve. Tips:
 - Check **Remember** before posting and that payee becomes a permanent rule — next month it
   categorizes itself. After a few months almost everything will.
 - **Possible duplicate** (orange row) usually means a transfer you already recorded — e.g. a

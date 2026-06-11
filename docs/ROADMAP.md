@@ -14,6 +14,11 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — AI categorize pending (Review)
+- "🤖 AI categorize pending" button on Review re-runs categorization (rules first, Claude for
+  the rest) over all pending staged rows; suggestions only, nothing posts. Shows when a key is
+  set. `_ai_review_pending()` in app.py; covered by `test_aireview.py` (AI monkeypatched, no network)
+
 ### 2026-06-11 — Configurable backup folder
 - New `backup_dir` setting: users pick the off-machine backup folder in Settings (any
   OneDrive/Dropbox/external path); blank = auto-detect OneDrive (prior behavior)
