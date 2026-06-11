@@ -14,6 +14,13 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Configurable backup folder
+- New `backup_dir` setting: users pick the off-machine backup folder in Settings (any
+  OneDrive/Dropbox/external path); blank = auto-detect OneDrive (prior behavior)
+- `backup.cloud_dir()` honors the setting; `cloud_source()`/`check_writable()` added;
+  `status()` enriched (source, count, writable). Saving validates the folder and writes a
+  test backup. Still suppressed in test mode. Covered by `test_backupdir.py`
+
 ### 2026-06-11 — Data safety overhaul (after a data-loss incident)
 - **Incident:** a test-cleanup script (`Remove-Item data/`) deleted the live database; the user
   lost settings + API key (no transactions had been entered). Root cause: tests ran against the

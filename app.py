@@ -985,7 +985,7 @@ def rules_delete(rule_id: int = Form(...)):
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
+def settings_page(request: Request, msg: str = "", err: str = ""):
     con = db.connect()
     try:
         key = ai.api_key(con)
@@ -993,7 +993,7 @@ def settings_page(request: Request):
         return templates.TemplateResponse(request, "settings.html", ctx(
             request, con, s=s, key_set=bool(key),
             smtp_set=bool(db.get_setting(con, "smtp_password", "")),
-            backup=backup.status()))
+            backup=backup.status(), msg=msg, err=err))
     finally:
         con.close()
 
@@ -1017,9 +1017,9 @@ async def settings_save(request: Request):
     form = await request.form()
     con = db.connect()
     try:
-        plain = ("mileage_rate", "ai_model", "business_name", "business_address", "business_email",
-                 "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
-                 "email_subject", "email_body")
+        plain = ("mileage_rate", "ai_model", "business_name", "backup_dir", "business_address",
+                 "business_email", "business_phone", "invoice_terms", "smtp_host", "smtp_port",
+                 "smtp_user", "email_subject", "email_body")
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())
@@ -1031,6 +1031,18 @@ async def settings_save(request: Request):
             elif v:
                 db.set_setting(con, k, v)
         con.commit()
-        return RedirectResponse("/settings", status_code=303)
+        # validate the backup folder if one was given, and seed it with a snapshot
+        from urllib.parse import quote
+        new_dir = str(form.get("backup_dir", "")).strip()
+        if new_dir:
+            if backup.check_writable(new_dir):
+                backup.snapshot()
+                return RedirectResponse(
+                    f"/settings?msg={quote('Settings saved. Backup folder set and a backup was written there.')}",
+                    status_code=303)
+            return RedirectResponse(
+                f"/settings?err={quote('Settings saved, but that backup folder is not writable - check the path. Falling back to auto-detect.')}",
+                status_code=303)
+        return RedirectResponse(f"/settings?msg={quote('Settings saved.')}", status_code=303)
     finally:
         con.close()

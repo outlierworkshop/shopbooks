@@ -24,14 +24,37 @@ CLOUD_DIRNAME = "ShopBooks Backups"
 KEEP = 20
 
 
+def _configured_backup_dir():
+    """User-set backup folder from settings, or '' if unset."""
+    con = db.connect()
+    try:
+        return db.get_setting(con, "backup_dir", "").strip()
+    finally:
+        con.close()
+
+
 def cloud_dir():
-    # In test/isolation mode (SHOPBOOKS_DATA_DIR set) never touch the real cloud folder.
+    """Where the off-machine backup copy goes: user-configured folder if set,
+    else an auto-detected OneDrive subfolder. None in test mode or if neither exists."""
     if os.environ.get("SHOPBOOKS_DATA_DIR"):
-        return None
+        return None  # test/isolation mode: never touch a real backup folder
+    configured = _configured_backup_dir()
+    if configured:
+        return Path(configured)
     one = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer") or os.environ.get("OneDriveCommercial")
     if one and Path(one).exists():
         return Path(one) / CLOUD_DIRNAME
     return None
+
+
+def cloud_source():
+    """'configured' | 'onedrive' | 'none' — how cloud_dir() was resolved (for the UI)."""
+    if os.environ.get("SHOPBOOKS_DATA_DIR"):
+        return "none"
+    if _configured_backup_dir():
+        return "configured"
+    one = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer") or os.environ.get("OneDriveCommercial")
+    return "onedrive" if (one and Path(one).exists()) else "none"
 
 
 def _prune(folder, pattern, keep):
@@ -96,6 +119,19 @@ def zip_bytes():
     return buf.getvalue()
 
 
+def check_writable(folder):
+    """True if we can create/write in `folder` (creates it if missing)."""
+    try:
+        p = Path(folder)
+        p.mkdir(parents=True, exist_ok=True)
+        probe = p / ".shopbooks_write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def status():
     """Summary for the Settings page."""
     local = sorted(db.BACKUPS.glob("books-*.db")) if db.BACKUPS.exists() else []
@@ -103,9 +139,14 @@ def status():
     if local:
         last = datetime.fromtimestamp(local[-1].stat().st_mtime).strftime("%Y-%m-%d %H:%M")
     cloud = cloud_dir()
+    cloud_count = len(list(cloud.glob("books-*.db"))) if cloud and cloud.exists() else 0
     return {
         "data_dir": str(db.DATA),
         "local_count": len(local),
         "last_backup": last,
         "cloud_dir": str(cloud) if cloud else None,
+        "cloud_source": cloud_source(),
+        "cloud_count": cloud_count,
+        "cloud_writable": check_writable(cloud) if cloud else None,
+        "configured": _configured_backup_dir(),
     }

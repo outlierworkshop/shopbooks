@@ -2,6 +2,8 @@
 {% block title %}Settings{% endblock %}
 {% block content %}
 <h1>Settings</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
 <form method="post">
 
 <h2>Business</h2>
@@ -45,6 +47,16 @@
 Get one at console.anthropic.com - costs are typically pennies per statement. Without a key the app still
 works: CSV imports, keyword rules, and manual receipt entry.</p>
 
+<h2>Backup folder</h2>
+<div class="formgrid">
+  <label>Extra backup folder</label><input type="text" name="backup_dir" value="{{ s.backup_dir }}"
+    placeholder="leave blank to auto-detect OneDrive">
+</div>
+<p class="muted">A copy of every backup is also written here (in addition to the always-on backups next to
+your database). Use any folder - a OneDrive/Dropbox/Google Drive folder for cloud safety, or an external
+drive. Leave blank to auto-detect OneDrive. The folder is created if it doesn't exist; saving writes a
+test backup so you can confirm it works.</p>
+
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>
 
@@ -56,9 +68,16 @@ works: CSV imports, keyword rules, and manual receipt entry.</p>
   <p>
     Automatic backups: <strong>{{ backup.local_count }}</strong> kept here
     {% if backup.last_backup %}(latest {{ backup.last_backup }}){% endif %}.
-    {% if backup.cloud_dir %}<br>Mirrored to the cloud at <code>{{ backup.cloud_dir }}</code>.
-    {% else %}<br><span class="warn">No OneDrive detected - cloud mirroring is off. Use the ZIP
-    download below and keep copies on an external drive or cloud folder.</span>{% endif %}
+  </p>
+  <p>
+    {% if backup.cloud_dir %}
+      Extra copy ({{ 'your chosen folder' if backup.cloud_source == 'configured' else 'auto-detected OneDrive' }}):
+      <code>{{ backup.cloud_dir }}</code> - {{ backup.cloud_count }} backup(s){% if not backup.cloud_writable %}
+      <span class="warn">(not writable right now - check the path)</span>{% endif %}.
+    {% else %}
+      <span class="warn">No extra backup folder - set one above, or it auto-detects OneDrive.
+      Until then, use the ZIP download and keep copies on an external/cloud drive.</span>
+    {% endif %}
   </p>
   <p class="muted">A fresh backup is made automatically every time you start the app.</p>
   <div class="toolbar">

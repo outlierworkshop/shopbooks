@@ -217,6 +217,7 @@ DEFAULT_SETTINGS = {
     "ai_model": "claude-opus-4-8",
     "anthropic_api_key": "",
     "business_name": "My Business",
+    "backup_dir": "",            # extra/off-machine backup folder; blank = auto-detect OneDrive
     "business_address": "",
     "business_email": "",
     "business_phone": "",

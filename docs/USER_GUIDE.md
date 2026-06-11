@@ -128,11 +128,13 @@ yourself (the matching still works once the numbers are in).
 ShopBooks backs itself up automatically:
 
 - **Every time you start the app**, it saves a snapshot of your books into the `backups` folder
-  (keeping the last 20) and, if you use OneDrive, mirrors a copy to
-  `OneDrive\ShopBooks Backups\` — an automatic off-machine copy.
-- **Settings → Backups** shows where everything lives, when the last backup ran, and a
-  **Download full backup (ZIP)** button. The ZIP contains your database plus every receipt
-  image — keep one on an external drive or another cloud folder now and then for extra safety.
+  (keeping the last 20) and mirrors a copy to an off-machine **extra backup folder**.
+- **You choose the extra backup folder** in Settings → Backup folder. Point it at any
+  OneDrive/Dropbox/Google Drive folder for cloud safety, or an external drive. Leave it blank
+  and the app auto-detects OneDrive. Saving creates the folder and writes a test backup so you
+  can confirm it works; the status line below shows where backups are going and how many are there.
+- **Settings → Backups** also has a **Download full backup (ZIP)** button (database + every
+  receipt image) and a **Back up now** button.
 
 **To restore a backup:** stop the app, go to the data folder (Settings shows the path), open the
 `backups` folder, and copy the `books-...db` you want over the top of `books.db` (rename it to
