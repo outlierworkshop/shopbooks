@@ -242,10 +242,20 @@ def connect():
     return con
 
 
+def _column_migrations(con):
+    """Add columns to existing tables. `CREATE TABLE IF NOT EXISTS` never alters an existing
+    table, so every new column on a shipped table needs a guarded ALTER here. Existing user
+    data must always survive an upgrade."""
+    have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
+    if "sha256" not in have:
+        con.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
+
+
 def init():
     _migrate_old_location()
     con = connect()
     con.executescript(SCHEMA)
+    _column_migrations(con)
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for name, typ, kind in SEED_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,type,kind) VALUES(?,?,?)", (name, typ, kind))

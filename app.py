@@ -1,6 +1,5 @@
 """ShopBooks - local double-entry accounting for a one-person business."""
 import io
-import shutil
 from datetime import date as date_cls, datetime
 from pathlib import Path
 
@@ -308,8 +307,49 @@ def receipt_candidates(con, doc):
     return con.execute(q, args).fetchall()
 
 
+RECEIPT_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"}
+
+
+def _ingest_receipt(con, data: bytes, original_name: str):
+    """Save one receipt, read it with AI, and auto-match. Returns
+    'matched' | 'imported' | 'duplicate' | 'error'. Dedupes on file content (sha256)."""
+    import hashlib
+    sha = hashlib.sha256(data).hexdigest()
+    if con.execute("SELECT 1 FROM documents WHERE sha256=?", (sha,)).fetchone():
+        return "duplicate"
+    safe = Path(original_name or "receipt.jpg").name
+    db.DOCS.mkdir(parents=True, exist_ok=True)
+    dest = db.DOCS / f"rcpt_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe}"
+    try:
+        dest.write_bytes(data)
+    except OSError:
+        return "error"
+    vendor, ddate, cents = "", "", None
+    try:
+        info = ai.extract_receipt(con, str(dest))
+    except Exception:
+        info = None
+    if info:
+        vendor = info.get("vendor", "")
+        try:
+            ddate = ledger.normalize_date(info.get("date", "")) if info.get("date") else ""
+        except ValueError:
+            ddate = ""
+        total = info.get("total") or 0
+        cents = round(float(total) * 100) if total else None
+    cur = con.execute(
+        "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents,sha256) VALUES(?,?,?,?,?,?)",
+        (safe, str(dest), vendor, ddate, cents, sha))
+    doc = con.execute("SELECT * FROM documents WHERE id=?", (cur.lastrowid,)).fetchone()
+    cands = receipt_candidates(con, doc)
+    if len(cands) == 1:  # unambiguous - auto-match
+        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], doc["id"]))
+        return "matched"
+    return "imported"
+
+
 @app.get("/receipts", response_class=HTMLResponse)
-def receipts(request: Request):
+def receipts(request: Request, msg: str = "", err: str = ""):
     con = db.connect()
     try:
         docs = con.execute("SELECT * FROM documents WHERE kind='receipt' ORDER BY status DESC, uploaded_at DESC").fetchall()
@@ -320,7 +360,7 @@ def receipts(request: Request):
             if d["entry_id"]:
                 entry = con.execute("SELECT * FROM entries WHERE id=?", (d["entry_id"],)).fetchone()
             items.append({"doc": d, "candidates": cands, "entry": entry})
-        return templates.TemplateResponse(request, "receipts.html", ctx(request, con, items=items))
+        return templates.TemplateResponse(request, "receipts.html", ctx(request, con, items=items, msg=msg, err=err))
     finally:
         con.close()
 
@@ -330,31 +370,59 @@ async def receipts_upload(files: list[UploadFile] = File(...)):
     con = db.connect()
     try:
         for f in files:
-            safe = Path(f.filename or "receipt.jpg").name
-            dest = db.DOCS / f"rcpt_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe}"
-            with dest.open("wb") as out:
-                shutil.copyfileobj(f.file, out)
-            vendor, ddate, cents = "", "", None
-            info = ai.extract_receipt(con, str(dest))
-            if info:
-                vendor = info.get("vendor", "")
-                try:
-                    ddate = ledger.normalize_date(info.get("date", "")) if info.get("date") else ""
-                except ValueError:
-                    ddate = ""
-                total = info.get("total") or 0
-                cents = round(float(total) * 100) if total else None
-            cur = con.execute(
-                "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents) VALUES(?,?,?,?,?)",
-                (safe, str(dest), vendor, ddate, cents))
-            doc_id = cur.lastrowid
-            doc = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
-            cands = receipt_candidates(con, doc)
-            if len(cands) == 1:  # unambiguous - auto-match
-                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?",
-                            (cands[0]["id"], doc_id))
+            _ingest_receipt(con, await f.read(), f.filename or "receipt.jpg")
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/import-folder")
+def receipts_import_folder(folder: str = Form(...), recursive: str = Form("")):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        p = Path(folder.strip().strip('"'))
+        if not p.is_dir():
+            return RedirectResponse("/receipts?err=" + quote(f"Folder not found: {folder}"), status_code=303)
+        files = sorted(p.rglob("*") if recursive else p.glob("*"))
+        counts = {"matched": 0, "imported": 0, "duplicate": 0, "error": 0}
+        scanned = 0
+        for fp in files:
+            if not fp.is_file() or fp.suffix.lower() not in RECEIPT_EXTS:
+                continue
+            scanned += 1
+            try:
+                res = _ingest_receipt(con, fp.read_bytes(), fp.name)
+            except Exception:
+                res = "error"
+            counts[res] += 1
+        con.commit()
+        if scanned == 0:
+            return RedirectResponse(
+                "/receipts?err=" + quote(f"No receipt images found in {folder} (looked for jpg/png/gif/webp/pdf)."),
+                status_code=303)
+        note = (f"Folder import: {counts['matched']} matched, {counts['imported']} imported (need matching), "
+                f"{counts['duplicate']} already imported"
+                + (f", {counts['error']} unreadable" if counts['error'] else "") + ".")
+        return RedirectResponse("/receipts?msg=" + quote(note), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/rematch")
+def receipts_rematch():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        matched = 0
+        for d in con.execute("SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL").fetchall():
+            cands = receipt_candidates(con, d)
+            if len(cands) == 1:
+                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], d["id"]))
+                matched += 1
+        con.commit()
+        return RedirectResponse("/receipts?msg=" + quote(f"Re-checked matches: {matched} newly matched."), status_code=303)
     finally:
         con.close()
 

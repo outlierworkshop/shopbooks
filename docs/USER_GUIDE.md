@@ -80,6 +80,12 @@ automatically and matched against your posted transactions by amount and date. O
 match = matched automatically; multiple = you pick. No match yet usually means you haven't
 imported that statement yet — it'll match later.
 
+**Importing a whole folder:** if you keep receipt photos in a folder, use **Import a whole
+folder** on the Receipts page — type the folder path (optionally including subfolders) and it
+reads every image/PDF, skips ones already imported, and auto-matches each to its expense
+transaction. A big folder can take a minute. Receipts whose transaction isn't in the books yet
+stay unmatched; after you import more statements, click **Re-check matches** to match them.
+
 ### 4. Mileage
 Log trips as they happen (date, miles, purpose). The deduction is computed for you and
 included in reports — you don't need to do anything else with it.

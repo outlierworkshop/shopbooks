@@ -14,6 +14,14 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Receipt folder import + re-check matches
+- "Import a whole folder" on Receipts: scans a folder (optional subfolders) for image/PDF
+  receipts, reads each with AI, auto-matches to expense transactions; dedupes on content
+  (`documents.sha256`, added via the new `db._column_migrations` guarded-ALTER helper)
+- "Re-check matches" button rematches unmatched receipts after more statements are imported
+- Refactored single/batch upload through shared `_ingest_receipt()`; covered by
+  `test_receiptfolder.py`. Clears engineering-debt item #2 (column migrations)
+
 ### 2026-06-11 — AI categorize pending (Review)
 - "🤖 AI categorize pending" button on Review re-runs categorization (rules first, Claude for
   the rest) over all pending staged rows; suggestions only, nothing posts. Shows when a key is
@@ -83,13 +91,13 @@ boring tech, built for exactly one user.
    isolation pattern is established. Remaining: fold the throwaway flow scripts
    (import/review/post, invoicing, QBO migrate) into a committed pytest suite with a shared
    tmp-dir fixture.
-2. **Column migrations**: `db.init()` only auto-creates tables; add a tiny guarded
-   `ALTER TABLE` helper before the first schema change to an existing table.
-3. **Entry editing**: today you delete + repost; in-place edit of payee/memo/category would
+2. **Entry editing**: today you delete + repost; in-place edit of payee/memo/category would
    be friendlier.
-4. **Receipt → new entry**: when a receipt has no statement match (cash purchase), offer
+3. **Receipt → new entry**: when a receipt has no statement match (cash purchase), offer
    "create entry from this receipt".
-5. **Backup health on dashboard**: surface "last cloud backup N days ago" if it goes stale.
+4. **Backup health on dashboard**: surface "last cloud backup N days ago" if it goes stale.
+5. **Large receipt folders**: AI reads run synchronously; a big folder blocks the request.
+   Consider background processing + progress if it becomes painful.
 
 ## Ideas parking lot (unvetted)
 

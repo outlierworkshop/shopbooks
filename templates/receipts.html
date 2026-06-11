@@ -2,11 +2,28 @@
 {% block title %}Receipts{% endblock %}
 {% block content %}
 <h1>Receipts</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
 <form method="post" action="/receipts/upload" enctype="multipart/form-data" class="toolbar">
   <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>
   <button type="submit">Upload</button>
   <span class="muted">{{ 'Vendor, date and total are read automatically.' if ai_on else 'AI is off - fill in vendor/date/total by hand after upload.' }}</span>
 </form>
+
+<div class="card section">
+  <h2 style="margin-top:0">Import a whole folder</h2>
+  <form method="post" action="/receipts/import-folder" class="toolbar">
+    <input type="text" name="folder" placeholder="C:\Users\you\Pictures\Receipts" style="width:360px" required>
+    <label><input type="checkbox" name="recursive" value="1"> include subfolders</label>
+    <button type="submit">Scan folder</button>
+  </form>
+  <p class="muted">Reads every jpg/png/gif/webp/pdf in that folder {{ '(with AI)' if ai_on else '(AI is off - they import but vendor/date/total stay blank until you fill them)' }},
+  skips ones already imported, and auto-matches each to its expense transaction. A large folder can take a minute.
+  <br>Receipts whose transaction hasn't been imported yet stay unmatched -
+  <form class="inline" method="post" action="/receipts/rematch"><button class="small ghost" type="submit">Re-check matches</button></form>
+  after importing more statements.</p>
+</div>
 
 {% for it in items %}
 <div class="card section">

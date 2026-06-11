@@ -66,9 +66,10 @@ suppressed when `SHOPBOOKS_DATA_DIR` is set, so tests never write to the user's 
 ## Schema changes
 
 `db.init()` runs `CREATE TABLE IF NOT EXISTS` at every app start and `INSERT OR IGNORE`s
-`DEFAULT_SETTINGS`. **New tables and new settings keys are automatically migrated; new
-columns on existing tables are NOT** — add a guarded `ALTER TABLE` in `db.init()`
-(check `PRAGMA table_info` first). Existing user data must always survive an upgrade.
+`DEFAULT_SETTINGS`. New tables and new settings keys are auto-created; **new columns on
+existing tables are NOT created by `CREATE TABLE IF NOT EXISTS`** — add a guarded `ALTER TABLE`
+to `db._column_migrations(con)` (it checks `PRAGMA table_info` first; `documents.sha256` is the
+existing example). Existing user data must always survive an upgrade.
 
 ## Known footguns (cost previous agents real debugging time)
 
