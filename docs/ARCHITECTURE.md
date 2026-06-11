@@ -162,6 +162,20 @@ Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in setti
   `importer.regex_parse_statement`, keyword rules, or manual fields.
 - Categorization precedence on import: rules first (deterministic, free), AI fills the gaps.
 
+### Pluggable backend (Claude / Ollama / Hybrid)
+
+`ai_backend` setting selects the engine; `_task_backend(con, task)` resolves it per task
+(`statement` | `receipt` | `categorize`). **Hybrid** = Ollama for receipts + categorization,
+Claude for statements (the accuracy-critical path stays on Claude). Each public function
+(`extract_statement`, `extract_statement_pdf`, `extract_receipt`, `categorize`) dispatches to a
+`_claude_*` or `_ollama_*` impl; both share the prompt/schema builders. Ollama calls go over
+httpx to `{ollama_url}/api/chat` with `format=<json schema>` (structured outputs, needs recent
+Ollama) and base64 `images` for receipts. Ollama limits: images only for receipts (PDF receipts
+return None), and the statement path uses extracted PDF *text* — scanned statements return None
+and fall back to the regex parser. `ollama_status()` backs the Settings "Test" button. Local
+models are noticeably weaker at reading receipt totals/dates — the review/match gates catch the
+errors, so it's viable but verify a good vision model (e.g. `qwen2.5vl`).
+
 ## Receipt matching
 
 On upload: optional AI extraction → `receipt_candidates` finds posted entries with a split

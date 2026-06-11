@@ -38,14 +38,38 @@
 
 <h2>AI</h2>
 <div class="formgrid">
+  <label>AI engine</label>
+  <select name="ai_backend">
+    <option value="claude" {{ 'selected' if s.ai_backend == 'claude' else '' }}>Claude (cloud, most accurate)</option>
+    <option value="ollama" {{ 'selected' if s.ai_backend == 'ollama' else '' }}>Ollama (local, fully private)</option>
+    <option value="hybrid" {{ 'selected' if s.ai_backend == 'hybrid' else '' }}>Hybrid (local receipts + categorize, Claude statements)</option>
+  </select>
+</div>
+<p class="muted">Powers PDF statement parsing, receipt reading, and smart categorization. Whichever
+engine you pick, the app still works without it (CSV import, keyword rules, manual entry).</p>
+
+<h3>Claude (cloud)</h3>
+<div class="formgrid">
   <label>Claude API key</label>
   <input type="password" name="anthropic_api_key"
          placeholder="{{ 'saved - enter new key to replace, or CLEAR to remove' if key_set else 'sk-ant-...' }}">
-  <label>AI model</label><input type="text" name="ai_model" value="{{ s.ai_model }}">
+  <label>Claude model</label><input type="text" name="ai_model" value="{{ s.ai_model }}">
 </div>
-<p class="muted">The API key powers PDF statement parsing, receipt reading, and smart categorization.
-Get one at console.anthropic.com - costs are typically pennies per statement. Without a key the app still
-works: CSV imports, keyword rules, and manual receipt entry.</p>
+<p class="muted">Get a key at console.anthropic.com - costs are typically pennies per statement.
+Most accurate, especially for messy receipts and statements. Data is sent to Anthropic.</p>
+
+<h3>Ollama (local)</h3>
+<div class="formgrid">
+  <label>Server URL</label><input type="text" name="ollama_url" value="{{ s.ollama_url }}">
+  <label>Vision model</label><input type="text" name="ollama_model" value="{{ s.ollama_model }}">
+</div>
+<p class="muted">Runs entirely on this machine - nothing leaves it. Install Ollama from ollama.com,
+then pull a vision model, e.g. <code>ollama pull llama3.2-vision</code> (or <code>qwen2.5vl</code>,
+often better at receipts). Needs a recent Ollama (structured outputs) and a GPU for speed.
+Save your settings first, then test:</p>
+<div class="toolbar">
+  <form class="inline" method="post" action="/ollama/test"><button class="ghost" type="submit">Test Ollama connection</button></form>
+</div>
 
 <h2>Backup folder</h2>
 <div class="formgrid">

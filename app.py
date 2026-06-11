@@ -1126,14 +1126,38 @@ def backup_now():
     return RedirectResponse("/settings", status_code=303)
 
 
+@app.post("/ollama/test")
+def ollama_test():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        st = ai.ollama_status(con)
+        if not st["reachable"]:
+            return RedirectResponse(
+                "/settings?err=" + quote(f"Can't reach Ollama at {ai.ollama_url(con)} - is it running? ({st.get('error','')})"),
+                status_code=303)
+        if not st["model_present"]:
+            have = ", ".join(st["models"]) or "none"
+            return RedirectResponse(
+                "/settings?err=" + quote(f"Ollama is running but model '{st['model']}' isn't installed. "
+                                         f"Run:  ollama pull {st['model']}   (installed: {have})"),
+                status_code=303)
+        return RedirectResponse(
+            "/settings?msg=" + quote(f"Ollama OK - reached {ai.ollama_url(con)}, model '{st['model']}' is ready."),
+            status_code=303)
+    finally:
+        con.close()
+
+
 @app.post("/settings")
 async def settings_save(request: Request):
     form = await request.form()
     con = db.connect()
     try:
-        plain = ("mileage_rate", "ai_model", "business_name", "backup_dir", "business_address",
-                 "business_email", "business_phone", "invoice_terms", "smtp_host", "smtp_port",
-                 "smtp_user", "email_subject", "email_body")
+        plain = ("mileage_rate", "ai_backend", "ai_model", "ollama_url", "ollama_model",
+                 "business_name", "backup_dir", "business_address", "business_email",
+                 "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
+                 "email_subject", "email_body")
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())

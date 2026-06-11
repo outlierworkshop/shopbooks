@@ -214,8 +214,11 @@ SEED_RULES = [
 
 DEFAULT_SETTINGS = {
     "mileage_rate": "0.70",      # $/mile - verify the current IRS rate each January
+    "ai_backend": "claude",      # claude | ollama | hybrid
     "ai_model": "claude-opus-4-8",
     "anthropic_api_key": "",
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "llama3.2-vision",
     "business_name": "My Business",
     "backup_dir": "",            # extra/off-machine backup folder; blank = auto-detect OneDrive
     "business_address": "",

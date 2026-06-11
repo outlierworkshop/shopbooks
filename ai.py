@@ -1,7 +1,15 @@
-"""Optional Claude API integration: statement extraction, receipt reading, categorization.
+"""Optional AI integration: statement extraction, receipt reading, categorization.
 
-Every function degrades gracefully — if no API key is configured the app falls
-back to regex parsing and keyword rules, and receipts get entered by hand.
+Two interchangeable backends, chosen by the `ai_backend` setting:
+  - "claude"  : Anthropic API (most accurate; needs an API key; data leaves the machine)
+  - "ollama"  : a local model via Ollama (fully private; needs a GPU + a pulled model)
+  - "hybrid"  : Ollama for receipts + categorization, Claude for statement parsing
+                (keeps the accuracy-critical statement path on Claude)
+
+Every function degrades gracefully — if the chosen backend isn't usable or a call
+fails, it returns None and the app falls back to regex parsing / keyword rules /
+manual entry. Receipt reading needs a vision model; Ollama's statement path uses
+extracted PDF text (scanned statements fall back to the regex parser).
 """
 import base64
 import json
@@ -13,37 +21,54 @@ MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
 }
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+# ---------------------------------------------------------------- backend select
+
+def backend(con):
+    return db.get_setting(con, "ai_backend", "claude")
+
+
+def _task_backend(con, task):
+    """task in {'statement','receipt','categorize'}. Resolves 'hybrid' per task."""
+    b = backend(con)
+    if b == "hybrid":
+        return "claude" if task == "statement" else "ollama"
+    return b
 
 
 def api_key(con):
     return db.get_setting(con, "anthropic_api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-def available(con):
+def ollama_url(con):
+    return db.get_setting(con, "ollama_url", "http://localhost:11434").rstrip("/")
+
+
+def ollama_model(con):
+    return db.get_setting(con, "ollama_model", "llama3.2-vision")
+
+
+def _claude_ok(con):
     return bool(api_key(con))
 
 
-def _client(con):
-    if not available(con):
-        return None
-    import anthropic
-    return anthropic.Anthropic(api_key=api_key(con))
+def _ollama_ok(con):
+    return bool(ollama_model(con))
 
 
-def _model(con):
-    return db.get_setting(con, "ai_model", "claude-opus-4-8")
+def available(con):
+    """True if the configured backend has what it needs (controls AI button visibility)."""
+    b = backend(con)
+    if b == "claude":
+        return _claude_ok(con)
+    if b == "ollama":
+        return _ollama_ok(con)
+    return _claude_ok(con) or _ollama_ok(con)  # hybrid
 
 
-def _json_response(client, model, content, schema, max_tokens=16000):
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": content}],
-        output_config={"format": {"type": "json_schema", "schema": schema}},
-    )
-    text = "".join(b.text for b in resp.content if b.type == "text")
-    return json.loads(text)
-
+# ---------------------------------------------------------------- prompts/schemas
 
 STATEMENT_SCHEMA = {
     "type": "object",
@@ -79,20 +104,17 @@ RECEIPT_SCHEMA = {
 
 CATEGORIZE_SCHEMA = {
     "type": "object",
-    "properties": {
-        "categories": {"type": "array", "items": {"type": "string"}},
-    },
+    "properties": {"categories": {"type": "array", "items": {"type": "string"}}},
     "required": ["categories"],
     "additionalProperties": False,
 }
 
+RECEIPT_PROMPT = ("Read this receipt. Return the vendor name, the date as YYYY-MM-DD, and the grand "
+                  "total actually paid as a number (the final total, not the subtotal or tax line).")
 
-def extract_statement(con, text, account_name):
-    """Extract transactions from raw statement text. Returns list of dicts or None on failure."""
-    client = _client(con)
-    if client is None:
-        return None
-    prompt = (
+
+def _statement_prompt(text, account_name):
+    return (
         f"This is the text of a bank or credit card statement for the account '{account_name}'. "
         "Extract every individual transaction (skip running balances, summary totals, "
         "interest-rate tables, and payment-due boilerplate). "
@@ -100,39 +122,67 @@ def extract_statement(con, text, account_name):
         "negative amount = money in (deposit, payment received, credit, refund). "
         "Dates as YYYY-MM-DD; infer the year from the statement period.\n\n" + text[:150000]
     )
+
+
+def _categorize_prompt(txns, category_names):
+    lines = "\n".join(f"{i+1}. {t['description']}  ({'+' if t['amount'] >= 0 else ''}{t['amount']/100:.2f})"
+                      for i, t in enumerate(txns))
+    return (
+        "Categorize each transaction below for a one-person workshop/fabrication business. "
+        "Positive amounts are money out (expenses or transfers); negative are money in (income/refunds). "
+        "Choose exactly one category per transaction from this list (use the exact name):\n"
+        + "\n".join(f"- {c}" for c in category_names)
+        + "\nIf nothing fits, use 'Uncategorized Expense'. "
+        "Return the categories array in the same order, one per transaction, "
+        f"with exactly {len(txns)} items.\n\nTransactions:\n" + lines
+    )
+
+
+# ---------------------------------------------------------------- Claude backend
+
+def _claude_client(con):
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key(con))
+
+
+def _claude_model(con):
+    return db.get_setting(con, "ai_model", "claude-opus-4-8")
+
+
+def _claude_json(con, content, schema, max_tokens=16000):
+    resp = _claude_client(con).messages.create(
+        model=_claude_model(con),
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": content}],
+        output_config={"format": {"type": "json_schema", "schema": schema}},
+    )
+    text = "".join(b.text for b in resp.content if b.type == "text")
+    return json.loads(text)
+
+
+def _claude_statement(con, text, account_name):
     try:
-        data = _json_response(client, _model(con), prompt, STATEMENT_SCHEMA)
-        return data.get("transactions", [])
+        return _claude_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA).get("transactions", [])
     except Exception:
         return None
 
 
-def extract_statement_pdf(con, pdf_path, account_name):
-    """Send the PDF itself to Claude (handles scanned/image statements)."""
-    client = _client(con)
-    if client is None:
-        return None
+def _claude_statement_pdf(con, pdf_path, account_name):
     data_b64 = base64.standard_b64encode(open(pdf_path, "rb").read()).decode()
     content = [
         {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data_b64}},
         {"type": "text", "text": (
             f"This is a bank or credit card statement for '{account_name}'. Extract every individual "
             "transaction (skip balances, totals, boilerplate). Positive amount = money out; "
-            "negative = money in. Dates as YYYY-MM-DD, inferring the year from the statement period."
-        )},
+            "negative = money in. Dates as YYYY-MM-DD, inferring the year from the statement period.")},
     ]
     try:
-        data = _json_response(client, _model(con), content, STATEMENT_SCHEMA)
-        return data.get("transactions", [])
+        return _claude_json(con, content, STATEMENT_SCHEMA).get("transactions", [])
     except Exception:
         return None
 
 
-def extract_receipt(con, path):
-    """Read vendor/date/total off a receipt photo or PDF. Returns dict or None."""
-    client = _client(con)
-    if client is None:
-        return None
+def _claude_receipt(con, path):
     ext = os.path.splitext(path)[1].lower()
     mt = MEDIA_TYPES.get(ext)
     if not mt:
@@ -142,32 +192,112 @@ def extract_receipt(con, path):
         block = {"type": "document", "source": {"type": "base64", "media_type": mt, "data": data_b64}}
     else:
         block = {"type": "image", "source": {"type": "base64", "media_type": mt, "data": data_b64}}
-    content = [block, {"type": "text", "text": "Read this receipt. Give the vendor name, the date, and the grand total paid."}]
     try:
-        return _json_response(client, _model(con), content, RECEIPT_SCHEMA, max_tokens=1000)
+        return _claude_json(con, [block, {"type": "text", "text": RECEIPT_PROMPT}], RECEIPT_SCHEMA, max_tokens=1000)
     except Exception:
         return None
 
 
-def categorize(con, txns, category_names):
-    """txns: list of {'description','amount'} dicts. Returns list of category names (or None)."""
-    client = _client(con)
-    if client is None or not txns:
-        return None
-    lines = "\n".join(f"{i+1}. {t['description']}  ({'+' if t['amount'] >= 0 else ''}{t['amount']/100:.2f})"
-                      for i, t in enumerate(txns))
-    prompt = (
-        "Categorize each transaction below for a one-person workshop/fabrication business. "
-        "Positive amounts are money out (expenses or transfers); negative are money in (income/refunds). "
-        "Choose exactly one category per transaction from this list (use the exact name):\n"
-        + "\n".join(f"- {c}" for c in category_names)
-        + "\nIf nothing fits, use 'Uncategorized Expense'. "
-        "Return the categories array in the same order, one per transaction, "
-        f"with exactly {len(txns)} items.\n\nTransactions:\n" + lines
-    )
+def _claude_categorize(con, txns, names):
     try:
-        data = _json_response(client, _model(con), prompt, CATEGORIZE_SCHEMA)
+        cats = _claude_json(con, _categorize_prompt(txns, names), CATEGORIZE_SCHEMA).get("categories", [])
+        return cats if len(cats) == len(txns) else None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- Ollama backend
+
+def _ollama_chat_json(con, prompt, schema, image_bytes=None, timeout=240):
+    """One structured-output chat call to a local Ollama server. Raises on failure."""
+    import httpx
+    msg = {"role": "user", "content": prompt}
+    if image_bytes is not None:
+        msg["images"] = [base64.b64encode(image_bytes).decode()]
+    payload = {"model": ollama_model(con), "stream": False, "format": schema,
+               "options": {"temperature": 0}, "messages": [msg]}
+    r = httpx.post(ollama_url(con) + "/api/chat", json=payload, timeout=timeout)
+    r.raise_for_status()
+    return json.loads(r.json()["message"]["content"])
+
+
+def ollama_status(con):
+    """Probe the Ollama server for the Settings 'Test' button."""
+    import httpx
+    want = ollama_model(con)
+    try:
+        r = httpx.get(ollama_url(con) + "/api/tags", timeout=5)
+        r.raise_for_status()
+        models = [m.get("name", "") for m in r.json().get("models", [])]
+        base = want.split(":")[0]
+        present = any(m == want or m.split(":")[0] == base for m in models)
+        return {"reachable": True, "models": models, "model": want, "model_present": present}
+    except Exception as e:
+        return {"reachable": False, "models": [], "model": want, "model_present": False, "error": str(e)}
+
+
+def _ollama_statement(con, text, account_name):
+    if not text.strip():
+        return None
+    try:
+        data = _ollama_chat_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA)
+        return data.get("transactions", [])
+    except Exception:
+        return None
+
+
+def _ollama_statement_pdf(con, pdf_path, account_name):
+    # Local path can't read scanned PDFs (no text); let the caller fall back to the regex parser.
+    return None
+
+
+def _ollama_receipt(con, path):
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTS:
+        return None  # local vision path takes images, not PDFs
+    try:
+        return _ollama_chat_json(con, RECEIPT_PROMPT, RECEIPT_SCHEMA, image_bytes=open(path, "rb").read())
+    except Exception:
+        return None
+
+
+def _ollama_categorize(con, txns, names):
+    try:
+        data = _ollama_chat_json(con, _categorize_prompt(txns, names), CATEGORIZE_SCHEMA)
         cats = data.get("categories", [])
         return cats if len(cats) == len(txns) else None
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------- public dispatch
+
+def extract_statement(con, text, account_name):
+    if not available(con):
+        return None
+    if _task_backend(con, "statement") == "ollama":
+        return _ollama_statement(con, text, account_name)
+    return _claude_statement(con, text, account_name)
+
+
+def extract_statement_pdf(con, pdf_path, account_name):
+    if not available(con):
+        return None
+    if _task_backend(con, "statement") == "ollama":
+        return _ollama_statement_pdf(con, pdf_path, account_name)
+    return _claude_statement_pdf(con, pdf_path, account_name)
+
+
+def extract_receipt(con, path):
+    if not available(con):
+        return None
+    if _task_backend(con, "receipt") == "ollama":
+        return _ollama_receipt(con, path)
+    return _claude_receipt(con, path)
+
+
+def categorize(con, txns, category_names):
+    if not txns or not available(con):
+        return None
+    if _task_backend(con, "categorize") == "ollama":
+        return _ollama_categorize(con, txns, category_names)
+    return _claude_categorize(con, txns, category_names)

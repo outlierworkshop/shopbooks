@@ -14,6 +14,16 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Local AI via Ollama (pluggable backend)
+- `ai_backend` setting: **claude** (default) | **ollama** (fully local) | **hybrid** (local
+  receipts + categorize, Claude statements). `ai.py` refactored into `_claude_*`/`_ollama_*`
+  impls behind per-task dispatch (`_task_backend`); shared prompts/schemas
+- Ollama via httpx `/api/chat` with structured outputs + base64 images; Settings has engine
+  dropdown, server URL, model, and a "Test Ollama connection" probe (`ollama_status`)
+- httpx is now a runtime dependency. Verified live against a real Ollama (llava:13b): wire
+  format + structured output work; weaker models misread totals (caught by review/match gates)
+  — recommend `qwen2.5vl` for receipts. Covered by `test_ollama.py` (dispatch, no network)
+
 ### 2026-06-11 — Receipt folder import + re-check matches
 - "Import a whole folder" on Receipts: scans a folder (optional subfolders) for image/PDF
   receipts, reads each with AI, auto-matches to expense transactions; dedupes on content

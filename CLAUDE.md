@@ -93,7 +93,7 @@ existing example). Existing user data must always survive an upgrade.
 | `db.py` | Connection, schema, seeds, settings helpers, `DEFAULT_SETTINGS` |
 | `ledger.py` | Double-entry core: post/delete entries, balances, registers, P&L, balance sheet |
 | `importer.py` | CSV parsing, PDF text extraction, regex statement fallback, rules engine, duplicate detection, staging |
-| `ai.py` | Claude API: statement extraction, receipt vision, categorization (all optional) |
+| `ai.py` | AI: statement extraction, receipt vision, categorization. Pluggable backend (`ai_backend`: claude/ollama/hybrid); all optional, return None on any failure |
 | `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email |
 | `templates/`, `static/style.css` | Server-rendered UI (vanilla; no JS framework) |
 | `backup.py` | Startup snapshots, retention, cloud mirror, full-ZIP download |

@@ -15,9 +15,16 @@ automatic backups. The Settings page shows the exact path and a one-click backup
 ## First-time setup (5 minutes)
 
 1. **Settings** → fill in your business name, address, email, phone (these print on invoices).
-2. **Settings** → paste your Claude API key (from console.anthropic.com). This unlocks PDF
-   statement reading, receipt photo reading, and smart categorization. Costs are typically
-   pennies per statement. Skippable — see "Working without AI" below.
+2. **Settings → AI** → choose your AI engine (unlocks PDF statement reading, receipt photo
+   reading, and smart categorization):
+   - **Claude (cloud):** paste an API key from console.anthropic.com. Most accurate; pennies
+     per statement; data is sent to Anthropic.
+   - **Ollama (local):** runs entirely on your machine, nothing leaves it. Install Ollama from
+     ollama.com, pull a vision model (`ollama pull qwen2.5vl` is best for receipts), put the
+     model name in Settings, and click **Test Ollama connection**. Needs a GPU for speed.
+   - **Hybrid:** local model for receipts + categorization, Claude for the harder statement
+     parsing. Best of both if you have a Claude key and a GPU.
+   - Skippable entirely — see "Working without AI" below.
 3. **Settings** → SMTP details if you want to email invoices from the app. For Gmail:
    host `smtp.gmail.com`, port `587`, user = your Gmail address, password = an **App Password**
    (myaccount.google.com → Security → 2-Step Verification → App passwords). Your normal
