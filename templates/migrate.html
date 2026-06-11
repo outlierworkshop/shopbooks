@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}QBO Migration{% endblock %}
+{% block content %}
+<h1>Import from QuickBooks Online</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<p class="muted">Do these <strong>in order</strong>. Each step takes a CSV exported from a QBO report -
+the exact report names and required columns are listed under each step. Imports are safe to re-run:
+existing accounts/customers/trips are skipped, and transactions go to <a href="/review">Review</a>
+(nothing posts without your approval).</p>
+
+<div class="cards">
+  <div class="card"><div class="label">Accounts</div><div class="big">{{ counts.accounts }}</div></div>
+  <div class="card"><div class="label">Pending review</div><div class="big">{{ counts.staged }}</div></div>
+  <div class="card"><div class="label">Posted entries</div><div class="big">{{ counts.posted }}</div></div>
+  <div class="card"><div class="label">Customers</div><div class="big">{{ counts.customers }}</div></div>
+  <div class="card"><div class="label">Mileage trips</div><div class="big">{{ counts.mileage }}</div></div>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 1 - Chart of accounts</h2>
+  <p class="muted">QBO: Reports → <strong>Account List</strong> → Export to CSV.
+  Creates your QBO accounts here (bank → bank, credit card → card, income/expense → categories).
+  Sub-accounts ("Expenses:Shop:Supplies") import by their last name ("Supplies").</p>
+  <form method="post" action="/migrate/accounts" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit">Import accounts</button>
+  </form>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 2 - Transactions</h2>
+  <p class="muted">QBO: Reports → <strong>Transaction Detail by Account</strong> → set your date range,
+  accounting method <strong>Cash</strong> → Customize → columns must include
+  <strong>Date, Transaction Type, Name, Memo/Description, Account, Split, Amount</strong> → Export to CSV.<br>
+  Rows land in Review with your QBO categories already applied (from the Split column).
+  Transfers appear once per account and the second copy gets flagged as a duplicate - Skip it there.</p>
+  <form method="post" action="/migrate/transactions" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit">Import transactions</button>
+  </form>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 3 - Customers</h2>
+  <p class="muted">QBO: Sales → Customers → export icon → Export to Excel, then save/convert as CSV
+  (or copy into a CSV). Needs a customer/name column; email, phone, address come along if present.</p>
+  <form method="post" action="/migrate/customers" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit">Import customers</button>
+  </form>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 4 - Mileage</h2>
+  <p class="muted">QBO: Mileage → download/export trips as CSV. Needs date + distance columns.</p>
+  <form method="post" action="/migrate/mileage" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit">Import mileage</button>
+  </form>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 5 - Opening balances</h2>
+  <p class="muted">Enter each account's real-world balance <strong>as of the day before</strong> your
+  transaction export starts (from the bank/card statement). Banks: money in the account.
+  Cards: amount owed. Posted against Owner's Equity. Do this once, after step 2 is reviewed and posted.</p>
+  <form method="post" action="/migrate/opening">
+    <div class="toolbar"><label>As of date</label><input type="date" name="as_of" required></div>
+    <table style="max-width:560px">
+      <tr><th>Account</th><th>Current balance here</th><th>Opening balance ($)</th></tr>
+      {% for a in real_accounts %}
+      <tr>
+        <td>{{ a.name }} <span class="muted">({{ a.kind }})</span></td>
+        <td class="num">${{ a.balance|money }}</td>
+        <td><input type="text" name="bal_{{ a.id }}" placeholder="leave blank to skip" style="width:140px"></td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="toolbar"><button type="submit">Post opening balances</button></div>
+  </form>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0">Step 6 - Verify</h2>
+  <p class="muted">After posting everything in <a href="/review">Review</a>: each account's balance on the
+  <a href="/">Dashboard</a> should match the real bank/card balance, and the
+  <a href="/reports">P&amp;L</a> for last year should match the same report in QBO (cash basis).
+  When they match, your books have officially moved out - cancel the QBO subscription.</p>
+</div>
+{% endblock %}

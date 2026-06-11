@@ -48,7 +48,25 @@ works: CSV imports, keyword rules, and manual receipt entry.</p>
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>
 
-<p class="muted">Your entire books live in <code>data/books.db</code> and receipt images in <code>data/docs/</code>.
-Back that folder up (it's just files). Secrets are stored locally and never leave this machine except in
-calls to the Anthropic API / your SMTP server.</p>
+<h2>Backups &amp; data</h2>
+<div class="card section" style="max-width:720px">
+  <p>Your books live at:<br><code>{{ backup.data_dir }}</code></p>
+  <p class="muted">This is a stable location outside the program folder, so updating or
+  re-installing the app never touches your data.</p>
+  <p>
+    Automatic backups: <strong>{{ backup.local_count }}</strong> kept here
+    {% if backup.last_backup %}(latest {{ backup.last_backup }}){% endif %}.
+    {% if backup.cloud_dir %}<br>Mirrored to the cloud at <code>{{ backup.cloud_dir }}</code>.
+    {% else %}<br><span class="warn">No OneDrive detected - cloud mirroring is off. Use the ZIP
+    download below and keep copies on an external drive or cloud folder.</span>{% endif %}
+  </p>
+  <p class="muted">A fresh backup is made automatically every time you start the app.</p>
+  <div class="toolbar">
+    <a class="btn" href="/backup.zip">Download full backup (ZIP)</a>
+    <form class="inline" method="post" action="/backup/now"><button class="ghost" type="submit">Back up now</button></form>
+  </div>
+</div>
+<p class="muted">Secrets (API key, SMTP password) are stored only in your local books database and
+never leave this machine except in calls to the Anthropic API / your SMTP server. To restore a backup,
+stop the app and copy a <code>books-*.db</code> from the backups folder over <code>books.db</code>.</p>
 {% endblock %}

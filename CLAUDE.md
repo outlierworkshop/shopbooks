@@ -14,15 +14,28 @@ or AI modules.**
 .venv\Scripts\pip.exe install -r requirements.txt                          # rebuild env
 ```
 
-There is no committed test suite yet. The established verification pattern is: write a
-throwaway script using `fastapi.testclient.TestClient`, exercise the full flow
-(import → review → post → balances → receipts → reports → invoices → tax zip), assert the
-ledger invariant (below), then **delete the script AND `data/`** so the user's books start clean.
+`test_safety.py` is the committed canonical test and shows the **mandatory** pattern: set
+`SHOPBOOKS_DATA_DIR` to a temp dir **before importing `db`/`app`**, so a test can never touch
+real books. Larger flow tests follow the same pattern with `fastapi.testclient.TestClient`,
+exercising import → review → post → balances → receipts → reports → invoices → tax zip and
+asserting the ledger invariant (below); they may be throwaway (delete after) but must set the
+env var first.
 
-> ⚠️ **Tests write to the real database.** `db.DB_PATH` is fixed at `data/books.db`. If
-> `data/books.db` contains real user data, BACK IT UP before running any test, or better:
-> monkeypatch `db.DB_PATH`/`db.DATA`/`db.DOCS` to a temp dir first. Improving this (a
-> `SHOPBOOKS_DATA_DIR` env var) is a welcome change.
+> ⚠️ **NEVER run a test or any DB-mutating script without `SHOPBOOKS_DATA_DIR` set to a temp
+> dir.** The user's real books live at `%LOCALAPPDATA%\ShopBooks` (see Data location below).
+> A test that imports `db`/`app` without the override will read, write, and—if it cleans up
+> after itself—**delete the real database.** This exact mistake destroyed the user's data once.
+> The harness env var is the guard; `test_safety.py` proves it works. (Even so, `backup.py`
+> snapshots every launch to `<datadir>/backups/` and mirrors to `<OneDrive>/ShopBooks Backups/`.)
+
+## Data location
+
+`db.py` resolves the data dir at import time: `SHOPBOOKS_DATA_DIR` if set, else
+`%LOCALAPPDATA%\ShopBooks`. **Deliberately outside the repo** so git ops, re-clones, and test
+cleanup can't touch real books. `db.init()` runs a guarded one-time migration of any legacy
+in-repo `data/` into the stable location (skipped when the override is set, so tests don't pull
+the repo's data in). `backup.snapshot()` runs on app startup (in `app.py`). The cloud mirror is
+suppressed when `SHOPBOOKS_DATA_DIR` is set, so tests never write to the user's real OneDrive.
 
 ## Invariants — do not break these
 
@@ -68,7 +81,7 @@ columns on existing tables are NOT** — add a guarded `ALTER TABLE` in `db.init
 - **Claude structured outputs**: every JSON schema object needs `additionalProperties: false`;
   no `minLength`/`maximum`-style constraints. Model id default `claude-opus-4-8` (settings key
   `ai_model`). Don't send `temperature` — it 400s on Opus 4.7+.
-- **Windows**: the server holds `data/books.db` open — stop it before deleting/moving `data/`.
+- **Windows**: the server holds the books.db open — stop it before moving the data dir.
   Kill by port: `Get-NetTCPConnection -LocalPort 8765 -State Listen` → `Stop-Process`.
 
 ## Where things live
@@ -82,7 +95,9 @@ columns on existing tables are NOT** — add a guarded `ALTER TABLE` in `db.init
 | `ai.py` | Claude API: statement extraction, receipt vision, categorization (all optional) |
 | `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email |
 | `templates/`, `static/style.css` | Server-rendered UI (vanilla; no JS framework) |
-| `data/` | **User's real books** — books.db + docs/ (receipt images). Never commit, never wipe without explicit user request |
+| `backup.py` | Startup snapshots, retention, cloud mirror, full-ZIP download |
+| `migrate.py` | QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances) |
+| `%LOCALAPPDATA%\ShopBooks\` | **User's real books** — books.db + docs/ (receipts) + backups/. NOT in the repo. Never wipe |
 | `docs/` | ARCHITECTURE.md (design + rationale), USER_GUIDE.md, ROADMAP.md (changelog + planned work) |
 
 ## Process expectations for agents

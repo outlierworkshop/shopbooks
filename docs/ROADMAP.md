@@ -14,6 +14,28 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Data safety overhaul (after a data-loss incident)
+- **Incident:** a test-cleanup script (`Remove-Item data/`) deleted the live database; the user
+  lost settings + API key (no transactions had been entered). Root cause: tests ran against the
+  real DB and data lived inside the repo folder.
+- Moved the live data dir out of the repo to `%LOCALAPPDATA%\ShopBooks` (overridable via
+  `SHOPBOOKS_DATA_DIR`); `db.init()` auto-migrates a legacy in-repo `data/` over, fixing receipt paths
+- New `backup.py`: consistent startup snapshots (SQLite backup API) to `<datadir>/backups/`
+  (last 20) + automatic mirror to `<OneDrive>/ShopBooks Backups/`; one-click full ZIP (DB +
+  receipts) and "Back up now" in Settings; Settings shows data path + backup status
+- Mandatory test isolation via `SHOPBOOKS_DATA_DIR`; cloud mirror suppressed in test mode;
+  `test_safety.py` committed as the canonical proof (clears engineering-debt item #1)
+
+### 2026-06-10 — QuickBooks Online migration
+- `/migrate` page + `migrate.py`: imports QBO report CSVs — Account List (chart of accounts,
+  QBO type → ShopBooks type/kind), Transaction Detail by Account (history staged into Review
+  with categories from the Split column; bank/card sign normalization; other-side rows skipped),
+  Customers, Mileage (deduped), plus opening-balance posting against Owner's Equity
+- Parser handles QBO grouped-report noise (title rows, totals, sub-account names);
+  header rows require ≥2 non-empty cells (bugfix: one-cell title rows false-matched)
+- Also this date: green dollar favicon (`make_icon.py`), desktop shortcut, repo published
+  to github.com/outlierworkshop/shopbooks (private)
+
 ### 2026-06-10 — Phase 2: invoicing, email, tax package
 - Customers + invoices (auto-numbered INV-####, line items, draft/sent/paid/void, overdue computed)
 - Invoice PDFs (fpdf2) and SMTP emailing with PDF attached (Gmail app-password flow)
@@ -45,17 +67,17 @@ boring tech, built for exactly one user.
 
 ## Engineering debt (do these opportunistically)
 
-1. **Test suite** (highest value): pytest + tmp-dir DB fixture (`SHOPBOOKS_DATA_DIR` env var
-   or monkeypatched `db.DB_PATH`), porting the happy-path coverage described in
-   ARCHITECTURE.md §Testing. Right now tests can clobber real books.
+1. **Test suite**: partially done — `test_safety.py` is committed and the `SHOPBOOKS_DATA_DIR`
+   isolation pattern is established. Remaining: fold the throwaway flow scripts
+   (import/review/post, invoicing, QBO migrate) into a committed pytest suite with a shared
+   tmp-dir fixture.
 2. **Column migrations**: `db.init()` only auto-creates tables; add a tiny guarded
    `ALTER TABLE` helper before the first schema change to an existing table.
-3. **Backup nudge**: one-click "back up data folder to ZIP" + a dashboard reminder when the
-   last backup is old.
-4. **Entry editing**: today you delete + repost; in-place edit of payee/memo/category would
+3. **Entry editing**: today you delete + repost; in-place edit of payee/memo/category would
    be friendlier.
-5. **Receipt → new entry**: when a receipt has no statement match (cash purchase), offer
+4. **Receipt → new entry**: when a receipt has no statement match (cash purchase), offer
    "create entry from this receipt".
+5. **Backup health on dashboard**: surface "last cloud backup N days ago" if it goes stale.
 
 ## Ideas parking lot (unvetted)
 

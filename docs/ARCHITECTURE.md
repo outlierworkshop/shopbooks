@@ -8,7 +8,10 @@ Audience: developers and AI agents extending the app. For day-to-day usage see
 1. **Local and durable.** The owner is replacing QuickBooks Online specifically to own his
    data. Everything is plain files: one SQLite DB + a folder of receipt images. No accounts,
    no telemetry, no cloud storage. The app must keep working in ten years with nothing but
-   Python installed.
+   Python installed. **Data lives outside the code** (`%LOCALAPPDATA%\ShopBooks`, overridable
+   via `SHOPBOOKS_DATA_DIR`) so the code can be re-cloned, updated, or tested without ever
+   risking the books; `backup.py` snapshots on every launch (local + OneDrive mirror). See
+   §Data location & backups.
 2. **Correct double-entry under a non-accountant UI.** The ledger is real (balanced journal
    entries) but the user never types "debit". Workflow language: money in / money out,
    categories, transfers.
@@ -30,6 +33,8 @@ app.py          routes only (thin); every route opens/closes its own sqlite conn
 ├── importer.py  statement ingestion: CSV/PDF → staged rows; rules; duplicate detection
 ├── ai.py        Claude API wrappers (statement extraction, receipt vision, categorization)
 ├── invoicing.py invoices: totals/queries, fpdf2 PDF, SMTP send
+├── migrate.py   QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances)
+├── backup.py    startup snapshots, retention, OneDrive mirror, full-ZIP download
 ├── templates/   Jinja2 pages, all extend base.html
 └── static/      style.css (CSS variables at top define the palette)
 ```
@@ -165,6 +170,26 @@ receipt has a date, that don't already have a document. Exactly one candidate �
 otherwise the user picks from buttons. Matched receipts show 📎 in registers and their
 filenames ride along in the tax-package transaction CSV.
 
+## Data location & backups
+
+The user's books are irreplaceable, so location and backups are first-class concerns.
+
+- **Location** (`db.py`): `SHOPBOOKS_DATA_DIR` env var if set, else `%LOCALAPPDATA%\ShopBooks`.
+  Chosen over the original in-repo `data/` after a test-cleanup script deleted the live DB:
+  putting data outside the repo means git, re-clone, and test teardown physically cannot reach
+  it. AppData (not OneDrive) is the *live* location to avoid OneDrive locking/dehydrating an
+  open SQLite file; OneDrive is used for *backups* instead.
+- **Migration** (`db._migrate_old_location`): one-time move of a legacy in-repo `data/` into the
+  stable dir, including rewriting stored absolute receipt paths. Guarded to skip when
+  `SHOPBOOKS_DATA_DIR` is set so tests never pull repo data into their temp dir.
+- **Backups** (`backup.py`): `snapshot()` runs at app startup — a consistent copy via SQLite's
+  backup API (valid even mid-write) into `<datadir>/backups/` (last 20), mirrored to
+  `<OneDrive>/ShopBooks Backups/`. `zip_bytes()` powers the Settings download (DB + receipts).
+  Cloud mirroring is suppressed in test mode (`SHOPBOOKS_DATA_DIR` set) so tests never write to
+  the real OneDrive. Restore is manual (documented in USER_GUIDE) — nothing auto-overwrites live data.
+- **Test isolation is mandatory**: every test sets `SHOPBOOKS_DATA_DIR` to a temp dir before
+  importing `db`/`app`. `test_safety.py` is the committed proof and template.
+
 ## Decisions log (don't re-litigate without new information)
 
 | Decision | Why |
@@ -177,10 +202,13 @@ filenames ride along in the tax-package transaction CSV.
 | Mileage not posted to ledger | It's a tax deduction, not a cash event; posting it would corrupt the P&L |
 | Per-request sqlite connections | Dead simple, correct enough at single-user scale |
 | No auth, bind 127.0.0.1 | Single user, single machine. Auth is a prerequisite for ever changing the bind address |
+| Live data in AppData, backups in OneDrive | Keeps an open SQLite file off a syncing folder (no lock/dehydrate), while still getting automatic off-machine backup |
 
 ## Testing approach
 
-No committed suite yet (see ROADMAP). Pattern used so far: throwaway `TestClient` script
-covering the full happy path + the ledger zero-sum invariant, run against a **fresh** `data/`,
-then delete the script and `data/`. If real books exist, protect them first
-(see CLAUDE.md warning). Highest-value future work: pytest suite with a tmp-dir DB fixture.
+`test_safety.py` is committed and proves data isolation + the backup system. The mandatory
+pattern for every test: set `SHOPBOOKS_DATA_DIR` to a temp dir **before importing `db`/`app`**,
+so tests run against a throwaway database and can never read, write, or delete real books.
+Flow tests use `fastapi.testclient.TestClient` over the full happy path and assert the ledger
+zero-sum invariant; they may be throwaway but must set the env var first. Future work: fold the
+throwaway flow scripts into a committed pytest suite sharing a tmp-dir fixture.

@@ -12,10 +12,12 @@ from fastapi.templating import Jinja2Templates
 import zipfile
 
 import ai
+import backup
 import db
 import importer
 import invoicing
 import ledger
+import migrate
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="ShopBooks")
@@ -24,6 +26,7 @@ templates = Jinja2Templates(directory=BASE / "templates")
 templates.env.filters["money"] = ledger.fmt_cents
 
 db.init()
+backup.snapshot()  # protect the books on every launch (local + cloud mirror)
 
 
 def ctx(request, con, **kw):
@@ -482,6 +485,128 @@ def transactions_csv(start: str, end: str):
         con.close()
 
 
+# ---------- QuickBooks migration ----------
+
+@app.get("/migrate", response_class=HTMLResponse)
+def migrate_page(request: Request, msg: str = "", err: str = ""):
+    con = db.connect()
+    try:
+        counts = {
+            "accounts": con.execute("SELECT COUNT(*) c FROM accounts WHERE active=1").fetchone()["c"],
+            "staged": con.execute("SELECT COUNT(*) c FROM staged WHERE status='pending'").fetchone()["c"],
+            "posted": con.execute("SELECT COUNT(*) c FROM entries").fetchone()["c"],
+            "customers": con.execute("SELECT COUNT(*) c FROM customers").fetchone()["c"],
+            "mileage": con.execute("SELECT COUNT(*) c FROM mileage").fetchone()["c"],
+        }
+        real_accounts = []
+        for a in con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY kind, name"):
+            bal = ledger.display_balance(a["type"], ledger.raw_balance(con, a["id"]))
+            real_accounts.append({"id": a["id"], "name": a["name"], "kind": a["kind"], "balance": bal})
+        return templates.TemplateResponse(request, "migrate.html", ctx(
+            request, con, counts=counts, real_accounts=real_accounts, msg=msg, err=err))
+    finally:
+        con.close()
+
+
+def _migrate_redirect(msg="", err=""):
+    from urllib.parse import quote
+    return RedirectResponse(f"/migrate?msg={quote(msg)}&err={quote(err)}", status_code=303)
+
+
+@app.post("/migrate/accounts")
+async def migrate_accounts(file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        created, matched = migrate.import_accounts(con, migrate.parse_accounts(await file.read()))
+        con.commit()
+        return _migrate_redirect(msg=f"Accounts: {created} created, {matched} already existed.")
+    except ValueError as e:
+        return _migrate_redirect(err=str(e))
+    finally:
+        con.close()
+
+
+@app.post("/migrate/transactions")
+async def migrate_transactions(file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        by_source, skipped = migrate.parse_transactions(con, await file.read())
+        staged = migrate.import_transactions(con, by_source, file.filename or "transactions.csv")
+        con.commit()
+        return _migrate_redirect(msg=(
+            f"{staged} transactions staged for Review across {len(by_source)} account(s). "
+            f"({skipped['not_bank_card']} rows on category accounts skipped - those are the "
+            "same transactions seen from the other side.)"))
+    except ValueError as e:
+        return _migrate_redirect(err=str(e))
+    finally:
+        con.close()
+
+
+@app.post("/migrate/customers")
+async def migrate_customers(file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        created = migrate.import_customers(con, migrate.parse_customers(await file.read()))
+        con.commit()
+        return _migrate_redirect(msg=f"{created} customers imported.")
+    except ValueError as e:
+        return _migrate_redirect(err=str(e))
+    finally:
+        con.close()
+
+
+@app.post("/migrate/mileage")
+async def migrate_mileage(file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        created = migrate.import_mileage(con, migrate.parse_mileage(await file.read()))
+        con.commit()
+        return _migrate_redirect(msg=f"{created} trips imported.")
+    except ValueError as e:
+        return _migrate_redirect(err=str(e))
+    finally:
+        con.close()
+
+
+@app.post("/migrate/opening")
+async def migrate_opening(request: Request):
+    form = await request.form()
+    con = db.connect()
+    try:
+        as_of = ledger.normalize_date(form.get("as_of", ""))
+        equity = con.execute("SELECT id FROM accounts WHERE lower(name)=lower('Owner''s Equity')").fetchone()
+        if not equity:
+            cur = con.execute("INSERT INTO accounts(name,type,kind) VALUES('Owner''s Equity','equity','category')")
+            equity_id = cur.lastrowid
+        else:
+            equity_id = equity["id"]
+        posted = []
+        for key, val in form.items():
+            if not key.startswith("bal_") or not str(val).strip():
+                continue
+            acct_id = int(key[4:])
+            acct = con.execute("SELECT * FROM accounts WHERE id=?", (acct_id,)).fetchone()
+            if not acct:
+                continue
+            cents = ledger.parse_amount_to_cents(str(val))
+            if cents == 0:
+                continue
+            # user enters natural balances: bank = money in the account, card = amount owed
+            raw = cents if acct["type"] == "asset" else -cents
+            ledger.post_entry(con, as_of, f"Opening balance - {acct['name']}",
+                              [(acct_id, raw), (equity_id, -raw)], memo="QBO migration opening balance")
+            posted.append(acct["name"])
+        con.commit()
+        if posted:
+            return _migrate_redirect(msg=f"Opening balances posted for: {', '.join(posted)} (as of {as_of}).")
+        return _migrate_redirect(err="No balances entered.")
+    except ValueError as e:
+        return _migrate_redirect(err=str(e))
+    finally:
+        con.close()
+
+
 # ---------- customers & invoices ----------
 
 def _invoice_rows(con):
@@ -867,9 +992,24 @@ def settings_page(request: Request):
         s = {k: db.get_setting(con, k, v) for k, v in db.DEFAULT_SETTINGS.items()}
         return templates.TemplateResponse(request, "settings.html", ctx(
             request, con, s=s, key_set=bool(key),
-            smtp_set=bool(db.get_setting(con, "smtp_password", ""))))
+            smtp_set=bool(db.get_setting(con, "smtp_password", "")),
+            backup=backup.status()))
     finally:
         con.close()
+
+
+@app.get("/backup.zip")
+def backup_zip():
+    data = backup.zip_bytes()
+    ts = date_cls.today().isoformat()
+    return StreamingResponse(iter([data]), media_type="application/zip",
+                             headers={"Content-Disposition": f"attachment; filename=shopbooks_backup_{ts}.zip"})
+
+
+@app.post("/backup/now")
+def backup_now():
+    backup.snapshot()
+    return RedirectResponse("/settings", status_code=303)
 
 
 @app.post("/settings")

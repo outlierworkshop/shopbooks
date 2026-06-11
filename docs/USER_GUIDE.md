@@ -1,9 +1,10 @@
 # ShopBooks User Guide
 
 ShopBooks keeps the books for a one-person business, entirely on your own computer.
-No subscription, no cloud, no one else's servers. Your complete financial records are
-two things: a database file (`data/books.db`) and a folder of receipt images (`data/docs/`).
-**Back up the `data` folder and you've backed up the business.**
+No subscription, no cloud, no one else's servers. Your complete financial records live in a
+stable folder outside the program: `%LOCALAPPDATA%\ShopBooks` (on this machine,
+`C:\Users\outli\AppData\Local\ShopBooks`) — the books database, your receipt images, and
+automatic backups. The Settings page shows the exact path and a one-click backup download.
 
 ## Starting and stopping
 
@@ -23,6 +24,23 @@ two things: a database file (`data/books.db`) and a folder of receipt images (`d
    password will not work.
 4. **Accounts** → rename "Credit Card 1/2/3" to your real cards (e.g. "Amex Blue").
 5. Check the **mileage rate** in Settings each January (IRS publishes a new one).
+
+## Coming from QuickBooks Online
+
+The **Migrate** page walks you through it. Export four CSVs from QBO and feed them in, in order:
+
+1. **Account List** report → CSV → creates your chart of accounts (your QBO categories carry over).
+2. **Transaction Detail by Account** report (date range you want to keep, Cash basis, with the
+   Date / Transaction Type / Name / Memo / **Account** / **Split** / Amount columns) → CSV →
+   your history lands in Review with QBO's categories already applied. Post it all; Skip the
+   duplicate side of transfers (flagged orange).
+3. **Customers** export → CSV.
+4. **Mileage** export → CSV (if you used QBO's tracker).
+5. Type in each account's real balance as of the day before your export starts (step 5 on the page).
+6. Verify: dashboard balances match your real bank/card balances, and last year's P&L here matches
+   QBO's (cash basis). Then cancel QuickBooks.
+
+Re-running any step is safe - existing records are skipped, and nothing posts without Review.
 
 ## Core ideas (60 seconds)
 
@@ -107,9 +125,18 @@ yourself (the matching still works once the numbers are in).
 
 ## Backups
 
-Copy the `shopbooks\data` folder somewhere safe (external drive, cloud drive, anywhere) on
-whatever schedule you'd be sad to lose. It's just files. To restore: stop the app, put the
-folder back, start the app.
+ShopBooks backs itself up automatically:
+
+- **Every time you start the app**, it saves a snapshot of your books into the `backups` folder
+  (keeping the last 20) and, if you use OneDrive, mirrors a copy to
+  `OneDrive\ShopBooks Backups\` — an automatic off-machine copy.
+- **Settings → Backups** shows where everything lives, when the last backup ran, and a
+  **Download full backup (ZIP)** button. The ZIP contains your database plus every receipt
+  image — keep one on an external drive or another cloud folder now and then for extra safety.
+
+**To restore a backup:** stop the app, go to the data folder (Settings shows the path), open the
+`backups` folder, and copy the `books-...db` you want over the top of `books.db` (rename it to
+`books.db`). Start the app — that snapshot is now your live books.
 
 ## Troubleshooting
 

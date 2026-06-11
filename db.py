@@ -1,11 +1,68 @@
-"""Database connection, schema, and seed data for ShopBooks."""
+"""Database connection, schema, and seed data for ShopBooks.
+
+Data location (the user's real books) is deliberately OUTSIDE the code folder so
+that git operations, a re-clone, or a careless test cleanup can never touch it:
+
+  - default:   %LOCALAPPDATA%\\ShopBooks  (stable per-user; not synced, not in repo)
+  - override:  set SHOPBOOKS_DATA_DIR  (TESTS MUST set this to a temp dir)
+
+See backup.py for the automatic snapshot/cloud-backup system.
+"""
+import os
+import shutil
 import sqlite3
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
-DATA = BASE / "data"
+APP_NAME = "ShopBooks"
+REPO_DIR = Path(__file__).resolve().parent
+OLD_DATA = REPO_DIR / "data"   # legacy in-repo location, migrated away from on first run
+
+
+def _default_data_dir():
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / APP_NAME
+
+
+def data_dir():
+    override = os.environ.get("SHOPBOOKS_DATA_DIR")
+    return Path(override).resolve() if override else _default_data_dir()
+
+
+DATA = data_dir()
 DOCS = DATA / "docs"
 DB_PATH = DATA / "books.db"
+BACKUPS = DATA / "backups"
+
+
+def _migrate_old_location():
+    """One-time move of a legacy in-repo data/ folder into the stable location.
+
+    Only runs for the DEFAULT location (never when SHOPBOOKS_DATA_DIR is set, so
+    tests never pull the repo's data/ into their temp dir). No-op once migrated.
+    """
+    if os.environ.get("SHOPBOOKS_DATA_DIR"):
+        return
+    if DB_PATH.exists() or not (OLD_DATA / "books.db").exists():
+        return
+    DATA.mkdir(parents=True, exist_ok=True)
+    DOCS.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(OLD_DATA / "books.db"), str(DB_PATH))
+    old_docs = OLD_DATA / "docs"
+    if old_docs.exists():
+        for f in old_docs.iterdir():
+            if f.is_file():
+                shutil.move(str(f), str(DOCS / f.name))
+    # fix stored absolute receipt paths to point at the new docs folder
+    con = sqlite3.connect(DB_PATH)
+    try:
+        for row in con.execute("SELECT id, filename FROM documents").fetchall():
+            con.execute("UPDATE documents SET path=? WHERE id=?",
+                        (str(DOCS / row[1]), row[0]))
+        con.commit()
+    except sqlite3.OperationalError:
+        pass  # documents table absent in a very old schema; nothing to fix
+    finally:
+        con.close()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts(
@@ -176,8 +233,8 @@ DEFAULT_SETTINGS = {
 
 
 def connect():
-    DATA.mkdir(exist_ok=True)
-    DOCS.mkdir(exist_ok=True)
+    DATA.mkdir(parents=True, exist_ok=True)
+    DOCS.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
@@ -185,6 +242,7 @@ def connect():
 
 
 def init():
+    _migrate_old_location()
     con = connect()
     con.executescript(SCHEMA)
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
