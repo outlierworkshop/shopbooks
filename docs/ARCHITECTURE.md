@@ -116,11 +116,24 @@ Worked examples (verify any change against all four):
   Sales −20000 (income up), Checking +20000 (asset up). ✓
 - Bank withdrawal $23.10, C=Shipping: Shipping +2310, Checking −2310. ✓
 
-### Duplicate detection
-A transfer appears on BOTH statements (card payment: card stmt shows credit, bank stmt shows
-withdrawal). Posting both double-counts. `importer.possible_duplicate` flags a staged row when
-a posted split already exists on the same source account for `−amount` within ±4 days.
-The user Skips the second copy. (Auto-merge was deliberately not built: too risky.)
+### Transfers / credit-card payments (automatic, ±7 days)
+A CC payment appears on BOTH statements (bank withdrawal + card payment); posting both
+double-counts. Handled automatically:
+- `importer.find_pending_partner` pairs the two **pending** sides by shape — money OUT of a bank
+  (positive staged amount) with money IN to a card (negative, equal size) within 7 days,
+  **direction-enforced** so an unrelated deposit + same-size charge is not mistaken for a transfer.
+  `importer.pair_transfers` (run at the end of `stage_transactions`) sets each side's category to
+  the other own account, so posting books a transfer (both legs bank/card) rather than an expense.
+- `importer.find_posted_transfer` returns the other own-account id when this row's transfer is
+  **already booked** from the other statement (matches only entries whose *both* legs are
+  bank/card — never a normal expense). The later side is auto-categorized to that account and
+  labelled "already recorded" in Review.
+- **Post-once guarantee**: `_post_staged` skips a row whose category is an own account when
+  `find_posted_transfer` finds the transfer already booked. Because posts within a request share
+  one connection (uncommitted rows are visible), `Post all` can have both sides queued and still
+  books exactly once, in any import order.
+- `importer.possible_duplicate` (±7 days) remains the generic fallback flag for non-transfer
+  look-alikes. Auto-merge of arbitrary duplicates was deliberately not built.
 
 ## Reports
 

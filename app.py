@@ -147,7 +147,13 @@ def review(request: Request, note: str = ""):
             "WHERE st.status='pending' ORDER BY b.id DESC, st.date, st.id").fetchall()
         items = []
         for r in rows:
-            items.append({**dict(r), "dup": importer.possible_duplicate(con, r["source_id"], r["date"], r["amount_cents"])})
+            booked = importer.find_posted_transfer(con, r["source_id"], r["amount_cents"], r["date"])
+            catrow = con.execute("SELECT name, kind FROM accounts WHERE id=?", (r["category_id"],)).fetchone() \
+                if r["category_id"] else None
+            transfer_to = catrow["name"] if catrow and catrow["kind"] in ("bank", "card") else None
+            dup = (importer.possible_duplicate(con, r["source_id"], r["date"], r["amount_cents"])
+                   and transfer_to is None and booked is None)
+            items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None})
         cats = categories(con)
         return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, note=note))
     finally:
@@ -159,6 +165,13 @@ def _post_staged(con, staged_id, category_id, remember=False):
         "SELECT st.*, b.account_id source_id FROM staged st JOIN batches b ON b.id=st.batch_id WHERE st.id=?",
         (staged_id,)).fetchone()
     if not st or st["status"] != "pending" or not category_id:
+        return
+    # post-once for transfers: if the category is one of your own accounts (a transfer) and the
+    # very same transfer is already booked from the other statement, skip instead of double-counting.
+    cat = con.execute("SELECT kind FROM accounts WHERE id=?", (category_id,)).fetchone()
+    if cat and cat["kind"] in ("bank", "card") and \
+            importer.find_posted_transfer(con, st["source_id"], st["amount_cents"], st["date"]) is not None:
+        con.execute("UPDATE staged SET status='skipped' WHERE id=?", (staged_id,))
         return
     entry_id = ledger.post_entry(con, st["date"], st["description"],
                                  [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])])

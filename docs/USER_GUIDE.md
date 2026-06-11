@@ -77,8 +77,11 @@ unapproved transaction — it fills in the suggested categories but posts nothin
   card payment you posted from the card statement now appearing in the bank statement.
   **Skip** it.
 - Amounts look backwards (deposits shown as charges)? **Flip signs** fixes the whole batch.
-- Credit card payment on a card statement: set its category to **Business Checking** — it
-  posts as a transfer between accounts, not an expense.
+- Credit card payments are matched automatically: the two sides (bank withdrawal + card payment,
+  within 7 days) are detected, categorized as a transfer, and booked only **once** — so "Post all"
+  is safe even with both statements queued. A row marked "transfer already recorded" is the second
+  side and is skipped for you. You only step in if a payment's other side hasn't been imported yet
+  (then set its category to the other account, e.g. the card or Business Checking).
 - Square payouts: category **Sales - Square**.
 
 ### 3. Receipts

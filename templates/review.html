@@ -25,9 +25,12 @@
 <table>
   <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Remember</th><th></th></tr>
   {% for it in items %}
-  <tr class="{{ 'row-dup' if it.dup else '' }}">
+  <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
     <td>{{ it.date }}</td>
-    <td>{{ it.description }}{% if it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>
+    <td>{{ it.description }}
+      {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
+      {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
+      {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>
     <td class="muted">{{ it.source_name }}</td>
     <td class="num {{ 'pos' if it.amount_cents < 0 else '' }}">${{ it.amount_cents|money }}</td>
     <td>
@@ -48,7 +51,8 @@
 </table>
 </form>
 <p class="muted">Positive amounts are money out (charges/withdrawals); green negatives are money in (deposits/payments).
-For a credit card payment, set the category to the bank account (it posts as a transfer) - and skip the matching
-withdrawal when you import the bank statement, or it will flag as a duplicate here.</p>
+<strong>Credit-card payments are matched automatically:</strong> the two sides (bank withdrawal + card payment,
+within 7 days) are detected, categorized as a transfer, and booked only once - so "Post all" is safe even with
+both statements in the queue. A row marked "already recorded" is the second side and is skipped for you.</p>
 {% endif %}
 {% endblock %}

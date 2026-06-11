@@ -180,16 +180,77 @@ def apply_rules(con, description):
 
 
 def possible_duplicate(con, source_account_id, date, amount_cents):
-    """True if a posted entry already hits this source account with the same amount within 4 days."""
+    """True if a posted entry already hits this source account with the same amount within 7 days."""
     row = con.execute(
         "SELECT 1 FROM splits s JOIN entries e ON e.id=s.entry_id "
-        "WHERE s.account_id=? AND s.amount_cents=? AND abs(julianday(e.date)-julianday(?))<=4 LIMIT 1",
+        "WHERE s.account_id=? AND s.amount_cents=? AND abs(julianday(e.date)-julianday(?))<=7 LIMIT 1",
         (source_account_id, -amount_cents, date)).fetchone()
     return row is not None
 
 
+# ---------------------------------------------------------------- transfers (CC payments)
+
+TRANSFER_WINDOW = 7  # days
+
+
+def find_pending_partner(con, source_account_id, amount_cents, date, exclude_id, window=TRANSFER_WINDOW):
+    """The other (pending) side of a credit-card payment, if present in the Review queue.
+
+    A CC payment is money OUT of a bank account (positive staged amount) meeting money IN to a
+    card (negative staged amount of equal size) within `window` days. Direction is enforced so
+    an unrelated deposit + same-size card charge are NOT mistaken for a transfer.
+    Returns the partner staged row (id, account_id = its source account) or None.
+    """
+    src = con.execute("SELECT kind FROM accounts WHERE id=?", (source_account_id,)).fetchone()
+    if not src:
+        return None
+    if src["kind"] == "bank" and amount_cents > 0:
+        partner_kind = "card"
+    elif src["kind"] == "card" and amount_cents < 0:
+        partner_kind = "bank"
+    else:
+        return None
+    return con.execute(
+        "SELECT st.id, b.account_id FROM staged st JOIN batches b ON b.id=st.batch_id "
+        "JOIN accounts a ON a.id=b.account_id "
+        "WHERE st.status='pending' AND st.id!=? AND b.account_id!=? AND a.kind=? "
+        "AND st.amount_cents=? AND abs(julianday(st.date)-julianday(?))<=? "
+        "ORDER BY abs(julianday(st.date)-julianday(?)) LIMIT 1",
+        (exclude_id, source_account_id, partner_kind, -amount_cents, date, window, date)).fetchone()
+
+
+def find_posted_transfer(con, source_account_id, amount_cents, date, window=TRANSFER_WINDOW):
+    """If this row's transfer is ALREADY booked from the other statement, return the other own
+    account's id (so the row can be labelled and skipped); else None. Matches only genuine
+    transfers (a posted entry whose BOTH legs are bank/card accounts), never normal expenses."""
+    row = con.execute(
+        "SELECT s2.account_id FROM entries e "
+        "JOIN splits s1 ON s1.entry_id=e.id AND s1.account_id=? AND s1.amount_cents=? "
+        "JOIN splits s2 ON s2.entry_id=e.id AND s2.account_id!=s1.account_id "
+        "JOIN accounts a2 ON a2.id=s2.account_id AND a2.kind IN ('bank','card') "
+        "WHERE abs(julianday(e.date)-julianday(?))<=? LIMIT 1",
+        (source_account_id, -amount_cents, date, window)).fetchone()
+    return row["account_id"] if row else None
+
+
+def pair_transfers(con, batch_id, source_account_id):
+    """After staging a batch, auto-categorize credit-card payments as transfers: set the
+    category to the matching own account so posting books a transfer (not an expense)."""
+    for row in con.execute("SELECT * FROM staged WHERE batch_id=? AND status='pending'", (batch_id,)).fetchall():
+        partner = find_pending_partner(con, source_account_id, row["amount_cents"], row["date"], row["id"])
+        if partner:
+            con.execute("UPDATE staged SET category_id=? WHERE id=?", (partner["account_id"], row["id"]))
+            con.execute("UPDATE staged SET category_id=? WHERE id=? AND status='pending'",
+                        (source_account_id, partner["id"]))
+            continue
+        booked = find_posted_transfer(con, source_account_id, row["amount_cents"], row["date"])
+        if booked is not None:
+            con.execute("UPDATE staged SET category_id=? WHERE id=?", (booked, row["id"]))
+
+
 def stage_transactions(con, batch_id, txns, source_account_id, category_names_by_id, ai_categories=None):
-    """Insert staged rows, auto-categorizing via rules first, AI suggestions second."""
+    """Insert staged rows, auto-categorizing via rules first, AI suggestions second, then pair
+    any credit-card-payment transfers between the user's own accounts."""
     name_to_id = {v: k for k, v in category_names_by_id.items()}
     for i, t in enumerate(txns):
         cat_id = apply_rules(con, t["description"])
@@ -198,3 +259,4 @@ def stage_transactions(con, batch_id, txns, source_account_id, category_names_by
         con.execute(
             "INSERT INTO staged(batch_id,date,description,amount_cents,category_id) VALUES(?,?,?,?,?)",
             (batch_id, t["date"], t["description"], t["amount_cents"], cat_id))
+    pair_transfers(con, batch_id, source_account_id)

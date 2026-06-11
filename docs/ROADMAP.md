@@ -14,6 +14,16 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-11 — Automatic credit-card-payment (transfer) matching
+- The two sides of a CC payment (bank withdrawal + card payment, equal amount, within 7 days)
+  are auto-detected by shape (money-out-of-bank ↔ money-in-to-card, direction-enforced so an
+  unrelated deposit + same-size charge isn't mis-paired) and auto-categorized as a transfer.
+- `_post_staged` is now transfer-aware (`importer.find_posted_transfer`): a transfer books
+  exactly once regardless of import order or "Post all" — the second side auto-skips. Review
+  labels rows "transfer to …" / "transfer already recorded". `possible_duplicate` window 4→7.
+- New `importer.find_pending_partner` / `find_posted_transfer` / `pair_transfers`; covered by
+  `test_transfers.py` (both-pending, cross-import, no false-pairing, zero-sum).
+
 ### 2026-06-11 — Fix wrong statement years (deterministic year reconciliation)
 - Bug: statement lines show only MM/DD, so the model guessed years and emitted e.g. 2028.
 - Schema now extracts `statement_end_date`; `importer.reconcile_years` recomputes each year from
