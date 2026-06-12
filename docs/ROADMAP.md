@@ -14,6 +14,19 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-12 — In-app restore, Save button, reset protection (after another data loss)
+- The live DB had reset to fresh again (root cause still unconfirmed; suspected an accidental
+  recreate). Backups had the data — recovered. Hardening so it can't bite again:
+- `backup.snapshot()` now **skips a fresh/seeded DB** (`looks_fresh`), so an accidental reset
+  can never evict the good backups via retention (bumped KEEP 20→40).
+- `backup.reset_suspected()` → a red banner on every page when the live DB looks empty but a
+  data backup exists, linking to Restore.
+- One-click **Restore** in Settings (`backup.restore` overwrites via the SQLite backup API,
+  stashing a `pre-restore-*` undo copy first; path-traversal guarded).
+- **💾 Save button** fixed bottom-left of every screen → snapshots and returns to the page with
+  a "Saved ✓" toast.
+- Covered by `test_restore.py`; `test_safety.py` updated for skip-when-fresh.
+
 ### 2026-06-11 — Sub-accounts (granular chart of accounts)
 - `accounts.parent_id` (column migration) enables two-level Category→Subcategory hierarchy;
   sub-accounts inherit the parent's type. Accounts page adds create-sub-account + re-parent

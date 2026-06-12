@@ -34,6 +34,7 @@ def ctx(request, con, **kw):
     unmatched = con.execute("SELECT COUNT(*) c FROM documents WHERE status='unmatched'").fetchone()["c"]
     return {"request": request, "pending_count": pending, "unmatched_count": unmatched,
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
+            "reset_suspected": backup.reset_suspected(),
             "business_name": db.get_setting(con, "business_name", "My Business"), **kw}
 
 
@@ -1208,7 +1209,7 @@ def settings_page(request: Request, msg: str = "", err: str = ""):
         return templates.TemplateResponse(request, "settings.html", ctx(
             request, con, s=s, key_set=bool(key),
             smtp_set=bool(db.get_setting(con, "smtp_password", "")),
-            backup=backup.status(), msg=msg, err=err))
+            backup=backup.status(), restorable=backup.list_restorable()[:30], msg=msg, err=err))
     finally:
         con.close()
 
@@ -1222,9 +1223,28 @@ def backup_zip():
 
 
 @app.post("/backup/now")
-def backup_now():
+def backup_now(back: str = Form("/settings")):
+    from urllib.parse import quote
     backup.snapshot()
-    return RedirectResponse("/settings", status_code=303)
+    dest = back if back.startswith("/") else "/settings"
+    sep = "&" if "?" in dest else "?"
+    return RedirectResponse(f"{dest}{sep}saved=1", status_code=303)
+
+
+@app.post("/backup/restore")
+def backup_restore(name: str = Form(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        had_data = not backup.looks_fresh(db.DB_PATH)
+    finally:
+        con.close()
+    try:
+        backup.restore(name)
+    except FileNotFoundError:
+        return RedirectResponse("/settings?err=" + quote("That backup could not be found."), status_code=303)
+    note = f"Restored from {name}." + (" Your previous data was saved as a pre-restore backup." if had_data else "")
+    return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
 
 
 @app.post("/ollama/test")

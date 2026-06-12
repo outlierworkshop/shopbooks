@@ -26,7 +26,22 @@
   <span class="ai-pill {{ 'on' if ai_on else 'off' }}">{{ 'AI on' if ai_on else 'AI off' }}</span>
 </nav>
 <main>
+{% if reset_suspected %}
+<p class="error" style="font-size:15px">
+  ⚠ Your books look empty, but backups with data exist. This is probably an accidental reset -
+  go to <a href="/settings#restore">Settings → Restore</a> to put your data back.
+</p>
+{% endif %}
 {% block content %}{% endblock %}
 </main>
+
+<form method="post" action="/backup/now" class="savebtn" title="Your work auto-saves; this also makes a restore point you can roll back to.">
+  <input type="hidden" name="back" value="{{ request.url.path }}">
+  <button type="submit">💾 Save</button>
+</form>
+{% if request.query_params.get('saved') %}
+<div class="toast" id="savedToast">Saved ✓ restore point created</div>
+<script>setTimeout(function(){var t=document.getElementById('savedToast'); if(t) t.style.display='none';}, 2500);</script>
+{% endif %}
 </body>
 </html>

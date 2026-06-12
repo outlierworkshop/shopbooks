@@ -167,9 +167,17 @@ ShopBooks backs itself up automatically:
 - **Settings → Backups** also has a **Download full backup (ZIP)** button (database + every
   receipt image) and a **Back up now** button.
 
-**To restore a backup:** stop the app, go to the data folder (Settings shows the path), open the
-`backups` folder, and copy the `books-...db` you want over the top of `books.db` (rename it to
-`books.db`). Start the app — that snapshot is now your live books.
+**To restore a backup:** go to **Settings → Restore from a backup**, pick a restore point (rows
+marked "(has data)" hold real records), and click **Restore**. Your current books are saved as a
+`pre-restore` backup first, so you can undo. No file copying needed.
+
+**The 💾 Save button** in the bottom-left of every screen makes a restore point on demand. Your
+work already auto-saves to the database the instant you do anything — Save just stamps a backup you
+can roll back to.
+
+**If your books ever look empty**, a red banner appears at the top of every page pointing you to
+Restore — that means a backup with your data exists and you can put it back in one click. (Empty
+databases are never backed up, so an accidental reset can't overwrite your good backups.)
 
 ## Troubleshooting
 

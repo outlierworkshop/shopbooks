@@ -224,10 +224,17 @@ The user's books are irreplaceable, so location and backups are first-class conc
   stable dir, including rewriting stored absolute receipt paths. Guarded to skip when
   `SHOPBOOKS_DATA_DIR` is set so tests never pull repo data into their temp dir.
 - **Backups** (`backup.py`): `snapshot()` runs at app startup — a consistent copy via SQLite's
-  backup API (valid even mid-write) into `<datadir>/backups/` (last 20), mirrored to
-  `<OneDrive>/ShopBooks Backups/`. `zip_bytes()` powers the Settings download (DB + receipts).
-  Cloud mirroring is suppressed in test mode (`SHOPBOOKS_DATA_DIR` set) so tests never write to
-  the real OneDrive. Restore is manual (documented in USER_GUIDE) — nothing auto-overwrites live data.
+  backup API (valid even mid-write) into `<datadir>/backups/` (last `KEEP`=40), mirrored to
+  `<OneDrive>/ShopBooks Backups/`. **A fresh/seeded DB is NOT snapshotted** (`looks_fresh`): no
+  data, plus snapshotting it would evict good backups via retention — this is the guard against
+  an accidental reset destroying the backups too. `zip_bytes()` powers the Settings ZIP download.
+  Cloud mirroring is suppressed in test mode (`SHOPBOOKS_DATA_DIR` set).
+- **Restore** (`backup.restore`): overwrites the live DB's contents from a chosen backup via the
+  SQLite backup API (works with the app running), after a `pre-restore-*` undo copy; basename-only
+  (path-traversal guarded). `pre-restore-*` / `SAFE-*` files are never pruned (`_prune` globs
+  `books-*.db` only). `reset_suspected()` (live `looks_fresh` AND a data backup exists) drives a
+  warning banner in `base.html`; the 💾 Save button (`/backup/now` with a `back` field) snapshots
+  from any page. Cheap on normal loads: `looks_fresh(live)` short-circuits before scanning backups.
 - **Test isolation is mandatory**: every test sets `SHOPBOOKS_DATA_DIR` to a temp dir before
   importing `db`/`app`. `test_safety.py` is the committed proof and template.
 

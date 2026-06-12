@@ -27,10 +27,14 @@ db.init()
 ok(db.DB_PATH.exists(), "init created DB in temp dir")
 ok(repo_data.exists() == repo_existed, "init did NOT create/migrate repo data/ (override set)")
 
-# 2. backup snapshot lands in temp dir
+# 2. backup snapshot lands in temp dir (a fresh DB is skipped, so add data first)
 import app  # noqa: E402  (triggers db.init + backup.snapshot at import)
+import backup as backupmod  # noqa: E402
+ok(not list((TMP / "backups").glob("books-*.db")), "fresh DB is not snapshotted (protects good backups)")
+_c = db.connect(); db.set_setting(_c, "business_name", "Test Co"); _c.commit(); _c.close()
+backupmod.snapshot()
 snaps = list((TMP / "backups").glob("books-*.db"))
-ok(len(snaps) >= 1, f"startup snapshot created ({len(snaps)} found)")
+ok(len(snaps) >= 1, f"snapshot created once the DB has data ({len(snaps)} found)")
 
 # snapshot is a valid sqlite db with the schema
 import sqlite3  # noqa: E402
