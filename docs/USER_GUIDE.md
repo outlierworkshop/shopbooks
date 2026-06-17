@@ -90,6 +90,15 @@ automatically and matched against your posted transactions by amount and date. O
 match = matched automatically; multiple = you pick. No match yet usually means you haven't
 imported that statement yet — it'll match later.
 
+**Better categories from receipts:** a card line like `AMAZON MKTPL` doesn't say *what* you
+bought, so it gets a rough category. Once a receipt is **matched** to its transaction, the
+Receipts page shows that transaction's category with a dropdown (change it anytime) and a
+**🤖 Suggest from receipt** button — Claude reads the receipt's items (Amazon orders carry the
+full item list) and picks a better category from your chart of accounts. There's also a page-level
+**Recategorize matched transactions from their receipts** to do them all at once. It only ever
+changes the category (never the amount), it's an explicit click (never automatic), and you can
+re-pick from the dropdown if you disagree.
+
 **Amazon orders:** since Amazon is a big share of purchases, you don't need photos — use
 **Import Amazon orders (CSV)** on the Receipts page. Get the file from Amazon → Account →
 **Request My Data** → "Your Orders" (emailed as `Retail.OrderHistory.*.csv`). It builds an

@@ -14,6 +14,18 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-17 — Recategorize a transaction from its matched receipt (relates to #3)
+- `ledger.entry_category` / `ledger.set_entry_category`: read and re-point the single income/
+  expense leg of a simple 2-sided entry to another account **of the same type** (amounts
+  unchanged → stays balanced). Refuses transfers/multi-split and cross-type moves.
+- Receipts page: matched receipts show their current category with a **manual dropdown**
+  (reversible) and a **🤖 Suggest from receipt** button; a page-level **Recategorize matched
+  transactions from their receipts** batches it. AI reads the receipt vendor/items (Amazon `.txt`
+  has the itemized list) and picks from the **expense chart of accounts** via `ai.categorize`.
+- Why: card lines like `AMAZON MKTPL` categorize weakly; the order receipt's items (e.g. an RTX
+  5070 Ti → Tools & Small Equipment) give a far better category. Matching still never auto-edits
+  a category — recategorize is an explicit click and fully reversible. Covered by `test_recategorize.py`.
+
 ### 2026-06-17 — Auto-attach Amazon orders as receipts (issue #12)
 - `importer.parse_amazon_orders` parses the Amazon order-history CSV (newer
   `Retail.OrderHistory.*.csv` and older Order Reports), tolerant header detection, groups item
