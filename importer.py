@@ -138,52 +138,72 @@ def _amazon_date(raw):
     return normalize_date(s)
 
 
+# Order-level total columns (one value per order, repeated on every item row) == the card charge.
+# Preferred over item-level columns because order-level promos/adjustments make the item sum differ.
+AMAZON_ORDER_TOTAL_H = ("order net total", "total amount", "payment amount", "order total", "grand total")
+# Per-item total columns (consumer "Retail.OrderHistory" export has only these) -> summed per order.
+AMAZON_ITEM_TOTAL_H = ("total owed", "item net total", "item total", "item subtotal")
+AMAZON_DATE_H = ("order date", "date")
+AMAZON_ID_H = ("order id", "order number", "order #")
+AMAZON_NAME_H = ("title", "product name", "item name", "product")
+
+
 def parse_amazon_orders(raw_bytes):
     """Parse an Amazon order-history CSV into a list of orders (no AI; deterministic).
 
-    Handles the variants Amazon ships: the newer 'Request My Data -> Your Orders'
-    (Retail.OrderHistory.*.csv) and the older Order Reports. Item rows are grouped by
-    Order ID and summed to an order total. Returns
-    [{date, order_id, total_cents, items: [names]}] sorted by date.
+    Handles both shapes Amazon ships:
+      - Business/Order Reports: has an order-level total ('Order Net Total' / 'Total Amount' /
+        'Payment Amount') repeated on each item row -> taken ONCE per order (this equals the card
+        charge; item subtotals can differ due to order-level promos).
+      - Consumer 'Request My Data -> Your Orders' (Retail.OrderHistory.*.csv): per-item totals
+        only ('Total Owed') -> summed per order.
+    Returns [{date, order_id, total_cents, items: [names]}] sorted by date.
     """
-    date_h = ("order date", "date")
-    id_h = ("order id", "order #", "order number")
-    name_h = ("product name", "title", "item name", "product")
-    total_h = ("total owed", "item total", "item subtotal", "total charged", "amount")
-
-    text = raw_bytes.decode("utf-8-sig", errors="replace")
+    try:
+        text = raw_bytes.decode("utf-8-sig")          # most exports
+    except UnicodeDecodeError:
+        text = raw_bytes.decode("cp1252", errors="replace")  # some Amazon reports (™/® in titles)
     rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
     if not rows:
         raise ValueError("That file is empty.")
-    # find the header row (Amazon sometimes prefixes a title line)
-    hi = di = oi = ti = ni = None
+    hi = di = oi = ni = order_col = item_col = None
     for idx, row in enumerate(rows[:5]):
-        d, o, t = _find_col(row, date_h), _find_col(row, id_h), _find_col(row, total_h)
-        if d is not None and o is not None and t is not None:
-            hi, di, oi, ti, ni = idx, d, o, t, _find_col(row, name_h)
+        d, o = _find_col(row, AMAZON_DATE_H), _find_col(row, AMAZON_ID_H)
+        oc, ic = _find_col(row, AMAZON_ORDER_TOTAL_H), _find_col(row, AMAZON_ITEM_TOTAL_H)
+        if d is not None and o is not None and (oc is not None or ic is not None):
+            hi, di, oi, ni, order_col, item_col = idx, d, o, _find_col(row, AMAZON_NAME_H), oc, ic
             break
     if hi is None:
         raise ValueError("Couldn't find Amazon columns (need Order Date, Order ID, and a total). "
-                         "Use Amazon -> Account -> Request My Data -> 'Your Orders'.")
+                         "Use Amazon -> Account -> Request My Data -> 'Your Orders', or a Business order report.")
+    total_col = order_col if order_col is not None else item_col
+    by_order_level = order_col is not None
 
     orders = {}
     for r in rows[hi + 1:]:
-        if max(di, oi, ti) >= len(r):
+        if max(di, oi, total_col) >= len(r):
             continue
         oid = r[oi].strip()
         if not oid:
             continue
         try:
             d = _amazon_date(r[di])
-            cents = parse_amount_to_cents(r[ti])
-        except (ValueError, IndexError):
+        except ValueError:
             continue
-        o = orders.setdefault(oid, {"date": d, "order_id": oid, "total_cents": 0, "items": []})
-        o["total_cents"] += cents
+        try:
+            cents = parse_amount_to_cents(r[total_col])
+        except ValueError:
+            cents = None
+        o = orders.setdefault(oid, {"date": d, "order_id": oid, "total_cents": None, "items": []})
         o["date"] = min(o["date"], d)  # earliest line date for the order
         if ni is not None and ni < len(r) and r[ni].strip():
             o["items"].append(r[ni].strip())
-    out = [o for o in orders.values() if o["total_cents"] != 0]
+        if cents is not None:
+            if by_order_level:
+                o["total_cents"] = cents          # identical on every row; take once
+            else:
+                o["total_cents"] = (o["total_cents"] or 0) + cents  # per-item; sum
+    out = [o for o in orders.values() if o["total_cents"]]
     if not out:
         raise ValueError("No Amazon orders with a total were found in that file.")
     out.sort(key=lambda o: o["date"])

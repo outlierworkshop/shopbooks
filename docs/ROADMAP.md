@@ -23,7 +23,10 @@ boring tech, built for exactly one user.
   (amount+date). New route `POST /receipts/import-amazon` + a Receipts-page upload.
 - Caveat documented in UI/guide: Amazon bills per shipment, so order totals are approximate
   matches — user confirms unmatched ones in the Receipts page. Covered by `test_amazon.py`.
-- **TODO: verify column mapping against the owner's real Amazon export before fully trusting it.**
+- Verified against the owner's real Business order report (75 orders): order-level total
+  (`Order Net Total`) is taken ONCE per order — item-subtotal summing would be wrong when an
+  order-level promo applies (e.g. $148.62 charge vs $161.52 item sum). cp1252 decode fallback
+  for ™/® in titles.
 
 ### 2026-06-16 — Job costing, Phase 2: tag transactions to jobs (issue #9)
 - New nullable `entries.job_id` (in SCHEMA + a guarded `_column_migrations` ALTER) tags a whole

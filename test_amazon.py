@@ -38,6 +38,18 @@ o2 = importer.parse_amazon_orders(old_csv.encode())
 ok(len(o2) == 1 and o2[0]["total_cents"] == 4500 and o2[0]["date"] == "2026-02-20",
    "older format + prefix line + MM/DD/YYYY parsed")
 
+# --- Business/Order Reports format: order-level total taken ONCE, not summed from items ---
+# (item subtotals 100+60=160, but an order-level promo makes the real Order Net Total 148.62)
+biz_csv = (
+    "Order Date,Order ID,Title,Order Promotion,Order Net Total,Item Subtotal\n"
+    "06/11/2026,111-AAA,Widget A,\"-11.38\",\"148.62\",\"100.00\"\n"
+    "06/11/2026,111-AAA,Widget B,\"-11.38\",\"148.62\",\"60.00\"\n"
+)
+b = importer.parse_amazon_orders(biz_csv.encode())
+ok(len(b) == 1, "business format: one order")
+ok(b[0]["total_cents"] == 14862, f"order-level total taken once (148.62), not item-sum (160.00) — got {b[0]['total_cents']}")
+ok(len(b[0]["items"]) == 2, "both item titles still collected")
+
 # --- end to end: a matching card charge exists -> auto-match ---
 con = db.connect()
 card = con.execute("SELECT id FROM accounts WHERE name='Credit Card 1'").fetchone()["id"]
