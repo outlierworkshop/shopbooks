@@ -312,7 +312,8 @@ def register_view(request: Request, account_id: int):
     try:
         acct, rows = ledger.register(con, account_id)
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
-        return templates.TemplateResponse(request, "register.html", ctx(request, con, acct=acct, rows=rows, balance=bal))
+        return templates.TemplateResponse(request, "register.html", ctx(
+            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con)))
     finally:
         con.close()
 
@@ -328,11 +329,16 @@ def entry_delete(entry_id: int, back: str = Form("/")):
         con.close()
 
 
+def _active_jobs(con):
+    return con.execute("SELECT id, name FROM jobs WHERE status='active' ORDER BY created_at DESC").fetchall()
+
+
 @app.get("/entry/new", response_class=HTMLResponse)
 def entry_new(request: Request):
     con = db.connect()
     try:
-        return templates.TemplateResponse(request, "entry.html", ctx(request, con, cats=categories(con), error=None))
+        return templates.TemplateResponse(request, "entry.html", ctx(
+            request, con, cats=categories(con), jobs=_active_jobs(con), error=None))
     finally:
         con.close()
 
@@ -340,16 +346,29 @@ def entry_new(request: Request):
 @app.post("/entry/new")
 def entry_create(request: Request, date: str = Form(...), payee: str = Form(...),
                  amount: str = Form(...), to_account: int = Form(...), from_account: int = Form(...),
-                 memo: str = Form("")):
+                 memo: str = Form(""), job_id: str = Form("")):
     con = db.connect()
     try:
         cents = ledger.parse_amount_to_cents(amount)
         ledger.post_entry(con, ledger.normalize_date(date), payee,
-                          [(to_account, cents), (from_account, -cents)], memo)
+                          [(to_account, cents), (from_account, -cents)], memo,
+                          job_id=int(job_id) if job_id.strip() else None)
         con.commit()
         return RedirectResponse("/", status_code=303)
     except ValueError as e:
-        return templates.TemplateResponse(request, "entry.html", ctx(request, con, cats=categories(con), error=str(e)))
+        return templates.TemplateResponse(request, "entry.html", ctx(
+            request, con, cats=categories(con), jobs=_active_jobs(con), error=str(e)))
+    finally:
+        con.close()
+
+
+@app.post("/entry/{entry_id}/job")
+def entry_set_job(entry_id: int, job_id: str = Form(""), back: str = Form("/")):
+    con = db.connect()
+    try:
+        ledger.set_entry_job(con, entry_id, int(job_id) if job_id.strip() else None)
+        con.commit()
+        return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
     finally:
         con.close()
 

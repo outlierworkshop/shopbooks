@@ -16,6 +16,11 @@
     {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
   </select>
   <label>Memo</label><input type="text" name="memo">
+  <label>Job (optional)</label>
+  <select name="job_id">
+    <option value="">(no job)</option>
+    {% for j in jobs %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
+  </select>
   <span></span><span><button type="submit">Post entry</button></span>
 </form>
 <p class="muted">Examples - bought supplies on a card: to = Materials &amp; Supplies, from = the card.

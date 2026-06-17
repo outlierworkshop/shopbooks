@@ -47,17 +47,24 @@ def normalize_date(text):
     raise ValueError(f"unrecognized date: {text!r}")
 
 
-def post_entry(con, date, payee, splits, memo=""):
-    """splits: list of (account_id, amount_cents). Must sum to zero."""
+def post_entry(con, date, payee, splits, memo="", job_id=None):
+    """splits: list of (account_id, amount_cents). Must sum to zero.
+    job_id optionally tags the whole transaction to a job (for job costing)."""
     if sum(c for _, c in splits) != 0:
         raise ValueError("splits do not balance")
-    cur = con.execute("INSERT INTO entries(date,payee,memo) VALUES(?,?,?)", (date, payee, memo))
+    cur = con.execute("INSERT INTO entries(date,payee,memo,job_id) VALUES(?,?,?,?)",
+                      (date, payee, memo, job_id or None))
     entry_id = cur.lastrowid
     for account_id, cents in splits:
         if cents != 0:
             con.execute("INSERT INTO splits(entry_id,account_id,amount_cents) VALUES(?,?,?)",
                         (entry_id, account_id, cents))
     return entry_id
+
+
+def set_entry_job(con, entry_id, job_id):
+    """Tag (or, with job_id=None, untag) an existing transaction to a job."""
+    con.execute("UPDATE entries SET job_id=? WHERE id=?", (job_id or None, entry_id))
 
 
 def delete_entry(con, entry_id):
@@ -138,9 +145,10 @@ def register(con, account_id):
     """All splits hitting an account, oldest first, with counter-account names and running balance."""
     acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
     rows = con.execute(
-        "SELECT s.id split_id, s.amount_cents, e.id entry_id, e.date, e.payee, e.memo "
-        "FROM splits s JOIN entries e ON e.id=s.entry_id WHERE s.account_id=? "
-        "ORDER BY e.date, e.id", (account_id,)).fetchall()
+        "SELECT s.id split_id, s.amount_cents, e.id entry_id, e.date, e.payee, e.memo, "
+        "e.job_id, j.name job_name "
+        "FROM splits s JOIN entries e ON e.id=s.entry_id LEFT JOIN jobs j ON j.id=e.job_id "
+        "WHERE s.account_id=? ORDER BY e.date, e.id", (account_id,)).fetchall()
     out, running = [], 0
     for r in rows:
         running += r["amount_cents"]
@@ -154,6 +162,7 @@ def register(con, account_id):
             "balance": display_balance(acct["type"], running),
             "other": ", ".join(o["name"] for o in others) or "(split)",
             "doc_id": doc["id"] if doc else None,
+            "job_id": r["job_id"], "job": r["job_name"],
         })
     out.reverse()  # newest first for display
     return acct, out

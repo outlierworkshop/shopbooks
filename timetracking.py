@@ -130,13 +130,18 @@ def categories(con):
 
 
 def jobs_overview(con):
-    """All jobs with their hours + billable value rolled up, for the Jobs page."""
+    """All jobs with hours, billable value, and net cash profit rolled up, for the Jobs page."""
     dft = default_rate_cents(con)
     agg = {}
     for r in con.execute("SELECT job_id, hours, billable, rate_cents FROM time_entries").fetchall():
         a = agg.setdefault(r["job_id"], {"hours": 0.0, "value": 0})
         a["hours"] += r["hours"]
         a["value"] += _value_cents(r["hours"], r["billable"], r["rate_cents"], dft)
+    # net cash profit per job (income - expenses on tagged transactions)
+    net = {r["job_id"]: -r["raw"] for r in con.execute(
+        "SELECT e.job_id, COALESCE(SUM(s.amount_cents),0) raw "
+        "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+        "WHERE e.job_id IS NOT NULL AND a.type IN ('income','expense') GROUP BY e.job_id").fetchall()}
     rows = con.execute(
         "SELECT j.*, c.name customer_name FROM jobs j LEFT JOIN customers c ON c.id=j.customer_id "
         "ORDER BY (j.status='done'), j.created_at DESC").fetchall()
@@ -144,13 +149,42 @@ def jobs_overview(con):
     for j in rows:
         a = agg.get(j["id"], {"hours": 0.0, "value": 0})
         out.append({"id": j["id"], "name": j["name"], "customer": j["customer_name"],
-                    "status": j["status"], "hours": round(a["hours"], 2), "billable_value": a["value"]})
+                    "status": j["status"], "hours": round(a["hours"], 2),
+                    "billable_value": a["value"], "net_cash": net.get(j["id"], 0)})
     return out
 
 
+def job_financials(con, job_id):
+    """Cash income/expenses tagged to a job, and the resulting net cash profit (cents).
+    Income splits are credit-normal (stored negative), so income = -sum; expenses are
+    stored positive. Labor is NOT subtracted here — it's shown alongside as $/hour."""
+    income = expense = 0
+    for r in con.execute(
+            "SELECT a.type, COALESCE(SUM(s.amount_cents),0) raw "
+            "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+            "WHERE e.job_id=? AND a.type IN ('income','expense') GROUP BY a.type", (job_id,)).fetchall():
+        if r["type"] == "income":
+            income = -r["raw"]
+        else:
+            expense = r["raw"]
+    return {"income": income, "expenses": expense, "net_cash": income - expense}
+
+
+def job_transactions(con, job_id):
+    """Transactions tagged to a job (newest first), each with its profit contribution
+    (income minus expense effect), for the job detail page."""
+    rows = con.execute(
+        "SELECT e.id, e.date, e.payee, "
+        "-COALESCE(SUM(CASE WHEN a.type IN ('income','expense') THEN s.amount_cents ELSE 0 END),0) pnl "
+        "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+        "WHERE e.job_id=? GROUP BY e.id ORDER BY e.date DESC, e.id DESC", (job_id,)).fetchall()
+    return [{"id": r["id"], "date": r["date"], "payee": r["payee"], "pnl": r["pnl"]} for r in rows]
+
+
 def job_report(con, job_id):
-    """One job's detail: the job row, its entries (newest first), and totals.
-    Returns None if the job doesn't exist."""
+    """One job's full picture: the job row, time entries + totals, the tagged-transaction
+    financials (income/expenses/net cash profit), and the effective $/hour your labor earned
+    on it (net cash / total hours). Returns None if the job doesn't exist."""
     job = con.execute(
         "SELECT j.*, c.name customer_name FROM jobs j LEFT JOIN customers c ON c.id=j.customer_id "
         "WHERE j.id=?", (job_id,)).fetchone()
@@ -169,5 +203,10 @@ def job_report(con, job_id):
         entries.append({"id": r["id"], "date": r["date"], "hours": r["hours"],
                         "category": r["category"], "note": r["note"],
                         "billable": bool(r["billable"]), "value": v})
-    return {"job": job, "entries": entries, "total_hours": round(total_h, 2),
-            "billable_hours": round(bill_h, 2), "billable_value": value}
+    total_h = round(total_h, 2)
+    fin = job_financials(con, job_id)
+    effective_hourly = round(fin["net_cash"] / total_h) if total_h else None
+    return {"job": job, "entries": entries, "total_hours": total_h,
+            "billable_hours": round(bill_h, 2), "billable_value": value,
+            "financials": fin, "transactions": job_transactions(con, job_id),
+            "effective_hourly": effective_hourly}

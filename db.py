@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS entries(
   date TEXT NOT NULL,
   payee TEXT NOT NULL DEFAULT '',
   memo TEXT NOT NULL DEFAULT '',
+  job_id INTEGER REFERENCES jobs(id),  -- optional: tags this transaction to a job (for job costing)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS splits(
@@ -279,6 +280,9 @@ def _column_migrations(con):
     acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
     if "parent_id" not in acct:
         con.execute("ALTER TABLE accounts ADD COLUMN parent_id INTEGER REFERENCES accounts(id)")
+    ent = {r["name"] for r in con.execute("PRAGMA table_info(entries)").fetchall()}
+    if "job_id" not in ent:
+        con.execute("ALTER TABLE entries ADD COLUMN job_id INTEGER REFERENCES jobs(id)")
 
 
 def init():
