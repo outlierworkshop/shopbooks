@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ rep.job.name }}{% endblock %}
+{% block content %}
+<h1>{{ rep.job.name }}</h1>
+<p class="muted">
+  {% if rep.job.customer_name %}Customer: {{ rep.job.customer_name }} · {% endif %}
+  Status: {{ rep.job.status }} · <a href="/jobs">← All jobs</a>
+</p>
+{% if rep.job.notes %}<p>{{ rep.job.notes }}</p>{% endif %}
+
+<div class="cards">
+  <div class="card"><div class="label">Total hours</div><div class="big">{{ '%.2f'|format(rep.total_hours) }}</div></div>
+  <div class="card"><div class="label">Billable hours</div><div class="big">{{ '%.2f'|format(rep.billable_hours) }}</div></div>
+  <div class="card"><div class="label">Billable value</div><div class="big pos">${{ rep.billable_value|money }}</div></div>
+</div>
+
+<h2>Time entries</h2>
+<table>
+  <tr><th>Date</th><th class="num">Hours</th><th>Category</th><th>Note</th><th>Billable</th><th class="num">Value</th></tr>
+  {% for e in rep.entries %}
+  <tr>
+    <td>{{ e.date }}</td>
+    <td class="num">{{ '%.2f'|format(e.hours) }}</td>
+    <td>{{ e.category }}</td>
+    <td class="muted">{{ e.note }}</td>
+    <td>{% if e.billable %}<span class="pos">yes</span>{% else %}<span class="muted">no</span>{% endif %}</td>
+    <td class="num">{% if e.value %}${{ e.value|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No time logged against this job yet — add it from the <a href="/time">Time</a> page.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">Materials and income for this job aren't counted here yet — that's a planned next step
+(tagging transactions to a job) for full profit-per-job.</p>
+{% endblock %}

@@ -13,7 +13,10 @@
   <label>Email</label><input type="email" name="business_email" value="{{ s.business_email }}">
   <label>Phone</label><input type="text" name="business_phone" value="{{ s.business_phone }}">
   <label>Mileage rate ($/mi)</label><input type="text" name="mileage_rate" value="{{ s.mileage_rate }}">
+  <label>Default hourly rate ($/hr)</label><input type="text" name="default_hourly_rate" value="{{ s.default_hourly_rate }}">
 </div>
+<p class="muted">The default billing rate for time entries marked billable; each entry can override it.
+Used only for the billable-value figures on the Time and Jobs pages - it is not posted to the books.</p>
 
 <h2>Invoicing</h2>
 <div class="formgrid">

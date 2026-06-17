@@ -14,6 +14,20 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-16 — Time tracking & job costing, Phase 1 (issue #9)
+- New `jobs` and `time_entries` tables + `default_hourly_rate` setting. Manual time entry only
+  (no timer), logged against optional **jobs** (which can link to a customer) and free-text work
+  **categories**, with a billable flag + optional per-entry rate.
+- `timetracking.py`: hours/billable-value rollups by job and category, per-job report, jobs
+  overview (mirrors `insights.py` style). All money in integer cents.
+- Pages: `/time` (period totals, entry log, by-category/by-job breakdowns), `/jobs` and
+  `/jobs/{id}` (create jobs, mark done, per-job hours + billable value). "Time" nav link.
+- **Not posted to the ledger** (managerial, like mileage) and **not wired into invoices** yet —
+  billable hours show a dollar value in reports only. `test_timetracking.py` asserts the math and
+  that no ledger entries/splits are ever created.
+- Phase 2 (separate issues): tag ledger transactions with a `job_id` for full profit-per-job;
+  optional invoice-from-billable-time; optional live timer.
+
 ### 2026-06-12 — In-app restore, Save button, reset protection (after another data loss)
 - The live DB had reset to fresh again (root cause still unconfirmed; suspected an accidental
   recreate). Backups had the data — recovered. Hardening so it can't bite again:

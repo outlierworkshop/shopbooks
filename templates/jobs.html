@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+{% block content %}
+<h1>Jobs &amp; job costing</h1>
+<p class="muted">Group your time by job (a build, a repair, a commission). Each job rolls up its hours
+and billable value. <a href="/time">← Time log</a></p>
+
+<h2>Add a job</h2>
+<form method="post" class="toolbar">
+  <input type="text" name="name" placeholder="job name (Tenor uke #14, Bridge reglue...)" style="width:280px" required>
+  <select name="customer_id" style="width:200px">
+    <option value="">(no customer)</option>
+    {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+  </select>
+  <input type="text" name="notes" placeholder="notes (optional)" style="width:240px">
+  <button type="submit">Add job</button>
+</form>
+
+<table>
+  <tr><th>Job</th><th>Customer</th><th>Status</th><th class="num">Hours</th><th class="num">Billable $</th><th></th></tr>
+  {% for j in jobs %}
+  <tr>
+    <td><a href="/jobs/{{ j.id }}">{{ j.name }}</a></td>
+    <td class="muted">{{ j.customer or '—' }}</td>
+    <td>{% if j.status == 'done' %}<span class="muted">done</span>{% else %}<span class="pos">active</span>{% endif %}</td>
+    <td class="num">{{ '%.2f'|format(j.hours) }}</td>
+    <td class="num">{% if j.billable_value %}${{ j.billable_value|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td><form class="inline" method="post" action="/jobs/status">
+      <input type="hidden" name="job_id" value="{{ j.id }}">
+      <input type="hidden" name="status" value="{{ 'active' if j.status == 'done' else 'done' }}">
+      <button class="small" type="submit">{{ 'Reopen' if j.status == 'done' else 'Mark done' }}</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No jobs yet. Add one above, then log time against it.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
