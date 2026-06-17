@@ -1,0 +1,27 @@
+# Normalize line endings across machines (Mac/Linux LF, Windows CRLF) so working
+# on two computers never produces noisy whole-file "every line changed" diffs.
+# Git stores text as LF; each machine checks out its native endings.
+
+* text=auto
+
+# Force endings where the platform/tooling cares:
+*.py   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.csv  text eol=lf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary assets — never touch line endings:
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.db   binary
