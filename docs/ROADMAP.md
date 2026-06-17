@@ -14,6 +14,15 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-17 — Hide/reactivate accounts; loaded owner's real 2025 chart of accounts
+- Imported the owner's full 2025 P&L chart of accounts (14 income, ~67 expense incl. parents+subs)
+  with the 2-level hierarchy; flattened the one 3-level COGS branch; disambiguated duplicate names
+  ("Rent Utilities", "Materials - Consumables & Fixturing"); reused existing Office Supplies/Utilities.
+- New active/inactive toggle: `POST /accounts/active` (refuses to hide accounts with posted splits
+  or active sub-accounts, so reports stay correct), `ledger.accounts_with_balances(include_inactive=)`
+  + `active`/`has_history` flags, Accounts-page Hide/Reactivate + show-hidden. Pickers already
+  filter `active=1`. Hid 16 unused seed categories (3 with history kept). Covered by `test_deactivate.py`.
+
 ### 2026-06-17 — Recategorize a transaction from its matched receipt (relates to #3)
 - `ledger.entry_category` / `ledger.set_entry_category`: read and re-point the single income/
   expense leg of a simple 2-sided entry to another account **of the same type** (amounts
