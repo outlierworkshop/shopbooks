@@ -94,6 +94,7 @@ existing example). Existing user data must always survive an upgrade.
 | `app.py` | All FastAPI routes (thin; logic lives in modules) |
 | `db.py` | Connection, schema, seeds, settings helpers, `DEFAULT_SETTINGS` |
 | `ledger.py` | Double-entry core: post/delete entries, balances, registers, P&L, balance sheet |
+| `insights.py` | Read-only "book query" layer: deterministic P&L/growth/trend/cash/health figures for reports and AI tools (reuses `ledger.py`). Numbers are computed here — never by the model |
 | `importer.py` | CSV parsing, PDF text extraction, regex statement fallback, rules engine, duplicate detection, staging |
 | `ai.py` | AI: statement extraction, receipt vision, categorization. Pluggable backend (`ai_backend`: claude/ollama/hybrid); all optional, return None on any failure |
 | `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email |
@@ -102,6 +103,26 @@ existing example). Existing user data must always survive an upgrade.
 | `migrate.py` | QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances) |
 | `%LOCALAPPDATA%\ShopBooks\` | **User's real books** — books.db + docs/ (receipts) + backups/. NOT in the repo. Never wipe |
 | `docs/` | ARCHITECTURE.md (design + rationale), USER_GUIDE.md, ROADMAP.md (changelog + planned work) |
+
+## AI assistant roadmap (GitHub milestone "AI accounting assistant", issues #2–#7)
+
+The owner wants ShopBooks to lean on Claude for the redundant bookkeeping and for
+business insight. **Core principle: the ledger stays deterministic.** All numbers
+come from SQL / `ledger.py` / `insights.py`; the model only categorizes, interprets,
+and chats, and must *never* compute or invent a figure. The unifying design is the
+read-only "book query" tool layer (`insights.py`) that both report pages and (later)
+Claude tools call — the chatbot and analyses all sit on top of it. Anything that
+posts to the books stays human-confirmed (the Review step).
+
+- **#2 Book-query tool layer (`insights.py`) — done.** The foundation below.
+- #3 Smart categorization that picks from the existing chart of accounts (extends `ai.py`).
+- #4 Reconciliation assurance (record statement ending balances; flag discrepancies/gaps/dupes).
+- #5 Keep receipts sorted & flag transactions missing a receipt.
+- #6 Business analysis & profitability — narrate `insights.py` results on an Insights page.
+- #7 Opus chatbot for business-health queries — give the model `insights.py` functions as tools.
+
+Model choice: Opus 4.8 for chat/analysis (judgment-heavy, low volume); consider a cheaper
+model (e.g. Haiku) for high-volume line-item categorization. Backend is pluggable via `ai_backend`.
 
 ## Process expectations for agents
 
