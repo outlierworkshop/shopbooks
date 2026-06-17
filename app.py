@@ -439,11 +439,14 @@ def receipts(request: Request, msg: str = "", err: str = ""):
         items = []
         for d in docs:
             cands = receipt_candidates(con, d) if d["status"] == "unmatched" else []
-            entry = None
+            entry, cat = None, None
             if d["entry_id"]:
                 entry = con.execute("SELECT * FROM entries WHERE id=?", (d["entry_id"],)).fetchone()
-            items.append({"doc": d, "candidates": cands, "entry": entry})
-        return templates.TemplateResponse(request, "receipts.html", ctx(request, con, items=items, msg=msg, err=err))
+                cat = ledger.entry_category(con, d["entry_id"])  # None for transfers/multi-split
+            items.append({"doc": d, "candidates": cands, "entry": entry, "category": cat})
+        exp_cats = con.execute("SELECT id, name FROM accounts WHERE type='expense' AND active=1 ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "receipts.html", ctx(
+            request, con, items=items, exp_cats=exp_cats, msg=msg, err=err))
     finally:
         con.close()
 
@@ -552,6 +555,94 @@ def receipts_rematch():
                 matched += 1
         con.commit()
         return RedirectResponse("/receipts?msg=" + quote(f"Re-checked matches: {matched} newly matched."), status_code=303)
+    finally:
+        con.close()
+
+
+def _receipt_context(doc):
+    """Text describing what a receipt was for, to feed categorization: vendor + (for Amazon/text
+    receipts) the itemized contents of the saved file."""
+    parts = [doc["vendor"]] if doc["vendor"] else []
+    p = Path(doc["path"])
+    if p.suffix.lower() == ".txt" and p.exists():
+        try:
+            parts.append(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    return " | ".join(parts)[:2000] or (doc["vendor"] or "receipt")
+
+
+def _recategorize_from_receipts(con, docs):
+    """AI-suggest a category (from the expense chart of accounts) for each matched receipt's
+    transaction, using the receipt's vendor/items, and re-point the entry's category leg.
+    One batched AI call. Returns (changed_count, error_or_None). Suggestions only touch the
+    category leg of simple expense entries; transfers/multi-split are skipped."""
+    if not ai.available(con):
+        return 0, "AI is off - add a Claude API key in Settings."
+    targets = [d for d in docs if d["entry_id"] and ledger.entry_category(con, d["entry_id"])]
+    if not targets:
+        return 0, "No matched receipts with a simple expense category to refine."
+    exp = {a["name"]: a["id"] for a in con.execute(
+        "SELECT id, name FROM accounts WHERE type='expense' AND active=1").fetchall()}
+    txns = [{"description": _receipt_context(d), "amount": d["amount_cents"] or 0} for d in targets]
+    sugg = ai.categorize(con, txns, list(exp.keys()))
+    if not sugg:
+        return 0, "AI couldn't suggest categories - try again."
+    changed = 0
+    for d, name in zip(targets, sugg):
+        nid = exp.get(name)
+        if nid and ledger.set_entry_category(con, d["entry_id"], nid) is not None:
+            changed += 1
+    return changed, None
+
+
+@app.post("/receipts/recategorize")
+def receipts_recategorize(doc_id: int = Form(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        doc = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if not doc:
+            return RedirectResponse("/receipts", status_code=303)
+        changed, err = _recategorize_from_receipts(con, [doc])
+        con.commit()
+        msg = ("Category updated from the receipt." if changed
+               else (err or "No change - the transaction isn't a simple expense (maybe a transfer)."))
+        return RedirectResponse("/receipts?" + ("msg=" if changed else "err=") + quote(msg), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/recategorize-all")
+def receipts_recategorize_all():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        docs = con.execute("SELECT * FROM documents WHERE kind='receipt' AND status='matched'").fetchall()
+        changed, err = _recategorize_from_receipts(con, docs)
+        con.commit()
+        if err and not changed:
+            return RedirectResponse("/receipts?err=" + quote(err), status_code=303)
+        return RedirectResponse("/receipts?msg=" + quote(
+            f"Recategorized {changed} transaction(s) from their receipts. Review them in the registers; "
+            "use the dropdown here to fix any you disagree with."), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/setcategory")
+def receipts_setcategory(doc_id: int = Form(...), account_id: int = Form(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        doc = con.execute("SELECT entry_id FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if doc and doc["entry_id"]:
+            old = ledger.set_entry_category(con, doc["entry_id"], account_id)
+            con.commit()
+            if old is None:
+                return RedirectResponse("/receipts?err=" + quote(
+                    "Couldn't change that one (not a simple expense, or different account type)."), status_code=303)
+        return RedirectResponse("/receipts", status_code=303)
     finally:
         con.close()
 

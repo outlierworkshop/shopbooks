@@ -38,6 +38,16 @@
   <a href="#" onclick="return false">Receipts</a> list for you to match by hand.</p>
 </div>
 
+{% if items and ai_on %}
+<div class="toolbar">
+  <form method="post" action="/receipts/recategorize-all"
+        onsubmit="return confirm('Let Claude suggest a category for every matched receipt from its items, and update those transactions? You can fix any with the per-receipt dropdown.')">
+    <button type="submit" class="ghost">🤖 Recategorize matched transactions from their receipts</button>
+  </form>
+  <span class="muted">Uses each receipt's vendor/items to pick a better category than the bare card-statement line.</span>
+</div>
+{% endif %}
+
 {% for it in items %}
 <div class="card section">
   <div style="display:flex; gap:16px; flex-wrap:wrap;">
@@ -59,6 +69,18 @@
           <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
           <button class="small ghost" type="submit">Unmatch</button>
         </form></p>
+        {% if it.category %}
+        <form method="post" action="/receipts/setcategory" class="toolbar" style="margin:4px 0">
+          <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+          <span class="muted">Category:</span>
+          <select name="account_id" onchange="this.form.submit()" style="max-width:200px">
+            {% for c in exp_cats %}<option value="{{ c.id }}" {{ 'selected' if c.id == it.category.account_id else '' }}>{{ c.name }}</option>{% endfor %}
+          </select>
+          {% if ai_on %}
+          <button class="small" type="submit" formaction="/receipts/recategorize" title="Let Claude pick a category from this receipt's items">🤖 Suggest from receipt</button>
+          {% endif %}
+        </form>
+        {% endif %}
       {% elif it.candidates %}
         <p class="muted">Possible matches:</p>
         {% for c in it.candidates %}

@@ -67,6 +67,35 @@ def set_entry_job(con, entry_id, job_id):
     con.execute("UPDATE entries SET job_id=? WHERE id=?", (job_id or None, entry_id))
 
 
+def entry_category(con, entry_id):
+    """The income/expense leg of a simple categorized transaction, or None if it isn't one
+    (e.g. a transfer between own accounts, or a multi-category split). Returns a dict
+    {account_id, name, type} for the single category leg."""
+    legs = con.execute(
+        "SELECT s.account_id, a.name, a.type FROM splits s JOIN accounts a ON a.id=s.account_id "
+        "WHERE s.entry_id=? AND a.type IN ('income','expense')", (entry_id,)).fetchall()
+    if len(legs) != 1:
+        return None
+    return {"account_id": legs[0]["account_id"], "name": legs[0]["name"], "type": legs[0]["type"]}
+
+
+def set_entry_category(con, entry_id, new_account_id):
+    """Re-point the income/expense leg of a simple 2-sided transaction to a different account
+    of the SAME type (amounts unchanged, so the entry stays balanced). Returns the old
+    {account_id, name, type} on success, or None if the entry isn't a simple categorized txn
+    or the new account is a different type (which would corrupt the sign/meaning)."""
+    cur = entry_category(con, entry_id)
+    if cur is None:
+        return None
+    new = con.execute("SELECT id, type FROM accounts WHERE id=?", (new_account_id,)).fetchone()
+    if not new or new["type"] != cur["type"]:
+        return None
+    if new_account_id != cur["account_id"]:
+        con.execute("UPDATE splits SET account_id=? WHERE entry_id=? AND account_id=?",
+                    (new_account_id, entry_id, cur["account_id"]))
+    return cur
+
+
 def delete_entry(con, entry_id):
     con.execute("UPDATE staged SET status='pending', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
