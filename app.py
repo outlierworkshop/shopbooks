@@ -18,6 +18,7 @@ import importer
 import invoicing
 import ledger
 import migrate
+import timetracking
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="ShopBooks")
@@ -582,6 +583,105 @@ def mileage_delete(trip_id: int = Form(...)):
         con.execute("DELETE FROM mileage WHERE id=?", (trip_id,))
         con.commit()
         return RedirectResponse("/mileage", status_code=303)
+    finally:
+        con.close()
+
+
+# ---------- time tracking & jobs ----------
+
+@app.get("/time", response_class=HTMLResponse)
+def time_page(request: Request, start: str = "", end: str = ""):
+    con = db.connect()
+    try:
+        year = date_cls.today().year
+        start = start or f"{year}-01-01"
+        end = end or f"{year}-12-31"
+        return templates.TemplateResponse(request, "time.html", ctx(
+            request, con, summary=timetracking.summary(con, start, end),
+            entries=timetracking.list_entries(con, start, end), start=start, end=end, year=year,
+            jobs=con.execute("SELECT id, name FROM jobs WHERE status='active' ORDER BY created_at DESC").fetchall(),
+            cats=timetracking.categories(con),
+            default_rate=db.get_setting(con, "default_hourly_rate", "0")))
+    finally:
+        con.close()
+
+
+@app.post("/time")
+def time_add(date: str = Form(...), hours: float = Form(...), job_id: str = Form(""),
+             category: str = Form(""), note: str = Form(""), billable: str = Form(""),
+             rate: str = Form("")):
+    con = db.connect()
+    try:
+        rate_cents = None
+        if str(rate).strip():
+            try:
+                rate_cents = ledger.parse_amount_to_cents(rate)
+            except ValueError:
+                rate_cents = None
+        timetracking.add_entry(
+            con, ledger.normalize_date(date), hours,
+            job_id=int(job_id) if job_id.strip() else None,
+            category=category, note=note, billable=bool(billable), rate_cents=rate_cents)
+        con.commit()
+        return RedirectResponse("/time", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/time/delete")
+def time_delete(entry_id: int = Form(...)):
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
+        con.commit()
+        return RedirectResponse("/time", status_code=303)
+    finally:
+        con.close()
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_page(request: Request):
+    con = db.connect()
+    try:
+        return templates.TemplateResponse(request, "jobs.html", ctx(
+            request, con, jobs=timetracking.jobs_overview(con),
+            customers=con.execute("SELECT id, name FROM customers ORDER BY name").fetchall()))
+    finally:
+        con.close()
+
+
+@app.post("/jobs")
+def jobs_add(name: str = Form(...), customer_id: str = Form(""), notes: str = Form("")):
+    con = db.connect()
+    try:
+        if name.strip():
+            timetracking.add_job(con, name,
+                                 customer_id=int(customer_id) if customer_id.strip() else None, notes=notes)
+            con.commit()
+        return RedirectResponse("/jobs", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/jobs/status")
+def jobs_status(job_id: int = Form(...), status: str = Form(...)):
+    con = db.connect()
+    try:
+        timetracking.set_job_status(con, job_id, status)
+        con.commit()
+        return RedirectResponse("/jobs", status_code=303)
+    finally:
+        con.close()
+
+
+@app.get("/jobs/{job_id}", response_class=HTMLResponse)
+def job_detail(request: Request, job_id: int):
+    con = db.connect()
+    try:
+        rep = timetracking.job_report(con, job_id)
+        if not rep:
+            return RedirectResponse("/jobs", status_code=303)
+        return templates.TemplateResponse(request, "job_detail.html", ctx(request, con, rep=rep))
     finally:
         con.close()
 
@@ -1275,8 +1375,8 @@ async def settings_save(request: Request):
     form = await request.form()
     con = db.connect()
     try:
-        plain = ("mileage_rate", "ai_backend", "ai_model", "ollama_url", "ollama_model",
-                 "business_name", "backup_dir", "business_address", "business_email",
+        plain = ("mileage_rate", "default_hourly_rate", "ai_backend", "ai_model", "ollama_url",
+                 "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
                  "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
                  "email_subject", "email_body")
         for k in plain:
