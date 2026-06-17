@@ -26,6 +26,16 @@ boring tech, built for exactly one user.
 - Phase 2 (later): per-transaction "cleared" checkboxes (QuickBooks-style); optional AI explanation
   of a discrepancy.
 
+### 2026-06-17 — Match invoices to existing deposits (no ledger entries)
+- New `invoices.matched_entry_id` (column migration): links an invoice to a deposit already on the
+  books **without owning it**. `invoice_deposit_candidates` finds posted income legs == invoice
+  total near the invoice date, unlinked. Match sets status=paid + paid_date from the deposit and
+  links it — **posts nothing** (distinct from Record Payment, which owns its `paid_entry_id`).
+- Routes: `POST /invoices/{id}/match`, `/invoices/{id}/unmatch` (only unlinks, never deletes the
+  deposit), `/invoices/match-all` (auto-links unique matches). `ledger.delete_entry` clears the
+  link if the deposit is ever deleted. Invoice view shows candidates / matched state; Invoices
+  page has a "Match to deposits" button. Covered by `test_invoice_match.py`.
+
 ### 2026-06-17 — Import invoices from QuickBooks (records only)
 - `migrate.parse_invoices` reads a QBO Invoice List / Transaction List CSV (tolerant headers:
   Date, No./Num, Customer/Name, Due Date, Amount/Total, Open Balance, Status; skips non-invoice

@@ -45,9 +45,44 @@
   {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
 </div>
 
-{% if inv.status != 'paid' and inv.status != 'void' %}
+{% if inv.matched_entry_id and matched %}
 <div class="card section" style="max-width:760px">
-  <h2 style="margin-top:0">Record payment</h2>
+  <p class="pos">✓ Matched to a deposit already on your books: {{ matched.date }} - {{ matched.payee }}</p>
+  <p class="muted">No ledger entry was created — your income comes from that deposit, so this just links the
+  invoice to it and marks it paid.</p>
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/unmatch">
+    <button type="submit" class="ghost">Unmatch</button></form>
+  <span class="muted"> (only unlinks the invoice — never deletes the deposit)</span>
+</div>
+{% elif inv.paid_entry_id %}
+<div class="card section" style="max-width:760px">
+  <p class="pos">Paid — a deposit entry was posted to your books for this invoice.</p>
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/unpay"
+        onsubmit="return confirm('Remove the posted payment entry and mark unpaid?')">
+    <button type="submit" class="ghost">Undo payment</button></form>
+</div>
+{% elif inv.status != 'void' %}
+
+{% if candidates %}
+<div class="card section" style="max-width:760px">
+  <h2 style="margin-top:0">Match to a deposit already on your books</h2>
+  <p class="muted">Links this invoice to the deposit that paid it — marks it paid and attaches it
+  <strong>without posting a new entry</strong> (your income already comes from that deposit).</p>
+  {% for c in candidates %}
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/match">
+    <input type="hidden" name="entry_id" value="{{ c.id }}">
+    <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% elif inv.status != 'paid' %}
+<p class="muted">No matching deposit on your books yet — import the bank/Square statement with this payment
+and it'll show here to match. (Amounts must match; Square deposits are net of fees, so match those by hand.)</p>
+{% endif %}
+
+{% if inv.status != 'paid' %}
+<div class="card section" style="max-width:760px">
+  <h2 style="margin-top:0">Record payment (posts a new deposit)</h2>
   <form method="post" action="/invoices/{{ inv.id }}/pay" class="toolbar">
     <input type="date" name="paid_date" value="{{ today }}" required>
     <select name="bank_id">{% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
@@ -56,9 +91,10 @@
     </select>
     <button type="submit">Record ${{ total|money }} received</button>
   </form>
-  <p class="muted">Posts the deposit to your books. When this payment shows up in the bank statement
-  import later, Skip it (it'll be flagged as a possible duplicate).</p>
+  <p class="muted">Use this only if the deposit is <em>not</em> already on your books — it posts a new entry.
+  If the deposit was imported from a statement, use "Match" above instead so you don't double-count.</p>
 </div>
+{% endif %}
 
 <div class="card section" style="max-width:760px">
   <h2 style="margin-top:0">Email invoice</h2>
@@ -76,10 +112,5 @@
   <a href="/invoices/{{ inv.id }}/pdf">PDF</a> and attach it yourself.</p>
   {% endif %}
 </div>
-{% elif inv.status == 'paid' %}
-<form class="inline" method="post" action="/invoices/{{ inv.id }}/unpay"
-      onsubmit="return confirm('Remove the payment entry from the books and mark unpaid?')">
-  <button type="submit" class="ghost">Undo payment</button>
-</form>
 {% endif %}
 {% endblock %}

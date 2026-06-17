@@ -101,6 +101,8 @@ def delete_entry(con, entry_id):
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE invoices SET status='sent', paid_date=NULL, paid_entry_id=NULL WHERE paid_entry_id=?",
                 (entry_id,))
+    con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE matched_entry_id=?",
+                (entry_id,))
     con.execute("DELETE FROM entries WHERE id=?", (entry_id,))
 
 

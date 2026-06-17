@@ -13,6 +13,9 @@
     <input type="file" name="file" accept=".csv" required>
     <button type="submit" class="ghost">Import from QuickBooks (CSV)</button>
   </form>
+  <form class="inline" method="post" action="/invoices/match-all">
+    <button type="submit" class="ghost" title="Link each unpaid invoice to a matching deposit already on your books, without posting any entry">Match to deposits</button>
+  </form>
 </div>
 <p class="muted">QuickBooks import: export Reports → <strong>Invoice List</strong> to CSV and upload it.
 Brings in invoice records (customer, number, date, amount, paid/open) for tracking only — it does

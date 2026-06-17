@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS invoices(
   status TEXT NOT NULL DEFAULT 'draft',   -- draft/sent/paid/void
   memo TEXT DEFAULT '',
   paid_date TEXT,
-  paid_entry_id INTEGER REFERENCES entries(id),
+  paid_entry_id INTEGER REFERENCES entries(id),    -- entry WE posted via Record Payment (we own it)
+  matched_entry_id INTEGER REFERENCES entries(id), -- existing deposit this invoice is linked to (we do NOT own it)
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS invoice_items(
@@ -293,6 +294,9 @@ def _column_migrations(con):
     ent = {r["name"] for r in con.execute("PRAGMA table_info(entries)").fetchall()}
     if "job_id" not in ent:
         con.execute("ALTER TABLE entries ADD COLUMN job_id INTEGER REFERENCES jobs(id)")
+    invc = {r["name"] for r in con.execute("PRAGMA table_info(invoices)").fetchall()}
+    if "matched_entry_id" not in invc:
+        con.execute("ALTER TABLE invoices ADD COLUMN matched_entry_id INTEGER REFERENCES entries(id)")
 
 
 def init():

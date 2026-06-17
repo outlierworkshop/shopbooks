@@ -1215,6 +1215,31 @@ async def invoice_create(request: Request):
         con.close()
 
 
+def invoice_deposit_candidates(con, inv, total):
+    """Existing income deposits on the books that could be this invoice's payment: an income-leg
+    split equal to the invoice total, near the invoice date, not already linked to an invoice."""
+    if total <= 0:
+        return []
+    return con.execute(
+        "SELECT DISTINCT e.id, e.date, e.payee, a.name acct FROM entries e "
+        "JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+        "WHERE a.type='income' AND s.amount_cents=? "
+        "AND e.id NOT IN (SELECT matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL) "
+        "AND e.id NOT IN (SELECT paid_entry_id FROM invoices WHERE paid_entry_id IS NOT NULL) "
+        "AND e.date BETWEEN date(?, '-5 day') AND date(?, '+120 day') "
+        "ORDER BY e.date LIMIT 8", (-total, inv["date"], inv["date"])).fetchall()
+
+
+def _match_invoice_to_entry(con, invoice_id, entry_id):
+    """Link an invoice to an existing deposit entry (records-only: no ledger posting)."""
+    e = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    if not e:
+        return False
+    con.execute("UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
+                (e["date"], entry_id, invoice_id))
+    return True
+
+
 @app.get("/invoices/{invoice_id}", response_class=HTMLResponse)
 def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""):
     con = db.connect()
@@ -1224,13 +1249,66 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             return RedirectResponse("/invoices", status_code=303)
         banks = con.execute("SELECT * FROM accounts WHERE kind='bank' AND active=1").fetchall()
         income = con.execute("SELECT * FROM accounts WHERE type='income' AND active=1 ORDER BY name").fetchall()
+        candidates = matched = None
+        if inv["matched_entry_id"]:
+            matched = con.execute("SELECT id, date, payee FROM entries WHERE id=?", (inv["matched_entry_id"],)).fetchone()
+        elif not inv["paid_entry_id"] and inv["status"] != "void":
+            # sent invoices, and QBO-imported 'paid' ones not yet linked to a deposit
+            candidates = invoice_deposit_candidates(con, inv, total)
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
+            candidates=candidates, matched=matched,
             msg=msg, err=err, email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
             biz_phone=db.get_setting(con, "business_phone", ""),
             terms=db.get_setting(con, "invoice_terms", "")))
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/match")
+def invoice_match(invoice_id: int, entry_id: int = Form(...)):
+    con = db.connect()
+    try:
+        _match_invoice_to_entry(con, invoice_id, entry_id)
+        con.commit()
+        return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/unmatch")
+def invoice_unmatch(invoice_id: int):
+    con = db.connect()
+    try:
+        # only clears the link + paid status; never deletes the deposit entry
+        con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
+                    (invoice_id,))
+        con.commit()
+        return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/match-all")
+def invoices_match_all():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        matched = 0
+        rows = con.execute("SELECT id FROM invoices WHERE status != 'void' "
+                           "AND matched_entry_id IS NULL AND paid_entry_id IS NULL").fetchall()
+        for r in rows:
+            inv, _, total = invoicing.get_invoice(con, r["id"])
+            cands = invoice_deposit_candidates(con, inv, total)
+            if len(cands) == 1:
+                _match_invoice_to_entry(con, r["id"], cands[0]["id"])
+                matched += 1
+        con.commit()
+        return RedirectResponse("/invoices?msg=" + quote(
+            f"Matched {matched} invoice(s) to deposits already on your books (no new entries created)."),
+            status_code=303)
     finally:
         con.close()
 
