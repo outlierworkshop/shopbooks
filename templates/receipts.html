@@ -25,6 +25,19 @@
   after importing more statements.</p>
 </div>
 
+<div class="card section">
+  <h2 style="margin-top:0">Import Amazon orders (CSV)</h2>
+  <form method="post" action="/receipts/import-amazon" enctype="multipart/form-data" class="toolbar">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit">Import Amazon orders</button>
+  </form>
+  <p class="muted">Get it from Amazon → Account → <strong>Request My Data</strong> → "Your Orders"
+  (emailed as <code>Retail.OrderHistory.*.csv</code>). Builds an itemized receipt per order and
+  auto-matches to your card charges by amount + date. Heads-up: Amazon bills per <em>shipment</em>,
+  so an order total won't always equal one charge - unmatched ones wait on the
+  <a href="#" onclick="return false">Receipts</a> list for you to match by hand.</p>
+</div>
+
 {% for it in items %}
 <div class="card section">
   <div style="display:flex; gap:16px; flex-wrap:wrap;">

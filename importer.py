@@ -132,6 +132,64 @@ def parse_csv(raw_bytes):
     return out
 
 
+def _amazon_date(raw):
+    """Amazon dates come as ISO with a time ('2026-01-15T08:30:00Z') or plain dates."""
+    s = str(raw).strip().replace("T", " ").split(" ")[0]
+    return normalize_date(s)
+
+
+def parse_amazon_orders(raw_bytes):
+    """Parse an Amazon order-history CSV into a list of orders (no AI; deterministic).
+
+    Handles the variants Amazon ships: the newer 'Request My Data -> Your Orders'
+    (Retail.OrderHistory.*.csv) and the older Order Reports. Item rows are grouped by
+    Order ID and summed to an order total. Returns
+    [{date, order_id, total_cents, items: [names]}] sorted by date.
+    """
+    date_h = ("order date", "date")
+    id_h = ("order id", "order #", "order number")
+    name_h = ("product name", "title", "item name", "product")
+    total_h = ("total owed", "item total", "item subtotal", "total charged", "amount")
+
+    text = raw_bytes.decode("utf-8-sig", errors="replace")
+    rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+    if not rows:
+        raise ValueError("That file is empty.")
+    # find the header row (Amazon sometimes prefixes a title line)
+    hi = di = oi = ti = ni = None
+    for idx, row in enumerate(rows[:5]):
+        d, o, t = _find_col(row, date_h), _find_col(row, id_h), _find_col(row, total_h)
+        if d is not None and o is not None and t is not None:
+            hi, di, oi, ti, ni = idx, d, o, t, _find_col(row, name_h)
+            break
+    if hi is None:
+        raise ValueError("Couldn't find Amazon columns (need Order Date, Order ID, and a total). "
+                         "Use Amazon -> Account -> Request My Data -> 'Your Orders'.")
+
+    orders = {}
+    for r in rows[hi + 1:]:
+        if max(di, oi, ti) >= len(r):
+            continue
+        oid = r[oi].strip()
+        if not oid:
+            continue
+        try:
+            d = _amazon_date(r[di])
+            cents = parse_amount_to_cents(r[ti])
+        except (ValueError, IndexError):
+            continue
+        o = orders.setdefault(oid, {"date": d, "order_id": oid, "total_cents": 0, "items": []})
+        o["total_cents"] += cents
+        o["date"] = min(o["date"], d)  # earliest line date for the order
+        if ni is not None and ni < len(r) and r[ni].strip():
+            o["items"].append(r[ni].strip())
+    out = [o for o in orders.values() if o["total_cents"] != 0]
+    if not out:
+        raise ValueError("No Amazon orders with a total were found in that file.")
+    out.sort(key=lambda o: o["date"])
+    return out
+
+
 def pdf_text(path):
     import pdfplumber
     chunks = []
