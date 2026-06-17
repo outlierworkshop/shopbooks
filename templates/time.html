@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Time{% endblock %}
+{% block content %}
+<h1>Time tracking</h1>
+<p class="muted">{{ start }} to {{ end }} · <a href="/jobs">Jobs &amp; job costing →</a></p>
+
+<div class="cards">
+  <div class="card"><div class="label">{{ year }} hours</div><div class="big">{{ '%.2f'|format(summary.total_hours) }}</div></div>
+  <div class="card"><div class="label">Billable hours</div><div class="big">{{ '%.2f'|format(summary.billable_hours) }}</div></div>
+  <div class="card"><div class="label">Billable value</div><div class="big pos">${{ summary.billable_value|money }}</div>
+    <a class="muted" href="/settings">rate: ${{ default_rate }}/hr</a></div>
+</div>
+
+<h2>Log time</h2>
+<form method="post" class="toolbar">
+  <input type="date" name="date" value="{{ today }}" required>
+  <input type="number" name="hours" step="0.25" min="0" placeholder="hours" style="width:80px" required>
+  <select name="job_id" style="width:180px">
+    <option value="">(no job)</option>
+    {% for j in jobs %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
+  </select>
+  <input type="text" name="category" list="cats" placeholder="category (carving, finishing...)" style="width:200px">
+  <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist>
+  <input type="text" name="note" placeholder="note" style="width:220px">
+  <label class="inline" style="white-space:nowrap"><input type="checkbox" name="billable" value="1"> billable</label>
+  <input type="text" name="rate" placeholder="rate $/hr (opt)" style="width:110px">
+  <button type="submit">Add</button>
+</form>
+<p class="muted">Time is for your own job-costing and reports - it is never posted to the books or added
+to invoices. Leave rate blank to use the default hourly rate from Settings.</p>
+
+<table>
+  <tr><th>Date</th><th class="num">Hours</th><th>Job</th><th>Category</th><th>Note</th>
+      <th>Billable</th><th class="num">Value</th><th></th></tr>
+  {% for e in entries %}
+  <tr>
+    <td>{{ e.date }}</td>
+    <td class="num">{{ '%.2f'|format(e.hours) }}</td>
+    <td>{% if e.job_id %}<a href="/jobs/{{ e.job_id }}">{{ e.job }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td>{{ e.category }}</td>
+    <td class="muted">{{ e.note }}</td>
+    <td>{% if e.billable %}<span class="pos">yes</span>{% else %}<span class="muted">no</span>{% endif %}</td>
+    <td class="num">{% if e.value %}${{ e.value|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td><form class="inline" method="post" action="/time/delete">
+      <input type="hidden" name="entry_id" value="{{ e.id }}">
+      <button class="small danger" type="submit">✕</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">No time logged yet for this period.</td></tr>
+  {% endfor %}
+</table>
+
+{% if summary.by_category or summary.by_job %}
+<div class="cols" style="display:flex; gap:32px; flex-wrap:wrap">
+  <div>
+    <h2>By category</h2>
+    <table>
+      <tr><th>Category</th><th class="num">Hours</th><th class="num">Billable $</th></tr>
+      {% for c in summary.by_category %}
+      <tr><td>{{ c.category }}</td><td class="num">{{ '%.2f'|format(c.hours) }}</td>
+          <td class="num">{% if c.billable_value %}${{ c.billable_value|money }}{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div>
+    <h2>By job</h2>
+    <table>
+      <tr><th>Job</th><th class="num">Hours</th><th class="num">Billable $</th></tr>
+      {% for j in summary.by_job %}
+      <tr><td>{% if j.job_id %}<a href="/jobs/{{ j.job_id }}">{{ j.job }}</a>{% else %}{{ j.job }}{% endif %}</td>
+          <td class="num">{{ '%.2f'|format(j.hours) }}</td>
+          <td class="num">{% if j.billable_value %}${{ j.billable_value|money }}{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

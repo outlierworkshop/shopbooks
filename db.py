@@ -157,6 +157,27 @@ CREATE TABLE IF NOT EXISTS invoice_items(
   qty REAL NOT NULL DEFAULT 1,
   unit_cents INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS jobs(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  customer_id INTEGER REFERENCES customers(id),  -- optional link to a customer
+  status TEXT NOT NULL DEFAULT 'active',          -- active/done
+  notes TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS time_entries(
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,                   -- ISO YYYY-MM-DD
+  hours REAL NOT NULL,
+  job_id INTEGER REFERENCES jobs(id),   -- optional
+  category TEXT NOT NULL DEFAULT '',    -- free-text work type: carving, finishing, admin...
+  note TEXT NOT NULL DEFAULT '',
+  billable INTEGER NOT NULL DEFAULT 0,  -- 0/1
+  rate_cents INTEGER,                   -- per-hour billing rate; NULL = use default_hourly_rate
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_time_job ON time_entries(job_id);
+CREATE INDEX IF NOT EXISTS idx_time_date ON time_entries(date);
 """
 
 SEED_ACCOUNTS = [
@@ -215,6 +236,7 @@ SEED_RULES = [
 
 DEFAULT_SETTINGS = {
     "mileage_rate": "0.70",      # $/mile - verify the current IRS rate each January
+    "default_hourly_rate": "0",  # $/hour for billable time; per-entry rate overrides this
     "ai_backend": "claude",      # claude | ollama | hybrid
     "ai_model": "claude-opus-4-8",
     "anthropic_api_key": "",
