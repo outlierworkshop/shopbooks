@@ -32,6 +32,9 @@
   go to <a href="/settings#restore">Settings → Restore</a> to put your data back.
 </p>
 {% endif %}
+{% if sync_alert %}
+<p class="{{ sync_alert.level }}" style="font-size:15px">⚠ {{ sync_alert.message }}</p>
+{% endif %}
 {% block content %}{% endblock %}
 </main>
 

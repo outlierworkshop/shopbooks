@@ -222,6 +222,7 @@ DEFAULT_SETTINGS = {
     "ollama_model": "llama3.2-vision",
     "business_name": "My Business",
     "backup_dir": "",            # extra/off-machine backup folder; blank = auto-detect OneDrive
+    "sync_enabled": "0",         # two-machine cloud sync (see sync.py); off by default
     "business_address": "",
     "business_email": "",
     "business_phone": "",

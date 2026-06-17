@@ -7,7 +7,9 @@ import os
 import tempfile
 from pathlib import Path
 
-TMP = Path(tempfile.mkdtemp(prefix="shopbooks_test_"))
+# .resolve() so this matches db.data_dir(), which resolves the override path.
+# On macOS tempfile returns /var/... but the canonical path is /private/var/...
+TMP = Path(tempfile.mkdtemp(prefix="shopbooks_test_")).resolve()
 os.environ["SHOPBOOKS_DATA_DIR"] = str(TMP)
 
 import db  # noqa: E402  (import after env var is set)
