@@ -82,6 +82,45 @@ ok(con.execute("SELECT status FROM jobs WHERE id=?", (job_b,)).fetchone()["statu
 ok(con.execute("SELECT COUNT(*) c FROM entries").fetchone()["c"] == 0, "no ledger entries created")
 ok(con.execute("SELECT COUNT(*) c FROM splits").fetchone()["c"] == 0, "no ledger splits created")
 
+# --- Phase 2: job costing (tag ledger transactions to a job) -----------------
+import ledger  # noqa: E402
+
+acct = {r["name"]: r["id"] for r in con.execute("SELECT id, name FROM accounts").fetchall()}
+CHK, SALES, MAT = acct["Business Checking"], acct["Sales - Square"], acct["Materials & Supplies"]
+
+# $400 sale tagged to job A at post time; $150 materials tagged retroactively.
+ledger.post_entry(con, "2026-01-20", "Customer pmt", [(CHK, 40000), (SALES, -40000)], job_id=job_a)
+mat_entry = ledger.post_entry(con, "2026-01-12", "Lumber", [(MAT, 15000), (CHK, -15000)])
+ledger.set_entry_job(con, mat_entry, job_a)
+# An untagged expense must NOT affect any job.
+ledger.post_entry(con, "2026-01-13", "Untagged glue", [(MAT, 2000), (CHK, -2000)])
+con.commit()
+
+fin = tt.job_financials(con, job_a)
+ok(fin["income"] == 40000, "job income = $400 (tagged sale)")
+ok(fin["expenses"] == 15000, "job expenses = $150 (retroactively-tagged materials only)")
+ok(fin["net_cash"] == 25000, "job net cash profit = $250 (untagged glue excluded)")
+
+rep = tt.job_report(con, job_a)
+ok(rep["financials"]["net_cash"] == 25000, "job_report carries financials")
+# job A has 4.0 logged hours; $250 / 4h = $62.50/hr
+ok(rep["effective_hourly"] == 6250, "effective profit/hour = net cash / hours")
+ok(len(rep["transactions"]) == 2 and rep["transactions"][0]["pnl"] in (40000, -15000),
+   "job_report lists the two tagged transactions with profit impact")
+
+ov = {j["name"]: j for j in tt.jobs_overview(con)}
+ok(ov["Uke #1"]["net_cash"] == 25000, "jobs_overview shows net cash profit")
+ok(ov["Bench repair"]["net_cash"] == 0, "untagged job shows zero profit")
+
+# retag: move the materials entry off the job -> profit rises to pure income
+ledger.set_entry_job(con, mat_entry, None)
+con.commit()
+ok(tt.job_financials(con, job_a)["net_cash"] == 40000, "untagging a transaction updates job profit")
+
+# --- ledger invariant still holds after all this posting ---------------------
+bad = con.execute("SELECT entry_id FROM splits GROUP BY entry_id HAVING SUM(amount_cents)!=0").fetchall()
+ok(not bad, "every journal entry still balances to zero (splits sum to 0)")
+
 con.close()
 import shutil  # noqa: E402
 shutil.rmtree(TMP, ignore_errors=True)

@@ -9,10 +9,30 @@
 {% if rep.job.notes %}<p>{{ rep.job.notes }}</p>{% endif %}
 
 <div class="cards">
+  <div class="card"><div class="label">Income</div><div class="big pos">${{ rep.financials.income|money }}</div></div>
+  <div class="card"><div class="label">Expenses</div><div class="big">${{ rep.financials.expenses|money }}</div></div>
+  <div class="card"><div class="label">Net cash profit</div>
+    <div class="big {{ 'neg' if rep.financials.net_cash < 0 else 'pos' }}">${{ rep.financials.net_cash|money }}</div></div>
   <div class="card"><div class="label">Total hours</div><div class="big">{{ '%.2f'|format(rep.total_hours) }}</div></div>
-  <div class="card"><div class="label">Billable hours</div><div class="big">{{ '%.2f'|format(rep.billable_hours) }}</div></div>
-  <div class="card"><div class="label">Billable value</div><div class="big pos">${{ rep.billable_value|money }}</div></div>
+  <div class="card"><div class="label">Profit / hour</div>
+    {% if rep.effective_hourly is not none %}<div class="big {{ 'neg' if rep.effective_hourly < 0 else '' }}">${{ rep.effective_hourly|money }}/hr</div>
+    {% else %}<div class="big muted">—</div>{% endif %}</div>
 </div>
+<p class="muted">Net cash profit = income − expenses on transactions tagged to this job. Your own labor
+isn't subtracted; "profit / hour" is net cash ÷ hours logged, so you can see what the job earned per
+hour of your time. Billable value of time: ${{ rep.billable_value|money }} ({{ '%.2f'|format(rep.billable_hours) }} billable hrs).</p>
+
+<h2>Tagged transactions</h2>
+<table>
+  <tr><th>Date</th><th>Payee</th><th class="num">Profit impact</th></tr>
+  {% for t in rep.transactions %}
+  <tr><td>{{ t.date }}</td><td>{{ t.payee }}</td>
+      <td class="num {{ 'neg' if t.pnl < 0 else '' }}">${{ t.pnl|money }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">No transactions tagged to this job yet. Tag them from a
+    <a href="/accounts">register</a> or when posting a manual entry.</td></tr>
+  {% endfor %}
+</table>
 
 <h2>Time entries</h2>
 <table>

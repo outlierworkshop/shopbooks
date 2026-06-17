@@ -14,6 +14,18 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-16 — Job costing, Phase 2: tag transactions to jobs (issue #9)
+- New nullable `entries.job_id` (in SCHEMA + a guarded `_column_migrations` ALTER) tags a whole
+  transaction to a job. `ledger.post_entry` takes an optional `job_id`; `ledger.set_entry_job`
+  tags retroactively; `ledger.register` rows now carry their job.
+- Assign a job: on the +Entry page, or inline per-row on any account register (auto-submits).
+- `timetracking.job_financials` / `job_transactions` compute income − expenses on tagged
+  transactions = **net cash profit per job**; `job_report` adds financials, the tagged-transaction
+  list, and **effective $/hour** (net cash ÷ hours logged). Jobs page gains a Net-profit column.
+- Owner's own labor is NOT subtracted (cash-basis, one person) — shown alongside as $/hour.
+- `test_timetracking.py` extended: job financials, retroactive (un)tagging, untagged txns
+  excluded, effective hourly, and the splits-sum-to-zero invariant after posting.
+
 ### 2026-06-16 — Time tracking & job costing, Phase 1 (issue #9)
 - New `jobs` and `time_entries` tables + `default_hourly_rate` setting. Manual time entry only
   (no timer), logged against optional **jobs** (which can link to a customer) and free-text work
