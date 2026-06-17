@@ -119,14 +119,19 @@ def display_balance(acct_type, raw):
     return -raw if acct_type in CREDIT_NORMAL else raw
 
 
-def accounts_with_balances(con, kinds=None):
-    """Active accounts in tree order (each parent followed by its sub-accounts)."""
-    rows = con.execute("SELECT * FROM accounts WHERE active=1").fetchall()
+def accounts_with_balances(con, kinds=None, include_inactive=False):
+    """Accounts in tree order (each parent followed by its sub-accounts). Active only by default;
+    pass include_inactive=True (the Accounts page) to also list hidden accounts so they can be
+    reactivated. `has_history` flags accounts with posted splits (can't be hidden)."""
+    where = "" if include_inactive else " WHERE active=1"
+    rows = con.execute("SELECT * FROM accounts" + where).fetchall()
     names = {r["id"]: r["name"] for r in rows}
 
     def mk(a, is_parent):
+        has_history = con.execute("SELECT 1 FROM splits WHERE account_id=? LIMIT 1", (a["id"],)).fetchone() is not None
         return {"id": a["id"], "name": a["name"], "type": a["type"], "kind": a["kind"],
                 "parent_id": a["parent_id"], "parent_name": names.get(a["parent_id"]),
+                "active": a["active"], "has_history": has_history,
                 "is_parent": is_parent, "balance": display_balance(a["type"], raw_balance(con, a["id"]))}
 
     tops = sorted((r for r in rows if not r["parent_id"]), key=lambda r: (r["type"], r["name"]))

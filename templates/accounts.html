@@ -33,10 +33,14 @@
 parent with a subtotal. Two levels max. Account names must be unique, so use distinct names
 (e.g. "Vehicle Fuel" rather than a second "Fuel").</p>
 
+<div class="toolbar">
+  {% if show_hidden %}<a class="muted" href="/accounts">hide inactive accounts</a>
+  {% elif hidden_count %}<a class="muted" href="/accounts?show_hidden=1">show {{ hidden_count }} hidden account(s)</a>{% endif %}
+</div>
 <table>
-  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th></th></tr>
+  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th></th><th></th></tr>
   {% for a in accounts %}
-  <tr>
+  <tr {{ 'style=opacity:0.5' if not a.active else '' }}>
     <td>
       <form class="inline" method="post" action="/accounts/rename">
         <input type="hidden" name="account_id" value="{{ a.id }}">
@@ -44,6 +48,7 @@ parent with a subtotal. Two levels max. Account names must be unique, so use dis
         <input type="text" name="name" value="{{ a.name }}" style="width:200px">
         <button class="small ghost" type="submit">Rename</button>
       </form>
+      {% if not a.active %}<span class="muted">(hidden)</span>{% endif %}
     </td>
     <td>{{ a.type }}</td><td class="muted">{{ a.kind }}</td>
     <td class="num {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</td>
@@ -62,10 +67,27 @@ parent with a subtotal. Two levels max. Account names must be unique, so use dis
       </form>
       {% else %}<span class="muted">—</span>{% endif %}
     </td>
+    <td>
+      <form class="inline" method="post" action="/accounts/active">
+        <input type="hidden" name="account_id" value="{{ a.id }}">
+        <input type="hidden" name="show_hidden" value="{{ '1' if show_hidden else '' }}">
+        {% if a.active %}
+          <input type="hidden" name="active" value="0">
+          <button class="small ghost" type="submit"
+                  title="{{ 'Has transactions, cannot hide' if a.has_history else 'Hide from category lists' }}"
+                  {{ 'disabled' if a.has_history else '' }}>Hide</button>
+        {% else %}
+          <input type="hidden" name="active" value="1">
+          <button class="small" type="submit">Reactivate</button>
+        {% endif %}
+      </form>
+    </td>
     <td><a href="/register/{{ a.id }}">register</a></td>
   </tr>
   {% endfor %}
 </table>
 <p class="muted">Rename the three credit cards to match your real cards (e.g. "Amex Blue", "Chase Ink").
-Change a sub-account's parent with the Parent dropdown (same type only).</p>
+Change a sub-account's parent with the Parent dropdown (same type only). <strong>Hide</strong> removes an
+account from the category pickers without deleting it; accounts that already have transactions can't be
+hidden (they'd drop from reports).</p>
 {% endblock %}

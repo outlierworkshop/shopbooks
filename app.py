@@ -1368,13 +1368,36 @@ def _set_parent(con, account_id, parent_id):
 
 
 @app.get("/accounts", response_class=HTMLResponse)
-def accounts_page(request: Request, err: str = ""):
+def accounts_page(request: Request, err: str = "", show_hidden: str = ""):
     con = db.connect()
     try:
-        accounts = ledger.accounts_with_balances(con)
-        parents = [a for a in accounts if a["parent_id"] is None]
+        accounts = ledger.accounts_with_balances(con, include_inactive=bool(show_hidden))
+        parents = [a for a in accounts if a["parent_id"] is None and a["active"]]
+        hidden_count = con.execute("SELECT COUNT(*) c FROM accounts WHERE active=0").fetchone()["c"]
         return templates.TemplateResponse(request, "accounts.html", ctx(
-            request, con, accounts=accounts, parents=parents, err=err))
+            request, con, accounts=accounts, parents=parents, err=err,
+            show_hidden=bool(show_hidden), hidden_count=hidden_count))
+    finally:
+        con.close()
+
+
+@app.post("/accounts/active")
+def accounts_set_active(account_id: int = Form(...), active: int = Form(...), show_hidden: str = Form("")):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        suffix = "?show_hidden=1" if show_hidden else ""
+        if not active:  # hiding: protect reports — refuse if the account has history or active children
+            if con.execute("SELECT 1 FROM splits WHERE account_id=? LIMIT 1", (account_id,)).fetchone():
+                return RedirectResponse("/accounts" + (suffix or "?") + ("&" if suffix else "") +
+                                        "err=" + quote("Can't hide an account that has transactions — it would drop from reports."),
+                                        status_code=303)
+            if con.execute("SELECT 1 FROM accounts WHERE parent_id=? AND active=1 LIMIT 1", (account_id,)).fetchone():
+                return RedirectResponse("/accounts" + (suffix or "?") + ("&" if suffix else "") +
+                                        "err=" + quote("Hide or move its sub-accounts first."), status_code=303)
+        con.execute("UPDATE accounts SET active=? WHERE id=?", (1 if active else 0, account_id))
+        con.commit()
+        return RedirectResponse("/accounts" + suffix, status_code=303)
     finally:
         con.close()
 
