@@ -90,6 +90,13 @@ automatically and matched against your posted transactions by amount and date. O
 match = matched automatically; multiple = you pick. No match yet usually means you haven't
 imported that statement yet — it'll match later.
 
+**Amazon orders:** since Amazon is a big share of purchases, you don't need photos — use
+**Import Amazon orders (CSV)** on the Receipts page. Get the file from Amazon → Account →
+**Request My Data** → "Your Orders" (emailed as `Retail.OrderHistory.*.csv`). It builds an
+itemized receipt per order and auto-matches to your card charges by amount + date. Note: Amazon
+bills per *shipment*, so an order total won't always equal one charge — unmatched orders wait on
+the Receipts list for you to match by hand.
+
 **Importing a whole folder:** if you keep receipt photos in a folder, use **Import a whole
 folder** on the Receipts page — type the folder path (optionally including subfolders) and it
 reads every image/PDF, skips ones already imported, and auto-matches each to its expense

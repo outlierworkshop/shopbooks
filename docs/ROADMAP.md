@@ -14,6 +14,20 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-17 — Auto-attach Amazon orders as receipts (issue #12)
+- `importer.parse_amazon_orders` parses the Amazon order-history CSV (newer
+  `Retail.OrderHistory.*.csv` and older Order Reports), tolerant header detection, groups item
+  rows by Order ID and sums to an order total. Deterministic — no AI.
+- `app._ingest_amazon_order` writes an itemized `.txt` receipt to `docs/`, inserts a `documents`
+  row (vendor=Amazon), dedupes on order id (sha256), and auto-matches via `receipt_candidates`
+  (amount+date). New route `POST /receipts/import-amazon` + a Receipts-page upload.
+- Caveat documented in UI/guide: Amazon bills per shipment, so order totals are approximate
+  matches — user confirms unmatched ones in the Receipts page. Covered by `test_amazon.py`.
+- Verified against the owner's real Business order report (75 orders): order-level total
+  (`Order Net Total`) is taken ONCE per order — item-subtotal summing would be wrong when an
+  order-level promo applies (e.g. $148.62 charge vs $161.52 item sum). cp1252 decode fallback
+  for ™/® in titles.
+
 ### 2026-06-16 — Job costing, Phase 2: tag transactions to jobs (issue #9)
 - New nullable `entries.job_id` (in SCHEMA + a guarded `_column_migrations` ALTER) tags a whole
   transaction to a job. `ledger.post_entry` takes an optional `job_id`; `ledger.set_entry_job`

@@ -448,6 +448,31 @@ def receipts(request: Request, msg: str = "", err: str = ""):
         con.close()
 
 
+def _ingest_amazon_order(con, order):
+    """Turn one parsed Amazon order into a receipt document and auto-match. Dedupes on order id.
+    Returns 'matched' | 'imported' | 'duplicate'."""
+    import hashlib
+    sha = hashlib.sha256(("amazon:" + order["order_id"]).encode()).hexdigest()
+    if con.execute("SELECT 1 FROM documents WHERE sha256=?", (sha,)).fetchone():
+        return "duplicate"
+    lines = [f"Amazon order {order['order_id']}", f"Date: {order['date']}", ""]
+    lines += [f"  - {it}" for it in order["items"]] or ["  (item names not in export)"]
+    lines += ["", f"Order total: ${ledger.fmt_cents(order['total_cents'])}"]
+    db.DOCS.mkdir(parents=True, exist_ok=True)
+    safe = "amazon_" + "".join(c if c.isalnum() else "-" for c in order["order_id"])[:40] + ".txt"
+    dest = db.DOCS / f"rcpt_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe}"
+    dest.write_text("\n".join(lines), encoding="utf-8")
+    cur = con.execute(
+        "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents,sha256) VALUES(?,?,?,?,?,?)",
+        (safe, str(dest), "Amazon", order["date"], order["total_cents"], sha))
+    doc = con.execute("SELECT * FROM documents WHERE id=?", (cur.lastrowid,)).fetchone()
+    cands = receipt_candidates(con, doc)
+    if len(cands) == 1:
+        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], doc["id"]))
+        return "matched"
+    return "imported"
+
+
 @app.post("/receipts/upload")
 async def receipts_upload(files: list[UploadFile] = File(...)):
     con = db.connect()
@@ -456,6 +481,27 @@ async def receipts_upload(files: list[UploadFile] = File(...)):
             _ingest_receipt(con, await f.read(), f.filename or "receipt.jpg")
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/import-amazon")
+async def receipts_import_amazon(file: UploadFile = File(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        try:
+            orders = importer.parse_amazon_orders(await file.read())
+        except ValueError as e:
+            return RedirectResponse("/receipts?err=" + quote(str(e)), status_code=303)
+        counts = {"matched": 0, "imported": 0, "duplicate": 0}
+        for o in orders:
+            counts[_ingest_amazon_order(con, o)] += 1
+        con.commit()
+        note = (f"Amazon: {len(orders)} orders read - {counts['matched']} matched, "
+                f"{counts['imported']} imported (need matching), {counts['duplicate']} already imported. "
+                "Amazon bills per shipment, so some orders won't match a single charge - match those by hand.")
+        return RedirectResponse("/receipts?msg=" + quote(note), status_code=303)
     finally:
         con.close()
 
