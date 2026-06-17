@@ -18,6 +18,7 @@ import importer
 import invoicing
 import ledger
 import migrate
+import sync
 import timetracking
 
 BASE = Path(__file__).resolve().parent
@@ -27,7 +28,13 @@ templates = Jinja2Templates(directory=BASE / "templates")
 templates.env.filters["money"] = ledger.fmt_cents
 
 db.init()
-backup.snapshot()  # protect the books on every launch (local + cloud mirror)
+sync.import_on_boot()  # if cloud sync is on: fast-forward from the other machine (never clobbers)
+backup.snapshot()      # protect the books on every launch (local + cloud mirror)
+
+
+@app.on_event("shutdown")
+def _sync_on_close():
+    sync.export_on_close()  # push this machine's books to the cloud copy on a clean exit
 
 
 def ctx(request, con, **kw):
@@ -36,6 +43,7 @@ def ctx(request, con, **kw):
     return {"request": request, "pending_count": pending, "unmatched_count": unmatched,
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
             "reset_suspected": backup.reset_suspected(),
+            "sync_alert": sync.last_alert(),
             "business_name": db.get_setting(con, "business_name", "My Business"), **kw}
 
 
@@ -1309,7 +1317,8 @@ def settings_page(request: Request, msg: str = "", err: str = ""):
         return templates.TemplateResponse(request, "settings.html", ctx(
             request, con, s=s, key_set=bool(key),
             smtp_set=bool(db.get_setting(con, "smtp_password", "")),
-            backup=backup.status(), restorable=backup.list_restorable()[:30], msg=msg, err=err))
+            backup=backup.status(), restorable=backup.list_restorable()[:30],
+            sync_status=sync.status(), msg=msg, err=err))
     finally:
         con.close()
 
@@ -1344,6 +1353,64 @@ def backup_restore(name: str = Form(...)):
     except FileNotFoundError:
         return RedirectResponse("/settings?err=" + quote("That backup could not be found."), status_code=303)
     note = f"Restored from {name}." + (" Your previous data was saved as a pre-restore backup." if had_data else "")
+    return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
+
+
+@app.post("/sync/enable")
+def sync_enable(on: str = Form("0")):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        db.set_setting(con, "sync_enabled", "1" if on == "1" else "0")
+        con.commit()
+    finally:
+        con.close()
+    if on == "1" and not sync.cloud():
+        return RedirectResponse("/settings?err=" + quote(
+            "Sync turned on, but no cloud folder is set. Set a Backup folder (in a synced "
+            "Dropbox/OneDrive location) above, then it will sync there."), status_code=303)
+    msg = "Cloud sync turned on." if on == "1" else "Cloud sync turned off."
+    return RedirectResponse("/settings?msg=" + quote(msg), status_code=303)
+
+
+@app.post("/sync/now")
+def sync_now():
+    from urllib.parse import quote
+    r = sync.export_on_close()
+    s = r.get("status")
+    if s == "exported":
+        note = f"Synced to the cloud (version {r['version']})."
+    elif s == "unchanged":
+        note = "Already in sync - nothing to push."
+    elif s == "blocked_cloud_newer":
+        return RedirectResponse("/settings?err=" + quote(
+            "The cloud copy is newer than your last sync - the other computer pushed changes. "
+            "Reopen ShopBooks to pull them, or use 'Keep this computer's books' to overwrite."),
+            status_code=303)
+    elif s == "no_cloud":
+        return RedirectResponse("/settings?err=" + quote(
+            "No cloud folder set - set a Backup folder in a synced location first."), status_code=303)
+    elif s == "disabled":
+        return RedirectResponse("/settings?err=" + quote("Turn cloud sync on first."), status_code=303)
+    else:
+        note = f"Sync: {s}" + (f" ({r['error']})" if r.get("error") else "")
+    return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
+
+
+@app.post("/sync/resolve")
+def sync_resolve(choice: str = Form(...)):
+    from urllib.parse import quote
+    if choice == "cloud":
+        r = sync.take_cloud()
+        note = "Took the cloud copy; this computer's unsynced changes were saved as a pre-sync backup."
+    elif choice == "local":
+        r = sync.keep_local()
+        note = "Kept this computer's books and overwrote the cloud copy."
+    else:
+        return RedirectResponse("/settings?err=" + quote("Unknown choice."), status_code=303)
+    if r.get("status") in ("no_cloud", "error"):
+        return RedirectResponse("/settings?err=" + quote(
+            "Could not resolve: " + r.get("error", r.get("status", ""))), status_code=303)
     return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
 
 

@@ -109,6 +109,75 @@ test backup so you can confirm it works.</p>
   </div>
 </div>
 
+<h2 id="sync">Sync between two computers</h2>
+<div class="card section" style="max-width:720px">
+  <p class="muted">Use the same books on two machines (e.g. a Mac and a PC) by syncing through your
+  cloud Backup folder above. ShopBooks keeps a single version-stamped copy there: it
+  <strong>pulls newer changes when you open the app</strong> and <strong>pushes your changes when you
+  close it</strong>. It never overwrites newer work silently - if both computers changed the books, it
+  asks you which to keep. Only run the app on one computer at a time, and let your cloud folder finish
+  syncing before switching.</p>
+
+  {% if sync_status.enabled %}
+    <p>Cloud sync is <strong>on</strong>. This computer: <code>{{ sync_status.machine_id }}</code>.</p>
+    {% if sync_status.cloud_dir %}
+      <p class="muted">Sync folder: <code>{{ sync_status.cloud_dir }}</code></p>
+    {% else %}
+      <p class="warn">No cloud folder is set - set a Backup folder (in a synced Dropbox/OneDrive
+      location) above, or sync has nowhere to write.</p>
+    {% endif %}
+    <p>Status:
+      {% if sync_status.status == 'conflict' %}
+        <strong class="warn">Conflict</strong> - this computer and the cloud copy both have changes.
+      {% elif sync_status.status == 'local_ahead' %}
+        <strong class="warn">Cloud copy is older</strong> than your books here (the other computer may
+        not have synced).
+      {% elif sync_status.status == 'fast_forward' %}
+        <strong>Newer changes are waiting</strong> in the cloud - reopen the app to pull them.
+      {% elif sync_status.status == 'local_changes' %}
+        <strong>Unsynced changes</strong> on this computer - they'll push on close, or use "Sync now".
+      {% elif sync_status.status == 'up_to_date' %}
+        <strong>Up to date.</strong>
+      {% else %}
+        <strong>Nothing synced yet</strong> - "Sync now" creates the first cloud copy.
+      {% endif %}
+      {% if sync_status.cloud_version %}<span class="muted">(cloud version {{ sync_status.cloud_version }}{% if sync_status.writer %}, from {{ sync_status.writer }}{% endif %}{% if sync_status.when %} at {{ sync_status.when }}{% endif %})</span>{% endif %}
+    </p>
+
+    {% if sync_status.status in ('conflict', 'local_ahead') %}
+    <div class="card" style="background:#fff6f6;border-color:#e7b3b3">
+      <p><strong>Both copies changed - choose which to keep:</strong></p>
+      <div class="toolbar">
+        <form class="inline" method="post" action="/sync/resolve"
+              onsubmit="return confirm('Take the CLOUD copy and discard this computer\'s unsynced changes? (A pre-sync backup is saved first.)')">
+          <input type="hidden" name="choice" value="cloud">
+          <button class="ghost" type="submit">Take the cloud copy</button>
+        </form>
+        <form class="inline" method="post" action="/sync/resolve"
+              onsubmit="return confirm('Keep THIS computer\'s books and overwrite the cloud copy?')">
+          <input type="hidden" name="choice" value="local">
+          <button class="ghost" type="submit">Keep this computer's books</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="toolbar">
+      <form class="inline" method="post" action="/sync/now"><button class="ghost" type="submit">Sync now</button></form>
+      <form class="inline" method="post" action="/sync/enable">
+        <input type="hidden" name="on" value="0">
+        <button class="ghost" type="submit">Turn sync off</button>
+      </form>
+    </div>
+  {% else %}
+    <p>Cloud sync is <strong>off</strong>.</p>
+    <form class="inline" method="post" action="/sync/enable">
+      <input type="hidden" name="on" value="1">
+      <button type="submit">Turn on cloud sync</button>
+    </form>
+  {% endif %}
+</div>
+
 <h2 id="restore">Restore from a backup</h2>
 <div class="card section" style="max-width:720px">
   <p class="muted">Pick a restore point to put your books back. Your current data is saved as a
