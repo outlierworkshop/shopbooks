@@ -26,6 +26,15 @@ boring tech, built for exactly one user.
 - Phase 2 (later): per-transaction "cleared" checkboxes (QuickBooks-style); optional AI explanation
   of a discrepancy.
 
+### 2026-06-17 — Import invoices from QuickBooks (records only)
+- `migrate.parse_invoices` reads a QBO Invoice List / Transaction List CSV (tolerant headers:
+  Date, No./Num, Customer/Name, Due Date, Amount/Total, Open Balance, Status; skips non-invoice
+  rows in a mixed list). `migrate.import_invoices` creates customers (reused) + invoice records
+  with a single summary line item, status paid (open balance 0 / "Paid") else sent, deduped on
+  invoice number. **Records only — never posts to the ledger** (cash basis; income comes from
+  deposit imports, so no double-counting). Route `POST /invoices/import-qbo` + Invoices-page upload.
+- Covered by `test_invoice_import.py`. Column mapping to be verified against the owner's real export.
+
 ### 2026-06-17 — Hide/reactivate accounts; loaded owner's real 2025 chart of accounts
 - Imported the owner's full 2025 P&L chart of accounts (14 income, ~67 expense incl. parents+subs)
   with the 2-level hierarchy; flattened the one 3-level COGS branch; disambiguated duplicate names

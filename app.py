@@ -1123,6 +1123,25 @@ def invoices_page(request: Request, msg: str = "", err: str = ""):
         con.close()
 
 
+@app.post("/invoices/import-qbo")
+async def invoices_import_qbo(file: UploadFile = File(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        try:
+            parsed = migrate.parse_invoices(await file.read())
+        except ValueError as e:
+            return RedirectResponse("/invoices?err=" + quote(str(e)), status_code=303)
+        created, skipped = migrate.import_invoices(con, parsed)
+        con.commit()
+        note = (f"Imported {created} invoice(s) from QuickBooks ({skipped} already present). "
+                "Records only - these don't post income to your books; income still comes from your "
+                "deposit/statement imports.")
+        return RedirectResponse("/invoices?msg=" + quote(note), status_code=303)
+    finally:
+        con.close()
+
+
 @app.post("/customers")
 def customer_add(name: str = Form(...), email: str = Form(""), address: str = Form(""),
                  phone: str = Form("")):
