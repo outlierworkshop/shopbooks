@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Reconcile{% endblock %}
+{% block content %}
+<h1>Reconcile accounts</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+<p class="muted">Confirm each bank and credit-card account matches its statement: pick an account,
+enter the statement's closing date and ending balance, and ShopBooks shows whether your books
+agree. Do this once per statement (usually monthly).</p>
+
+<table>
+  <tr><th>Account</th><th class="num">Book balance</th><th>Last reconciled</th><th>Status</th><th></th></tr>
+  {% for a in accounts %}
+  <tr>
+    <td>{{ a.name }} <span class="muted">({{ a.kind }})</span></td>
+    <td class="num {{ 'neg' if a.book_balance < 0 else '' }}">${{ a.book_balance|money }}</td>
+    <td class="muted">{{ a.last_date or '—' }}</td>
+    <td>
+      {% if a.never_reconciled %}<span class="muted">never reconciled</span>
+      {% elif a.reconciled %}<span class="pos">✓ in balance</span>
+      {% else %}<span class="error">⚠ off by ${{ a.last_difference|abs|money }}</span>{% endif %}
+      {% if a.activity_since %}<span class="muted"> · {{ a.activity_since }} txn(s) since</span>{% endif %}
+    </td>
+    <td><a class="btn small" href="/reconcile/{{ a.id }}">Reconcile</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No bank or credit-card accounts yet. Add them on the
+    <a href="/accounts">Accounts</a> page.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

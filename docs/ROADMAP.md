@@ -14,6 +14,18 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Reconciliation, Phase 1: balance check (issue #4)
+- New `reconciliations` table + `reconcile.py`. Per bank/card account, enter a statement's closing
+  date + ending balance; compares to the book balance as-of that date (`ledger.raw_balance`,
+  display-signed so it reads like the statement) and reports the difference (0 = reconciled).
+- Saves a checkpoint per statement; `reconcile.status` powers a /reconcile overview (book balance,
+  last reconciled, in-balance/off flag, activity since). When off, the account page lists that
+  period's transactions and flags likely duplicates (same amount within a few days) to find the gap.
+- All deterministic; nothing posts to the ledger. "Reconcile" nav link; `test_reconcile.py` (13
+  checks: balance compare, as-of, card sign, checkpoint status, duplicate detection).
+- Phase 2 (later): per-transaction "cleared" checkboxes (QuickBooks-style); optional AI explanation
+  of a discrepancy.
+
 ### 2026-06-17 — Hide/reactivate accounts; loaded owner's real 2025 chart of accounts
 - Imported the owner's full 2025 P&L chart of accounts (14 income, ~67 expense incl. parents+subs)
   with the 2-level hierarchy; flattened the one 3-level COGS branch; disambiguated duplicate names

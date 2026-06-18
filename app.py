@@ -18,6 +18,7 @@ import importer
 import invoicing
 import ledger
 import migrate
+import reconcile
 import sync
 import timetracking
 
@@ -846,6 +847,63 @@ def job_detail(request: Request, job_id: int):
         if not rep:
             return RedirectResponse("/jobs", status_code=303)
         return templates.TemplateResponse(request, "job_detail.html", ctx(request, con, rep=rep))
+    finally:
+        con.close()
+
+
+# ---------- reconciliation ----------
+
+@app.get("/reconcile", response_class=HTMLResponse)
+def reconcile_page(request: Request, msg: str = ""):
+    con = db.connect()
+    try:
+        return templates.TemplateResponse(request, "reconcile.html", ctx(
+            request, con, accounts=reconcile.status(con), msg=msg))
+    finally:
+        con.close()
+
+
+@app.get("/reconcile/{account_id}", response_class=HTMLResponse)
+def reconcile_account(request: Request, account_id: int, date: str = "", balance: str = "", msg: str = ""):
+    con = db.connect()
+    try:
+        acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not acct or acct["kind"] not in ("bank", "card"):
+            return RedirectResponse("/reconcile", status_code=303)
+        last = reconcile.last_reconciliation(con, account_id)
+        result = txns = dups = None
+        if date.strip() and balance.strip():  # preview a reconciliation (no save)
+            try:
+                sd = ledger.normalize_date(date)
+                bal = ledger.parse_amount_to_cents(balance)
+                result = reconcile.compute(con, account_id, sd, bal)
+                after = last["statement_date"] if last else None
+                txns = reconcile.period_transactions(con, account_id, after, sd)
+                dups = reconcile.likely_duplicates(con, account_id, after, sd)
+            except ValueError:
+                result = None
+        return templates.TemplateResponse(request, "reconcile_account.html", ctx(
+            request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
+            result=result, txns=txns, dups=dups, date=date, balance=balance, msg=msg))
+    finally:
+        con.close()
+
+
+@app.post("/reconcile")
+def reconcile_save(account_id: int = Form(...), statement_date: str = Form(...),
+                   statement_balance: str = Form(...)):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        sd = ledger.normalize_date(statement_date)
+        bal = ledger.parse_amount_to_cents(statement_balance)
+        r = reconcile.record(con, account_id, sd, bal)
+        con.commit()
+        note = ("Reconciled — books match the statement." if r["reconciled"]
+                else f"Saved — off by ${ledger.fmt_cents(abs(r['difference']))}. See the transactions below to find it.")
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
+    except ValueError as e:
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Couldn't read that: {e}"), status_code=303)
     finally:
         con.close()
 

@@ -179,6 +179,16 @@ CREATE TABLE IF NOT EXISTS time_entries(
 );
 CREATE INDEX IF NOT EXISTS idx_time_job ON time_entries(job_id);
 CREATE INDEX IF NOT EXISTS idx_time_date ON time_entries(date);
+CREATE TABLE IF NOT EXISTS reconciliations(
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id),
+  statement_date TEXT NOT NULL,             -- ISO YYYY-MM-DD (statement closing date)
+  statement_balance_cents INTEGER NOT NULL, -- ending balance off the statement (natural/display sign)
+  book_balance_cents INTEGER NOT NULL,      -- book balance as-of statement_date, snapshotted at reconcile time
+  difference_cents INTEGER NOT NULL,        -- statement - book (0 = reconciled)
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_recon_account ON reconciliations(account_id);
 """
 
 SEED_ACCOUNTS = [
