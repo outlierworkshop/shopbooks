@@ -9,7 +9,17 @@
 {% endif %}
 <div class="toolbar">
   <a class="btn" href="/invoices/new">+ New invoice</a>
+  <form class="inline" method="post" action="/invoices/import-qbo" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit" class="ghost">Import from QuickBooks (CSV)</button>
+  </form>
+  <form class="inline" method="post" action="/invoices/match-all">
+    <button type="submit" class="ghost" title="Link each unpaid invoice to a matching deposit already on your books, without posting any entry">Match to deposits</button>
+  </form>
 </div>
+<p class="muted">QuickBooks import: export Reports → <strong>Invoice List</strong> to CSV and upload it.
+Brings in invoice records (customer, number, date, amount, paid/open) for tracking only — it does
+<strong>not</strong> post income to your books, so it won't double-count against your deposit imports.</p>
 <table>
   <tr><th>#</th><th>Customer</th><th>Date</th><th>Due</th><th class="num">Total</th><th>Status</th></tr>
   {% for i in invoices %}

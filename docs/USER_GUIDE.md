@@ -118,6 +118,20 @@ included in reports — you don't need to do anything else with it.
 
 ## Invoicing
 
+**Importing invoices from QuickBooks:** export Reports → **Invoice List** to CSV, then use
+**Import from QuickBooks (CSV)** on the Invoices page. It brings in each invoice as a record
+(customer, number, date, amount, paid/open) for tracking — it does **not** post income to your
+books, so it won't double-count against the deposits you import on bank/Square statements. Re-running
+the same file is safe (deduped by invoice number).
+
+**Matching invoices to their deposits:** once the paying deposit is on your books (from a bank/Square
+import), open the invoice and click **Match** next to the matching deposit, or use **Match to deposits**
+on the Invoices page to auto-link them all. This marks the invoice paid and attaches it to that deposit
+**without posting any new entry** — so your income (from the deposit) is never double-counted. Unmatch
+just unlinks; it never deletes the deposit. (Square deposits are net of fees, so those won't amount-match
+exactly — link them by hand.)
+
+
 1. **Invoices** → add the customer once (name, email, address).
 2. **+ New invoice** → pick customer, add line items (description, qty, unit price).
    Numbering is automatic.

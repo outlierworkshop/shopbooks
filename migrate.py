@@ -300,3 +300,113 @@ def import_mileage(con, parsed):
                     (t["date"], t["miles"], t["purpose"], t["from_loc"], t["to_loc"]))
         created += 1
     return created
+
+
+# ---------- 5. Invoices (records only - never posts to the ledger) ----------
+
+def parse_invoices(raw_bytes):
+    """Parse a QBO Invoice List / Transaction List CSV into invoice records.
+
+    Tolerant of the column variants QBO ships. Returns
+    [{number, customer, date, due_date, amount_cents, status, paid}] where status is
+    'paid' (open balance 0 / a Paid status) or 'sent'. No line-item detail (QBO CSV
+    exports don't include it); the importer stores a single summary line per invoice.
+    """
+    rows = _rows(raw_bytes)
+    # find the header row by the three columns we must have (QBO uses Customer/Name, Amount/Total)
+    hi = headers = date_i = cust_i = amt_i = None
+    for i, row in enumerate(rows[:8]):
+        lowered = [c.strip().lower() for c in row]
+        if sum(1 for c in lowered if c) < 2:
+            continue
+        d = _col(lowered, "date", exclude=("due", "created", "ship"))
+        cu = _col(lowered, "customer full name", "customer", "name", exclude=("product", "memo"))
+        am = _col(lowered, "amount", "total", exclude=("balance", "tax", "due"))
+        if d is not None and cu is not None and am is not None:
+            hi, headers, date_i, cust_i, amt_i = i, lowered, d, cu, am
+            break
+    if hi is None:
+        raise ValueError("Couldn't find the invoice columns (need Date, Customer/Name, Amount/Total). "
+                         "Export Reports -> 'Invoice List' (or Transaction List by Customer) to CSV.")
+    num_i = _col(headers, "no.", "num", "no", "invoice no", "invoice number", "number", "#", "transaction number")
+    due_i = _col(headers, "due date")
+    bal_i = _col(headers, "open balance", "balance", "open")
+    status_i = _col(headers, "status")
+    type_i = _col(headers, "transaction type", "type")
+
+    out, seen = [], set()
+    for row in rows[hi + 1:]:
+        if type_i is not None and _get(row, type_i) and "invoice" not in _get(row, type_i).lower():
+            continue  # skip payments/credits when it's a mixed transaction list
+        cust = _get(row, cust_i)
+        if not cust or cust.lower().startswith("total"):
+            continue
+        try:
+            date = normalize_date(_get(row, date_i))
+            cents = parse_amount_to_cents(_get(row, amt_i))
+        except (ValueError, IndexError):
+            continue
+        if cents == 0:
+            continue
+        try:
+            due = normalize_date(_get(row, due_i)) if _get(row, due_i) else date
+        except ValueError:
+            due = date
+        # paid if the status says so, or the open balance is zero
+        paid = False
+        if status_i is not None and "paid" in _get(row, status_i).lower():
+            paid = True
+        elif bal_i is not None and _get(row, bal_i):
+            try:
+                paid = parse_amount_to_cents(_get(row, bal_i)) == 0
+            except ValueError:
+                paid = False
+        number = _get(row, num_i) if num_i is not None else ""
+        key = number or f"{cust}|{date}|{cents}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"number": number, "customer": cust, "date": date, "due_date": due,
+                    "amount_cents": cents, "status": "paid" if paid else "sent", "paid": paid})
+    if not out:
+        raise ValueError("No invoices found in that file.")
+    out.sort(key=lambda i: i["date"])
+    return out
+
+
+def import_invoices(con, parsed):
+    """Create customers + invoice records (one summary line item each). Records only:
+    never posts to the ledger (income comes from deposit imports on cash basis).
+    Dedupes on invoice number. Returns (created, skipped)."""
+    created = skipped = 0
+    for inv in parsed:
+        cust = con.execute("SELECT id FROM customers WHERE lower(name)=lower(?)", (inv["customer"],)).fetchone()
+        if cust:
+            customer_id = cust["id"]
+        else:
+            customer_id = con.execute("INSERT INTO customers(name) VALUES(?)", (inv["customer"],)).lastrowid
+        number = inv["number"].strip() if inv["number"] else ""
+        if number and con.execute("SELECT 1 FROM invoices WHERE number=?", (number,)).fetchone():
+            skipped += 1
+            continue
+        if not number:
+            n = int(db_get_next(con))
+            number = f"QB-{n}"
+        cur = con.execute(
+            "INSERT INTO invoices(number,customer_id,date,due_date,status,memo,paid_date) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (number, customer_id, inv["date"], inv["due_date"], inv["status"],
+             "Imported from QuickBooks", inv["date"] if inv["paid"] else None))
+        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
+                    (cur.lastrowid, "Imported from QuickBooks (invoice total)", 1, inv["amount_cents"]))
+        created += 1
+    return created, skipped
+
+
+def db_get_next(con):
+    """Pull and bump the invoice-number counter (kept out of invoicing.py to avoid a cycle)."""
+    row = con.execute("SELECT value FROM settings WHERE key='next_invoice_number'").fetchone()
+    n = int(row["value"]) if row else 1001
+    con.execute("INSERT INTO settings(key,value) VALUES('next_invoice_number',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(n + 1),))
+    return n
