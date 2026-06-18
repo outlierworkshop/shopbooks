@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Reconcile {{ acct.name }}{% endblock %}
+{% block content %}
+<h1>Reconcile: {{ acct.name }} <span class="muted">({{ acct.kind }})</span></h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+<p class="muted"><a href="/reconcile">← All accounts</a>
+  {% if last %} · last reconciled {{ last.statement_date }}
+    ({% if last.difference_cents == 0 %}<span class="pos">in balance</span>{% else %}<span class="error">was off by ${{ last.difference_cents|abs|money }}</span>{% endif %}){% endif %}
+</p>
+
+<h2>Check against a statement</h2>
+<form method="get" action="/reconcile/{{ acct.id }}" class="toolbar">
+  <input type="date" name="date" value="{{ date or today }}" required>
+  <input type="text" name="balance" value="{{ balance }}" placeholder="statement ending balance $" style="width:200px" required>
+  <button type="submit">Check</button>
+</form>
+<p class="muted">Enter the closing date and ending balance printed on the statement
+{% if acct.kind == 'card' %}(the amount owed){% endif %}. We compare it to your books as of that date.</p>
+
+{% if result %}
+<div class="card section" style="max-width:520px">
+  <table>
+    <tr><td>Statement ending balance</td><td class="num">${{ result.statement_balance|money }}</td></tr>
+    <tr><td>Your books as of {{ result.statement_date }}</td><td class="num">${{ result.book_balance|money }}</td></tr>
+    <tr><td><strong>Difference</strong></td>
+        <td class="num"><strong class="{{ 'pos' if result.reconciled else 'neg' }}">${{ result.difference|abs|money }}</strong></td></tr>
+  </table>
+  {% if result.reconciled %}
+    <p class="pos">✓ Reconciled — your books match the statement.</p>
+  {% else %}
+    <p class="error">⚠ Off by ${{ result.difference|abs|money }}.
+      {% if result.difference > 0 %}The statement is higher — you're likely missing a transaction (a deposit/charge not entered).
+      {% else %}Your books are higher — likely a duplicate, or something entered that isn't on the statement.{% endif %}</p>
+  {% endif %}
+  <form method="post" action="/reconcile">
+    <input type="hidden" name="account_id" value="{{ acct.id }}">
+    <input type="hidden" name="statement_date" value="{{ result.statement_date }}">
+    <input type="hidden" name="statement_balance" value="{{ result.statement_balance|money }}">
+    <button type="submit">Save this reconciliation</button>
+  </form>
+</div>
+
+{% if not result.reconciled %}
+{% if dups %}
+<h2>Likely duplicates <span class="muted">(same amount, within a few days)</span></h2>
+<table>
+  <tr><th>Date</th><th>Payee</th><th class="num">Amount</th><th>Date</th><th>Payee</th><th class="num">Amount</th></tr>
+  {% for a, b in dups %}
+  <tr>
+    <td>{{ a.date }}</td><td>{{ a.payee }}</td><td class="num">${{ a.amount|money }}</td>
+    <td>{{ b.date }}</td><td>{{ b.payee }}</td><td class="num">${{ b.amount|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+<h2>Transactions in this period</h2>
+<p class="muted">Since {{ last.statement_date if last else 'the beginning' }} through {{ result.statement_date }} — scan for anything missing or doubled.</p>
+<table>
+  <tr><th>Date</th><th>Payee</th><th class="num">Amount</th></tr>
+  {% for t in txns %}
+  <tr><td>{{ t.date }}</td><td>{{ t.payee }}</td>
+      <td class="num {{ 'neg' if t.amount < 0 else '' }}">${{ t.amount|money }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">No transactions in this period.</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+
+{% if history %}
+<h2>History</h2>
+<table>
+  <tr><th>Statement date</th><th class="num">Statement</th><th class="num">Books</th><th class="num">Difference</th></tr>
+  {% for h in history %}
+  <tr>
+    <td>{{ h.statement_date }}</td>
+    <td class="num">${{ h.statement_balance_cents|money }}</td>
+    <td class="num">${{ h.book_balance_cents|money }}</td>
+    <td class="num {{ 'pos' if h.difference_cents == 0 else 'neg' }}">${{ h.difference_cents|abs|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
