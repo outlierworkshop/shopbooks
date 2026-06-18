@@ -30,6 +30,9 @@ boring tech, built for exactly one user.
 - Deliberately NOT applied to hierarchical/total tables (Reports P&L/balance-sheet rollups, the
   reconcile key/value summary, invoice line-items with a totals row, entry forms) where reordering
   rows would break meaning. Pure client-side; degrades to server order if JS is off.
+- **Persistent**: the active sort is saved in `localStorage` keyed by page path + table/list index
+  and re-applied on load, so it survives the full page reload after posting/skipping/saving a
+  transaction (which is a POST→redirect→GET). Each page/register remembers its own column + direction.
 
 ### 2026-06-18 — Retroactive transfer matching (bank↔bank too) + "Find transfers" button
 - `importer.rescan_transfers(con)` pairs internal transfers across ALL pending rows, not just at
