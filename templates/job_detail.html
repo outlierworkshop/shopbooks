@@ -23,7 +23,7 @@ isn't subtracted; "profit / hour" is net cash ÷ hours logged, so you can see wh
 hour of your time. Billable value of time: ${{ rep.billable_value|money }} ({{ '%.2f'|format(rep.billable_hours) }} billable hrs).</p>
 
 <h2>Tagged transactions</h2>
-<table>
+<table class="sortable">
   <tr><th>Date</th><th>Payee</th><th class="num">Profit impact</th></tr>
   {% for t in rep.transactions %}
   <tr><td>{{ t.date }}</td><td>{{ t.payee }}</td>
@@ -35,7 +35,7 @@ hour of your time. Billable value of time: ${{ rep.billable_value|money }} ({{ '
 </table>
 
 <h2>Time entries</h2>
-<table>
+<table class="sortable">
   <tr><th>Date</th><th class="num">Hours</th><th>Category</th><th>Note</th><th>Billable</th><th class="num">Value</th></tr>
   {% for e in rep.entries %}
   <tr>

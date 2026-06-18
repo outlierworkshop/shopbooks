@@ -20,7 +20,7 @@
 <p class="muted">QuickBooks import: export Reports → <strong>Invoice List</strong> to CSV and upload it.
 Brings in invoice records (customer, number, date, amount, paid/open) for tracking only — it does
 <strong>not</strong> post income to your books, so it won't double-count against your deposit imports.</p>
-<table>
+<table class="sortable">
   <tr><th>#</th><th>Customer</th><th>Date</th><th>Due</th><th class="num">Total</th><th>Status</th></tr>
   {% for i in invoices %}
   <tr>
@@ -49,7 +49,7 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
   <input type="text" name="address" placeholder="address" style="width:240px">
   <button type="submit">Add customer</button>
 </form>
-<table>
+<table class="sortable">
   <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th></th></tr>
   {% for c in customers %}
   <tr>

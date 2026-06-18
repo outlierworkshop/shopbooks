@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ acct.name }} <span class="muted">({{ acct.type }})</span></h1>
 <p>Current balance: <strong class="{{ 'neg' if balance < 0 else '' }}">${{ balance|money }}</strong></p>
-<table>
+<table class="sortable">
   <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
   {% for r in rows %}
   <tr>

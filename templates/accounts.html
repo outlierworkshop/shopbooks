@@ -37,7 +37,7 @@ parent with a subtotal. Two levels max. Account names must be unique, so use dis
   {% if show_hidden %}<a class="muted" href="/accounts">hide inactive accounts</a>
   {% elif hidden_count %}<a class="muted" href="/accounts?show_hidden=1">show {{ hidden_count }} hidden account(s)</a>{% endif %}
 </div>
-<table>
+<table class="sortable">
   <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th></th><th></th></tr>
   {% for a in accounts %}
   <tr {{ 'style=opacity:0.5' if not a.active else '' }}>

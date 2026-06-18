@@ -14,6 +14,23 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Click-to-sort columns everywhere (`static/sort.js`)
+- New dependency-free `static/sort.js` (loaded globally in `base.html`). Two mechanisms:
+  - **Tables**: add `class="sortable"` to a `<table>` and every text column header becomes
+    clickable (click toggles asc/desc, ▲/▼ indicator). Type is auto-detected per column —
+    money (`$1,234.56`, `(45.00)`), plain numbers, ISO dates (`YYYY-MM-DD`), text — and it reads
+    `<input>`/`<select>` values so editable rows (accounts, customers) sort by their field. Skips
+    `<tfoot>`, `tr.no-sort`, and empty/action headers. Blanks/em-dashes sort last.
+  - **Card lists**: a `[data-sortbar="#listId"]` toolbar with `[data-field]` buttons sorts the
+    `[data-sortitem]` children of that list by their `data-<field>` attribute. Used for the
+    receipts page (Date / Vendor / Amount / Status), which is cards, not a table.
+- Applied to: Review (transactions), registers, invoices + customers, accounts, mileage, rules,
+  jobs, time (+ by-category/by-job), job detail, reconcile overview + per-account (dups/period/
+  history), dashboard recent activity, settings restore list, and the receipts card list.
+- Deliberately NOT applied to hierarchical/total tables (Reports P&L/balance-sheet rollups, the
+  reconcile key/value summary, invoice line-items with a totals row, entry forms) where reordering
+  rows would break meaning. Pure client-side; degrades to server order if JS is off.
+
 ### 2026-06-18 — Retroactive transfer matching (bank↔bank too) + "Find transfers" button
 - `importer.rescan_transfers(con)` pairs internal transfers across ALL pending rows, not just at
   import time. Matches equal-and-opposite amounts between two of the user's own bank/card accounts

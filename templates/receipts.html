@@ -48,8 +48,20 @@
 </div>
 {% endif %}
 
+{% if items %}
+<div class="toolbar" data-sortbar="#receiptList">
+  <span class="muted">Sort receipts:</span>
+  <button type="button" class="ghost small" data-field="date">Date</button>
+  <button type="button" class="ghost small" data-field="vendor">Vendor</button>
+  <button type="button" class="ghost small" data-field="amount" data-type="num">Amount</button>
+  <button type="button" class="ghost small" data-field="status">Status</button>
+</div>
+{% endif %}
+<div id="receiptList">
 {% for it in items %}
-<div class="card section">
+<div class="card section" data-sortitem
+     data-vendor="{{ (it.doc.vendor or '')|lower }}" data-date="{{ it.doc.doc_date or '' }}"
+     data-amount="{{ it.doc.amount_cents or 0 }}" data-status="{{ it.doc.status or '' }}">
   <div style="display:flex; gap:16px; flex-wrap:wrap;">
     <a href="/doc/{{ it.doc.id }}" target="_blank">
       {% if it.doc.filename.lower().endswith('.pdf') %}<span style="font-size:48px">📄</span>
@@ -105,4 +117,5 @@
 {% else %}
 <p class="muted">No receipts yet. Snap photos and drop them here.</p>
 {% endfor %}
+</div>
 {% endblock %}

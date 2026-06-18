@@ -24,7 +24,7 @@
           onclick="return confirm('Discard the unposted rows of batch {{ b }}? You can re-import the statement.')">Discard batch {{ b }}</button>
   {% endfor %}
 </div>
-<table>
+<table class="sortable">
   <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Remember</th><th></th></tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">

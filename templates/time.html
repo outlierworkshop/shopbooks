@@ -29,7 +29,7 @@
 <p class="muted">Time is for your own job-costing and reports - it is never posted to the books or added
 to invoices. Leave rate blank to use the default hourly rate from Settings.</p>
 
-<table>
+<table class="sortable">
   <tr><th>Date</th><th class="num">Hours</th><th>Job</th><th>Category</th><th>Note</th>
       <th>Billable</th><th class="num">Value</th><th></th></tr>
   {% for e in entries %}
@@ -54,7 +54,7 @@ to invoices. Leave rate blank to use the default hourly rate from Settings.</p>
 <div class="cols" style="display:flex; gap:32px; flex-wrap:wrap">
   <div>
     <h2>By category</h2>
-    <table>
+    <table class="sortable">
       <tr><th>Category</th><th class="num">Hours</th><th class="num">Billable $</th></tr>
       {% for c in summary.by_category %}
       <tr><td>{{ c.category }}</td><td class="num">{{ '%.2f'|format(c.hours) }}</td>
@@ -64,7 +64,7 @@ to invoices. Leave rate blank to use the default hourly rate from Settings.</p>
   </div>
   <div>
     <h2>By job</h2>
-    <table>
+    <table class="sortable">
       <tr><th>Job</th><th class="num">Hours</th><th class="num">Billable $</th></tr>
       {% for j in summary.by_job %}
       <tr><td>{% if j.job_id %}<a href="/jobs/{{ j.job_id }}">{{ j.job }}</a>{% else %}{{ j.job }}{% endif %}</td>

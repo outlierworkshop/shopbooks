@@ -183,7 +183,7 @@ test backup so you can confirm it works.</p>
   <p class="muted">Pick a restore point to put your books back. Your current data is saved as a
   <code>pre-restore</code> backup first, so you can undo. Rows marked <strong>(has data)</strong>
   contain real records; empty ones are fresh databases.</p>
-  <table>
+  <table class="sortable">
     <tr><th>Backup</th><th>When</th><th class="num">Size</th><th></th></tr>
     {% for b in restorable %}
     <tr>
