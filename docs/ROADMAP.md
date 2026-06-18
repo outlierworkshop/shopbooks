@@ -14,6 +14,16 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Fix "blank books on launch" (hardened launcher)
+- Root cause was NOT data loss — the live `books.db` stayed full the whole time. A stale/leftover
+  server bound to port 8765 (e.g. a dev instance, or one started with `SHOPBOOKS_DATA_DIR` pointing
+  at a temp dir) was answering with a fresh 28-account seed and an empty dashboard.
+- `run.bat` now kills whatever holds port 8765 (`netstat | findstr ":8765 " → taskkill`) BEFORE
+  starting, guaranteeing one clean server on the real books every launch. Removed the fragile
+  nested-quote "delayed browser open" line that could abort the script.
+- Note for future debugging: one `run.bat` launch shows TWO `python.exe` processes — the `.venv`
+  python is a launcher stub that re-execs the real interpreter. That's one server, not a duplicate.
+
 ### 2026-06-18 — Reconciliation, Phase 1: balance check (issue #4)
 - New `reconciliations` table + `reconcile.py`. Per bank/card account, enter a statement's closing
   date + ending balance; compares to the book balance as-of that date (`ledger.raw_balance`,
