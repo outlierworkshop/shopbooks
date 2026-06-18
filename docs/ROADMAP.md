@@ -14,6 +14,22 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Retroactive transfer matching (bank↔bank too) + "Find transfers" button
+- `importer.rescan_transfers(con)` pairs internal transfers across ALL pending rows, not just at
+  import time. Matches equal-and-opposite amounts between two of the user's own bank/card accounts
+  within 7 days, greedy by nearest date (each row used once), and points each side's category at
+  the other account so posting books one transfer (second side auto-skips via the post-once guard).
+  Now handles **bank↔bank** (and card↔card), not only bank↔card credit-card payments. Idempotent.
+- Wired into: a new **↔ Find transfers** button on /review (retroactively scans the queue),
+  `importer.stage_transactions` (replaces the old import-time `pair_transfers`), and the QBO
+  `/migrate/transactions` import (migrated rows previously never got paired at all).
+- Note on one-sided transfers: a payment only matches when BOTH sides are in the queue. If only
+  the bank statement is imported (not the card's), categorize the bank payment directly to the
+  card account (or add a rule on the payee, e.g. "CAPITAL ONE CRCARDPMT" → that card).
+- Verified with an isolated test (bank↔card, bank↔bank, real-expense-untouched, no self-pairing,
+  idempotent re-run, post-once skip) and a dry-run on a copy of the real books (2 genuine
+  two-sided transfers matched: $11,111.11 bank transfer + $51.00 Chase payment).
+
 ### 2026-06-18 — Fix "blank books on launch" (hardened launcher)
 - Root cause was NOT data loss — the live `books.db` stayed full the whole time. A stale/leftover
   server bound to port 8765 (e.g. a dev instance, or one started with `SHOPBOOKS_DATA_DIR` pointing

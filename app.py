@@ -255,6 +255,15 @@ async def review_action(request: Request):
             con.execute("DELETE FROM staged WHERE batch_id=? AND status='pending'", (int(form["discard_batch"]),))
         elif "ai_review" in form:
             return _ai_review_pending(con)
+        elif "find_transfers" in form:
+            from urllib.parse import quote
+            pairs = importer.rescan_transfers(con)
+            con.commit()
+            note = (f"Matched {pairs} transfer pair(s) - each is categorized to the other account and "
+                    "will post once. Review the ↔ rows, then Post all." if pairs else
+                    "No new transfers found (need an equal, opposite amount in another of your "
+                    "accounts within 7 days).")
+            return RedirectResponse("/review?note=" + quote(note), status_code=303)
         con.commit()
         return RedirectResponse("/review", status_code=303)
     finally:
@@ -1021,11 +1030,12 @@ async def migrate_transactions(file: UploadFile = File(...)):
     try:
         by_source, skipped = migrate.parse_transactions(con, await file.read())
         staged = migrate.import_transactions(con, by_source, file.filename or "transactions.csv")
+        pairs = importer.rescan_transfers(con)
         con.commit()
         return _migrate_redirect(msg=(
             f"{staged} transactions staged for Review across {len(by_source)} account(s). "
             f"({skipped['not_bank_card']} rows on category accounts skipped - those are the "
-            "same transactions seen from the other side.)"))
+            f"same transactions seen from the other side.) {pairs} transfer pair(s) auto-matched."))
     except ValueError as e:
         return _migrate_redirect(err=str(e))
     finally:

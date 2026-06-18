@@ -311,24 +311,49 @@ def find_posted_transfer(con, source_account_id, amount_cents, date, window=TRAN
     return row["account_id"] if row else None
 
 
-def pair_transfers(con, batch_id, source_account_id):
-    """After staging a batch, auto-categorize credit-card payments as transfers: set the
-    category to the matching own account so posting books a transfer (not an expense)."""
-    for row in con.execute("SELECT * FROM staged WHERE batch_id=? AND status='pending'", (batch_id,)).fetchall():
-        partner = find_pending_partner(con, source_account_id, row["amount_cents"], row["date"], row["id"])
-        if partner:
-            con.execute("UPDATE staged SET category_id=? WHERE id=?", (partner["account_id"], row["id"]))
-            con.execute("UPDATE staged SET category_id=? WHERE id=? AND status='pending'",
-                        (source_account_id, partner["id"]))
+def rescan_transfers(con, window=TRANSFER_WINDOW):
+    """Pair internal transfers across ALL pending rows - not just at import time.
+
+    Finds equal-and-opposite amounts between two of the user's OWN bank/card accounts within
+    `window` days and points each side's category at the other account, so posting books a single
+    transfer (the second side auto-skips via the post-once logic in app._post_staged). Handles
+    bank<->card credit-card payments AND bank<->bank / card<->card transfers. Greedy by nearest
+    date so repeated identical amounts pair sensibly; each row is used at most once. Suggestions
+    only - nothing posts. Returns the number of pairs matched.
+    """
+    rows = con.execute(
+        "SELECT st.id, st.amount_cents, st.date, st.category_id, b.account_id AS acct_id "
+        "FROM staged st JOIN batches b ON b.id=st.batch_id JOIN accounts a ON a.id=b.account_id "
+        "WHERE st.status='pending' AND a.kind IN ('bank','card')").fetchall()
+    outs = sorted((r for r in rows if r["amount_cents"] > 0), key=lambda r: (r["date"], r["id"]))
+    ins = [r for r in rows if r["amount_cents"] < 0]
+    used, pairs = set(), 0
+    for o in outs:
+        best, best_gap = None, None
+        for n in ins:
+            if n["id"] in used or n["acct_id"] == o["acct_id"] \
+                    or n["amount_cents"] != -o["amount_cents"]:
+                continue
+            gap = abs((date.fromisoformat(n["date"]) - date.fromisoformat(o["date"])).days)
+            if gap > window:
+                continue
+            if best is None or gap < best_gap:
+                best, best_gap = n, gap
+        if best is None:
             continue
-        booked = find_posted_transfer(con, source_account_id, row["amount_cents"], row["date"])
-        if booked is not None:
-            con.execute("UPDATE staged SET category_id=? WHERE id=?", (booked, row["id"]))
+        used.add(best["id"])
+        # Already paired to each other from a prior scan? Leave it, don't re-count.
+        if o["category_id"] == best["acct_id"] and best["category_id"] == o["acct_id"]:
+            continue
+        con.execute("UPDATE staged SET category_id=? WHERE id=?", (best["acct_id"], o["id"]))
+        con.execute("UPDATE staged SET category_id=? WHERE id=?", (o["acct_id"], best["id"]))
+        pairs += 1
+    return pairs
 
 
 def stage_transactions(con, batch_id, txns, source_account_id, category_names_by_id, ai_categories=None):
     """Insert staged rows, auto-categorizing via rules first, AI suggestions second, then pair
-    any credit-card-payment transfers between the user's own accounts."""
+    any transfers (CC payments, bank-to-bank) between the user's own accounts across the queue."""
     name_to_id = {v: k for k, v in category_names_by_id.items()}
     for i, t in enumerate(txns):
         cat_id = apply_rules(con, t["description"])
@@ -337,4 +362,4 @@ def stage_transactions(con, batch_id, txns, source_account_id, category_names_by
         con.execute(
             "INSERT INTO staged(batch_id,date,description,amount_cents,category_id) VALUES(?,?,?,?,?)",
             (batch_id, t["date"], t["description"], t["amount_cents"], cat_id))
-    pair_transfers(con, batch_id, source_account_id)
+    rescan_transfers(con)
