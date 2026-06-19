@@ -14,6 +14,17 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Fix: cross-import transfers no longer go uncategorized (regression)
+- Root cause: the "retroactive transfer matching" rework replaced `pair_transfers` (which had two
+  jobs) with `rescan_transfers`, but only kept the pending↔pending pass — it dropped the
+  **already-posted** pass. So when the card payment was posted first and the bank statement imported
+  later (or vice-versa), the later side never matched the booked transfer: it sat uncategorized and,
+  if posted, would **double-count the payment** (overstating expenses + wrong bank balance).
+- Fix: `rescan_transfers` now runs a second pass calling `find_posted_transfer` for any pending
+  bank/card row not paired in pass 1, pointing it at the other own account (so it auto-skips on post).
+  Idempotent (won't re-count an already-pointed row). `test_transfers.py` scenario B passes again;
+  full suite green.
+
 ### 2026-06-18 — Smart categorization: learn from the user's own history (issue #3)
 - New deterministic **history layer** in `importer.py`: `payee_key` (normalize a bank descriptor to
   a stable vendor key — strip store #s/ids/dates), `history_map`/`history_category` (vendor → the

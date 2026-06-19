@@ -358,7 +358,8 @@ def rescan_transfers(con, window=TRANSFER_WINDOW):
         "WHERE st.status='pending' AND a.kind IN ('bank','card')").fetchall()
     outs = sorted((r for r in rows if r["amount_cents"] > 0), key=lambda r: (r["date"], r["id"]))
     ins = [r for r in rows if r["amount_cents"] < 0]
-    used, pairs = set(), 0
+    used, paired_ids, pairs = set(), set(), 0
+    # Pass 1: pair two PENDING sides of a transfer against each other.
     for o in outs:
         best, best_gap = None, None
         for n in ins:
@@ -373,12 +374,22 @@ def rescan_transfers(con, window=TRANSFER_WINDOW):
         if best is None:
             continue
         used.add(best["id"])
+        paired_ids.update((o["id"], best["id"]))
         # Already paired to each other from a prior scan? Leave it, don't re-count.
         if o["category_id"] == best["acct_id"] and best["category_id"] == o["acct_id"]:
             continue
         con.execute("UPDATE staged SET category_id=? WHERE id=?", (best["acct_id"], o["id"]))
         con.execute("UPDATE staged SET category_id=? WHERE id=?", (o["acct_id"], best["id"]))
         pairs += 1
+    # Pass 2: cross-import — a pending side whose transfer is ALREADY posted from the other
+    # statement. Point it at the other own account so it books once (auto-skips on post).
+    for r in rows:
+        if r["id"] in paired_ids:
+            continue
+        other = find_posted_transfer(con, r["acct_id"], r["amount_cents"], r["date"], window)
+        if other is not None and r["category_id"] != other:
+            con.execute("UPDATE staged SET category_id=? WHERE id=?", (other, r["id"]))
+            pairs += 1
     return pairs
 
 
