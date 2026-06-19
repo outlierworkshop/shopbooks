@@ -257,6 +257,37 @@ def apply_rules(con, description):
     return None
 
 
+def payee_key(description):
+    """Normalize a bank descriptor to a stable vendor key for history matching:
+    uppercase, drop punctuation and the digits banks tack on (store #, dates, txn ids),
+    collapse spaces, cap length. 'AMAZON.COM*A12' and 'AMAZON.COM 999' both -> 'AMAZON COM'."""
+    s = re.sub(r"[^A-Z0-9 ]", " ", str(description).upper())
+    s = re.sub(r"\d+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()[:24]
+
+
+def history_map(con):
+    """Learn from the user's own confirmed history: vendor key -> the category they've used
+    most for it. Built from posted entries' income/expense legs (excludes Uncategorized and
+    transfers, which hit bank/card accounts, not categories)."""
+    tally = {}
+    for r in con.execute(
+            "SELECT e.payee, s.account_id, COUNT(*) n FROM entries e "
+            "JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+            "WHERE a.type IN ('income','expense') AND a.name!='Uncategorized Expense' "
+            "GROUP BY e.payee, s.account_id").fetchall():
+        k = payee_key(r["payee"])
+        if k:
+            tally.setdefault(k, {})[r["account_id"]] = tally.setdefault(k, {}).get(r["account_id"], 0) + r["n"]
+    return {k: max(d, key=d.get) for k, d in tally.items()}
+
+
+def history_category(con, description, hist=None):
+    """The category this business has previously used for this vendor, or None."""
+    hist = history_map(con) if hist is None else hist
+    return hist.get(payee_key(description))
+
+
 def possible_duplicate(con, source_account_id, date, amount_cents):
     """True if a posted entry already hits this source account with the same amount within 7 days."""
     row = con.execute(
@@ -352,11 +383,16 @@ def rescan_transfers(con, window=TRANSFER_WINDOW):
 
 
 def stage_transactions(con, batch_id, txns, source_account_id, category_names_by_id, ai_categories=None):
-    """Insert staged rows, auto-categorizing via rules first, AI suggestions second, then pair
-    any transfers (CC payments, bank-to-bank) between the user's own accounts across the queue."""
+    """Insert staged rows, auto-categorizing via rules first, the user's own history second, AI
+    suggestions third, then pair any transfers (CC payments, bank-to-bank) across the queue."""
     name_to_id = {v: k for k, v in category_names_by_id.items()}
+    hist = history_map(con)
     for i, t in enumerate(txns):
         cat_id = apply_rules(con, t["description"])
+        if cat_id is None:
+            h = hist.get(payee_key(t["description"]))
+            if h in category_names_by_id:  # only if it's a current, active category
+                cat_id = h
         if cat_id is None and ai_categories:
             cat_id = name_to_id.get(ai_categories[i])
         con.execute(

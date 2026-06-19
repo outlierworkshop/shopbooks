@@ -14,6 +14,21 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-18 — Smart categorization: learn from the user's own history (issue #3)
+- New deterministic **history layer** in `importer.py`: `payee_key` (normalize a bank descriptor to
+  a stable vendor key — strip store #s/ids/dates), `history_map`/`history_category` (vendor → the
+  category this business has used most, from posted income/expense legs; excludes Uncategorized and
+  transfers). Works offline, no AI needed.
+- Auto-categorize order is now **rules → your history → AI** in both the import (`stage_transactions`)
+  and the Review "AI review" flows. History only fills if the learned category is still active.
+- AI gets the history as **few-shot**: `ai._categorize_prompt` embeds "how THIS business categorized
+  similar vendors before," so Claude matches the owner's habits/chart. New `categorize_model` setting
+  (blank = use `ai_model`) to run categorization on a cheaper/faster model (e.g. Haiku).
+- Stays suggestions only — nothing posts without confirmation in Review. `test_categorize.py`
+  (15 checks: normalization, history map, rules>history>AI precedence, prompt few-shot, model setting).
+- NOTE: `test_transfers.py` has one pre-existing failure (cross-import transfer auto-match) unrelated
+  to this change — present on main before it; flagged for separate follow-up.
+
 ### 2026-06-18 — Click-to-sort columns everywhere (`static/sort.js`)
 - New dependency-free `static/sort.js` (loaded globally in `base.html`). Two mechanisms:
   - **Tables**: add `class="sortable"` to a `<table>` and every text column header becomes

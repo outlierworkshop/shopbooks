@@ -45,6 +45,8 @@ Used only for the billable-value figures on the Time and Jobs pages - it is not 
   <input type="password" name="anthropic_api_key"
          placeholder="{{ 'saved - enter new key to replace, or CLEAR to remove' if key_set else 'sk-ant-...' }}">
   <label>Claude model</label><input type="text" name="ai_model" value="{{ s.ai_model }}">
+  <label>Categorization model</label><input type="text" name="categorize_model" value="{{ s.categorize_model }}"
+    placeholder="blank = same as above; e.g. claude-haiku-4-5-20251001 (cheaper/faster)">
 </div>
 <p class="muted">Powers PDF statement parsing, receipt reading, and smart categorization. Get a key at
 console.anthropic.com - costs are typically pennies per statement. Without a key the app still works
