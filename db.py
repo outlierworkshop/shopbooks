@@ -251,6 +251,7 @@ DEFAULT_SETTINGS = {
     "default_hourly_rate": "0",  # $/hour for billable time; per-entry rate overrides this
     "ai_backend": "claude",      # claude | ollama | hybrid
     "ai_model": "claude-opus-4-8",
+    "categorize_model": "",      # optional cheaper/faster model for categorization; blank = use ai_model
     "anthropic_api_key": "",
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.2-vision",

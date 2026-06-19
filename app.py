@@ -285,33 +285,47 @@ def _ai_review_pending(con):
 
     cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
     name_to_id = {v: k for k, v in cats.items()}
-    ruled, ai_targets = 0, []
+    hist = importer.history_map(con)
+    ruled, from_history, ai_targets = 0, 0, []
     for s in pending:
         rid = importer.apply_rules(con, s["description"])
+        hid = hist.get(importer.payee_key(s["description"]))
         if rid:
             con.execute("UPDATE staged SET category_id=? WHERE id=?", (rid, s["id"]))
             ruled += 1
+        elif hid in cats:  # the user's own past categorization for this vendor
+            con.execute("UPDATE staged SET category_id=? WHERE id=?", (hid, s["id"]))
+            from_history += 1
         else:
             ai_targets.append(s)
 
     filled = 0
+    ai_failed = False
     if ai_targets:
         suggestions = ai.categorize(
             con, [{"description": s["description"], "amount": s["amount_cents"]} for s in ai_targets],
             list(cats.values()))
         if suggestions is None:
-            con.commit()
-            return back("AI couldn't categorize this batch - try again, or set categories manually.")
-        for s, name in zip(ai_targets, suggestions):
-            cid = name_to_id.get(name)
-            if cid:
-                con.execute("UPDATE staged SET category_id=? WHERE id=?", (cid, s["id"]))
-                filled += 1
+            ai_failed = True
+        else:
+            for s, name in zip(ai_targets, suggestions):
+                cid = name_to_id.get(name)
+                if cid:
+                    con.execute("UPDATE staged SET category_id=? WHERE id=?", (cid, s["id"]))
+                    filled += 1
     con.commit()
-    parts = [f"{filled} categorized by AI"]
+    if ai_failed and not (ruled or from_history):
+        return back("AI couldn't categorize this batch - try again, or set categories manually.")
+    parts = []
     if ruled:
         parts.append(f"{ruled} matched a rule")
-    return back("AI review done: " + ", ".join(parts) + ". Check the suggestions and post.")
+    if from_history:
+        parts.append(f"{from_history} from your past categories")
+    if filled:
+        parts.append(f"{filled} suggested by AI")
+    if ai_failed:
+        parts.append("AI was unavailable for the rest")
+    return back("AI review done: " + (", ".join(parts) or "nothing to do") + ". Check the suggestions and post.")
 
 
 # ---------- registers & entries ----------
@@ -1786,8 +1800,8 @@ async def settings_save(request: Request):
     form = await request.form()
     con = db.connect()
     try:
-        plain = ("mileage_rate", "default_hourly_rate", "ai_backend", "ai_model", "ollama_url",
-                 "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
+        plain = ("mileage_rate", "default_hourly_rate", "ai_backend", "ai_model", "categorize_model",
+                 "ollama_url", "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
                  "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
                  "email_subject", "email_body")
         for k in plain:

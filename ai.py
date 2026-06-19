@@ -135,18 +135,34 @@ def _statement_prompt(text, account_name):
     )
 
 
-def _categorize_prompt(txns, category_names):
+def _categorize_prompt(txns, category_names, examples=None):
     lines = "\n".join(f"{i+1}. {t['description']}  ({'+' if t['amount'] >= 0 else ''}{t['amount']/100:.2f})"
                       for i, t in enumerate(txns))
+    ex = ""
+    if examples:
+        ex = ("\n\nHow THIS business has categorized similar vendors before — match these habits "
+              "closely when a transaction looks like one of them:\n"
+              + "\n".join(f"- {k} -> {c}" for k, c in examples))
     return (
         "Categorize each transaction below for a one-person workshop/fabrication business. "
         "Positive amounts are money out (expenses or transfers); negative are money in (income/refunds). "
         "Choose exactly one category per transaction from this list (use the exact name):\n"
         + "\n".join(f"- {c}" for c in category_names)
-        + "\nIf nothing fits, use 'Uncategorized Expense'. "
-        "Return the categories array in the same order, one per transaction, "
+        + "\nIf nothing fits, use 'Uncategorized Expense'."
+        + ex
+        + "\n\nReturn the categories array in the same order, one per transaction, "
         f"with exactly {len(txns)} items.\n\nTransactions:\n" + lines
     )
+
+
+def _history_examples(con, limit=40):
+    """The user's vendor->category history, as (vendor_key, category_name) pairs for few-shot."""
+    try:
+        hist = importer.history_map(con)
+        names = {r["id"]: r["name"] for r in con.execute("SELECT id, name FROM accounts").fetchall()}
+        return [(k, names[a]) for k, a in hist.items() if a in names][:limit]
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------- Claude backend
@@ -156,13 +172,19 @@ def _claude_client(con):
     return anthropic.Anthropic(api_key=api_key(con))
 
 
-def _claude_model(con):
+def _claude_model(con, task=None):
+    """The model for a task. Categorization can use a cheaper/faster model (e.g. Haiku) via
+    the `categorize_model` setting; blank falls back to the main `ai_model`."""
+    if task == "categorize":
+        m = db.get_setting(con, "categorize_model", "").strip()
+        if m:
+            return m
     return db.get_setting(con, "ai_model", "claude-opus-4-8")
 
 
-def _claude_json(con, content, schema, max_tokens=16000):
+def _claude_json(con, content, schema, max_tokens=16000, model=None):
     resp = _claude_client(con).messages.create(
-        model=_claude_model(con),
+        model=model or _claude_model(con),
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": content}],
         output_config={"format": {"type": "json_schema", "schema": schema}},
@@ -208,9 +230,10 @@ def _claude_receipt(con, path):
         return None
 
 
-def _claude_categorize(con, txns, names):
+def _claude_categorize(con, txns, names, examples=None):
     try:
-        cats = _claude_json(con, _categorize_prompt(txns, names), CATEGORIZE_SCHEMA).get("categories", [])
+        cats = _claude_json(con, _categorize_prompt(txns, names, examples), CATEGORIZE_SCHEMA,
+                            model=_claude_model(con, "categorize")).get("categories", [])
         return cats if len(cats) == len(txns) else None
     except Exception:
         return None
@@ -270,9 +293,9 @@ def _ollama_receipt(con, path):
         return None
 
 
-def _ollama_categorize(con, txns, names):
+def _ollama_categorize(con, txns, names, examples=None):
     try:
-        data = _ollama_chat_json(con, _categorize_prompt(txns, names), CATEGORIZE_SCHEMA)
+        data = _ollama_chat_json(con, _categorize_prompt(txns, names, examples), CATEGORIZE_SCHEMA)
         cats = data.get("categories", [])
         return cats if len(cats) == len(txns) else None
     except Exception:
@@ -308,6 +331,7 @@ def extract_receipt(con, path):
 def categorize(con, txns, category_names):
     if not txns or not available(con):
         return None
+    examples = _history_examples(con)  # few-shot from the user's own categorization history
     if _task_backend(con, "categorize") == "ollama":
-        return _ollama_categorize(con, txns, category_names)
-    return _claude_categorize(con, txns, category_names)
+        return _ollama_categorize(con, txns, category_names, examples)
+    return _claude_categorize(con, txns, category_names, examples)
