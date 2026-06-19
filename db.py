@@ -11,15 +11,27 @@ See backup.py for the automatic snapshot/cloud-backup system.
 import os
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
 
 APP_NAME = "ShopBooks"
 REPO_DIR = Path(__file__).resolve().parent
 OLD_DATA = REPO_DIR / "data"   # legacy in-repo location, migrated away from on first run
+# Pre-1.x non-Windows fallback (a Windows-style path used on Mac/Linux before the per-OS dirs
+# below); migrated forward automatically. See _migrate_old_location.
+LEGACY_APPDATA = Path.home() / "AppData" / "Local" / APP_NAME
 
 
 def _default_data_dir():
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    """Per-OS stable location, outside the repo. Windows keeps %LOCALAPPDATA% (unchanged, so
+    existing installs are untouched); macOS uses ~/Library/Application Support; Linux uses
+    $XDG_DATA_HOME or ~/.local/share."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = str(Path.home() / "Library" / "Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
 
 
@@ -34,24 +46,32 @@ DB_PATH = DATA / "books.db"
 BACKUPS = DATA / "backups"
 
 
-def _migrate_old_location():
-    """One-time move of a legacy in-repo data/ folder into the stable location.
-
-    Only runs for the DEFAULT location (never when SHOPBOOKS_DATA_DIR is set, so
-    tests never pull the repo's data/ into their temp dir). No-op once migrated.
-    """
-    if os.environ.get("SHOPBOOKS_DATA_DIR"):
+def _migrate_from(old_dir):
+    """Move a legacy data dir's contents into the current DATA location (books.db, receipts,
+    backups, and the sync sidecar), then repoint stored receipt paths. One-time; no-op if the
+    new location already has books or the old one has none. Never runs against itself."""
+    old_dir = Path(old_dir)
+    if old_dir.resolve() == DATA.resolve():
         return
-    if DB_PATH.exists() or not (OLD_DATA / "books.db").exists():
+    if DB_PATH.exists() or not (old_dir / "books.db").exists():
         return
     DATA.mkdir(parents=True, exist_ok=True)
     DOCS.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(OLD_DATA / "books.db"), str(DB_PATH))
-    old_docs = OLD_DATA / "docs"
+    shutil.move(str(old_dir / "books.db"), str(DB_PATH))
+    old_docs = old_dir / "docs"
     if old_docs.exists():
         for f in old_docs.iterdir():
             if f.is_file():
                 shutil.move(str(f), str(DOCS / f.name))
+    old_backups = old_dir / "backups"
+    if old_backups.exists():
+        BACKUPS.mkdir(parents=True, exist_ok=True)
+        for f in old_backups.glob("*"):
+            if f.is_file():
+                shutil.move(str(f), str(BACKUPS / f.name))
+    side = old_dir / "sync_state.json"   # keep two-machine sync lineage intact across the move
+    if side.exists():
+        shutil.move(str(side), str(DATA / "sync_state.json"))
     # fix stored absolute receipt paths to point at the new docs folder
     con = sqlite3.connect(DB_PATH)
     try:
@@ -63,6 +83,20 @@ def _migrate_old_location():
         pass  # documents table absent in a very old schema; nothing to fix
     finally:
         con.close()
+
+
+def _migrate_old_location():
+    """One-time move of a legacy data location into the current stable per-OS location.
+
+    Only runs for the DEFAULT location (never when SHOPBOOKS_DATA_DIR is set, so tests never
+    pull real data into their temp dir). Handles both the old in-repo data/ folder and the
+    pre-per-OS Windows-style fallback (~/AppData/Local/ShopBooks) used earlier on Mac/Linux.
+    No-op once migrated. On Windows the fallback equals DATA, so _migrate_from skips it.
+    """
+    if os.environ.get("SHOPBOOKS_DATA_DIR"):
+        return
+    _migrate_from(OLD_DATA)        # legacy in-repo data/
+    _migrate_from(LEGACY_APPDATA)  # legacy macOS/Linux fallback (~/AppData/Local/ShopBooks)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts(
