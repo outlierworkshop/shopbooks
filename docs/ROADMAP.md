@@ -14,6 +14,22 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-19 — Harden two-machine cloud sync
+- **Machine-local settings no longer sync.** `backup_dir` (and `sync_enabled`) are preserved across
+  an import, so pulling another computer's books can't overwrite this machine's cloud-folder path.
+  (Real bug it caused: a Mac that pulled the PC's books inherited a Windows `backup_dir`, then wrote
+  backups to a literal `C:\Users\...` folder under the repo and broke its own sync. Fixed + cleaned up.)
+- **Stable cross-machine content hash.** `content_hash` neutralizes those machine-local settings, so
+  identical books hash the same on every machine — no more spurious version bumps / cloud writes when
+  only `backup_dir` differs.
+- **"Pull from cloud now" button** (Settings → Sync) + `sync.pull()`: import on demand, no app restart
+  needed (closes the gap where enabling sync mid-session never pulled).
+- **Cloud-file download awareness.** Imports validate the cloud copy is a real, downloaded SQLite DB
+  (`_readable_db`) and wait/retry for it (`_wait_readable`) — Dropbox/iCloud online-only placeholders
+  no longer cause a silent no-op. New `cloud_unavailable` status surfaces a clear banner instead.
+- Never clobbers local data on a bad/placeholder source. `test_sync.py` extended (pull, local-setting
+  preservation, stable hash / no spurious export, cloud_unavailable + no-clobber, `_readable_db`).
+
 ### 2026-06-18 — Fix: cross-import transfers no longer go uncategorized (regression)
 - Root cause: the "retroactive transfer matching" rework replaced `pair_transfers` (which had two
   jobs) with `rescan_transfers`, but only kept the pending↔pending pass — it dropped the

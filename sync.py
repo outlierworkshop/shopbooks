@@ -35,6 +35,7 @@ import hashlib
 import json
 import socket
 import sqlite3
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,13 @@ import db
 SYNC_DB = "_sync.db"
 SYNC_MANIFEST = "_sync.json"
 STATE_FILE = "sync_state.json"
+
+# Settings that are specific to THIS machine and must never travel between computers:
+# backup_dir is a filesystem path (and differs by OS — a Windows path is meaningless on a
+# Mac, and writing to it creates junk folders / breaks sync), and each machine controls its
+# own sync participation. These are preserved across an import and excluded from the content
+# hash, so identical books hash the same on every machine regardless of local config.
+LOCAL_SETTINGS = ("backup_dir", "sync_enabled")
 
 # Result of the most recent import_on_boot(), for the UI banner (no recompute per page).
 _LAST = None
@@ -106,22 +114,31 @@ def machine_id():
 # --- content hashing & manifest ---------------------------------------------
 
 def content_hash(path=None):
-    """SHA-256 over the DB's logical content (iterdump), so the same data hashes
-    the same regardless of file-level page churn. None if the DB is absent."""
+    """SHA-256 over the DB's logical content, with machine-local settings neutralized so the
+    same books hash the same on every machine (regardless of backup_dir / sync_enabled or
+    file-level page churn). None if the DB is absent or unreadable."""
     path = Path(path) if path else db.DB_PATH
     if not path.exists():
         return None
-    con = sqlite3.connect(str(path))
+    src = mem = None
     try:
+        src = sqlite3.connect(str(path))
+        mem = sqlite3.connect(":memory:")           # copy so we never modify the real file
+        src.backup(mem)
+        mem.execute("UPDATE settings SET value='' WHERE key IN (%s)"
+                    % ",".join("?" * len(LOCAL_SETTINGS)), LOCAL_SETTINGS)
         h = hashlib.sha256()
-        for line in con.iterdump():
+        for line in mem.iterdump():
             h.update(line.encode("utf-8"))
             h.update(b"\n")
         return h.hexdigest()
     except sqlite3.Error:
         return None
     finally:
-        con.close()
+        if src:
+            src.close()
+        if mem:
+            mem.close()
 
 
 def read_manifest(cdir=None):
@@ -179,12 +196,53 @@ def plan(cdir=None):
 
 # --- applying changes --------------------------------------------------------
 
+def _readable_db(path):
+    """True if `path` is a materialized, valid SQLite DB with our schema — not a cloud
+    placeholder (Dropbox/iCloud online-only file whose bytes aren't on disk yet)."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    try:
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            c.execute("SELECT COUNT(*) FROM accounts").fetchone()
+            return True
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return False
+
+
+def _wait_readable(path, attempts=1, delay=1.5):
+    """Wait for a cloud file to actually download. Opening it nudges the cloud provider to
+    materialize it; retry a few times before giving up. Returns True once it's a valid DB."""
+    path = Path(path)
+    for i in range(max(1, attempts)):
+        if _readable_db(path):
+            return True
+        try:  # touch the bytes so Dropbox/iCloud begin fetching the file
+            with open(path, "rb") as f:
+                f.read(1 << 16)
+        except OSError:
+            pass
+        if i < attempts - 1:
+            time.sleep(delay)
+    return _readable_db(path)
+
+
 def _apply_import(src):
-    """Overwrite the live DB with `src` via the SQLite backup API, after stashing
-    a pre-sync restore point. Transactional, safe with the app running."""
+    """Overwrite the live DB with `src` via the SQLite backup API, after stashing a pre-sync
+    restore point. Preserves this machine's local settings (backup_dir, sync_enabled) so a
+    pull never imports another computer's paths/config. Transactional; safe with the app running.
+    Raises if `src` isn't a readable DB (e.g. a not-yet-downloaded cloud placeholder)."""
     src = Path(src)
-    if not src.exists():
-        raise FileNotFoundError(src)
+    if not _readable_db(src):
+        raise OSError(f"source is not a readable database (still downloading?): {src}")
+    con = db.connect()
+    try:  # remember machine-local settings to put back after the overwrite
+        keep = {k: db.get_setting(con, k, "") for k in LOCAL_SETTINGS}
+    finally:
+        con.close()
     db.BACKUPS.mkdir(parents=True, exist_ok=True)
     if db.DB_PATH.exists():
         backup._consistent_copy(db.BACKUPS / f"pre-sync-{datetime.now():%Y%m%d-%H%M%S}.db")
@@ -196,6 +254,13 @@ def _apply_import(src):
     finally:
         source.close()
         dest.close()
+    con = db.connect()
+    try:  # restore this machine's settings over the imported ones
+        for k, v in keep.items():
+            db.set_setting(con, k, v)
+        con.commit()
+    finally:
+        con.close()
 
 
 def _adopt(version, sha):
@@ -205,10 +270,11 @@ def _adopt(version, sha):
     save_state(st)
 
 
-def import_on_boot(cdir=None):
-    """Run at startup. Fast-forwards from the cloud when it's safe; never clobbers
-    local changes (a conflict is left for the user). Returns a plan dict; also
-    cached in _LAST for the UI banner. Never raises."""
+def _import(cdir, attempts, delay):
+    """Shared fast-forward import. Pulls the cloud copy only when it's strictly newer and we
+    have no local changes; never clobbers local edits (a conflict is left for the user). If the
+    cloud file hasn't downloaded yet, returns status 'cloud_unavailable' instead of failing
+    silently. Caches the result in _LAST for the banner. Never raises."""
     global _LAST
     try:
         if not enabled():
@@ -218,7 +284,12 @@ def import_on_boot(cdir=None):
         p = plan(cdir)
         s = p["status"]
         if s == "fast_forward":
-            _apply_import(Path(cdir) / SYNC_DB)
+            src = Path(cdir) / SYNC_DB
+            if not _wait_readable(src, attempts, delay):
+                p["status"] = "cloud_unavailable"   # placeholder not downloaded yet
+                _LAST = p
+                return p
+            _apply_import(src)
             _adopt(p["cloud_version"], content_hash())
             p["imported"] = True
         elif s == "up_to_date" and p.get("cloud_version", 0) > p["base_version"]:
@@ -227,9 +298,21 @@ def import_on_boot(cdir=None):
         # local_ahead / local_changes / conflict / no_cloud: leave the DB alone.
         _LAST = p
         return p
-    except Exception as e:  # startup must never be blocked by a sync error
+    except Exception as e:
         _LAST = {"status": "error", "error": str(e)}
         return _LAST
+
+
+def import_on_boot(cdir=None):
+    """Run at startup. Brief wait for the cloud file (it may still be downloading), so launch
+    isn't blocked but a freshly-synced copy is usually caught."""
+    return _import(cdir, attempts=3, delay=1.5)
+
+
+def pull(cdir=None, attempts=8, delay=1.5):
+    """Manual 'Pull from cloud now' — same as boot import but waits longer for the cloud file
+    to download, so the user can retry without restarting the app."""
+    return _import(cdir, attempts=attempts, delay=delay)
 
 
 def export_on_close(cdir=None, force=False):
@@ -296,6 +379,11 @@ _ALERTS = {
                  "changes. Go to Settings → Sync to choose which to keep."),
     "local_ahead": ("error", "The cloud sync copy is OLDER than your books here — the "
                     "other computer may not have synced. Not importing. See Settings → Sync."),
+    "cloud_unavailable": ("error", "Newer books are waiting in the cloud, but the file hasn't "
+                          "finished downloading yet. Open your sync folder in Finder to force the "
+                          "download, then use Settings → Sync → Pull from cloud now."),
+    "error": ("error", "Cloud sync hit a problem reading the cloud copy. Try Settings → Sync → "
+              "Pull from cloud now."),
 }
 
 

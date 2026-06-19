@@ -129,6 +129,62 @@ ok(len(pre) >= 1, "imports leave a pre-sync backup to undo from")
 ok(sync.import_on_boot(cdir=Path("/nonexistent/\0bad"))["status"] in ("error", "no_cloud", "up_to_date", "fast_forward", "conflict", "local_ahead", "local_changes"),
    "import_on_boot returns a status dict instead of raising")
 
+# ---- Hardening (sync-hardening branch) -------------------------------------------
+import shutil  # noqa: E402
+import sqlite3  # noqa: E402
+
+def pull(cloud=CLOUD):
+    sync._LAST = None
+    return sync.pull(cdir=cloud, attempts=1, delay=0)
+
+# 8. Manual "Pull from cloud now" imports on demand (no restart). ------------------
+# Reset to a clean two-machine state: Mac is source of truth.
+for d in (MAC, PC, CLOUD):
+    shutil.rmtree(d, ignore_errors=True)
+use(MAC)
+c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+set_name("Mac Co"); close()                       # Mac exports v1
+use(PC)
+c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+r = pull()
+ok(r["status"] == "fast_forward" and r.get("imported"), "pull() imports the cloud copy on demand")
+c = db.connect(); ok(db.get_setting(c, "business_name") == "Mac Co", "pull() brought the Mac's data to the PC"); c.close()
+ok(pull()["status"] == "up_to_date", "pull() when already current is a no-op")
+
+# 9. Machine-local settings (backup_dir) are NOT synced between machines. ----------
+use(MAC)
+c = db.connect(); db.set_setting(c, "backup_dir", "/Users/mac/Dropbox/SB"); c.commit(); c.close()
+set_name("Mac Co v2"); close()                    # Mac exports v2 with its own backup_dir
+use(PC)
+c = db.connect(); db.set_setting(c, "backup_dir", "C:/Users/pc/Dropbox/SB"); c.commit(); c.close()
+pull()                                            # PC pulls v2
+c = db.connect()
+ok(db.get_setting(c, "business_name") == "Mac Co v2", "books data did sync across")
+ok(db.get_setting(c, "backup_dir") == "C:/Users/pc/Dropbox/SB",
+   "PC kept its OWN backup_dir after the import (machine-local setting preserved)")
+c.close()
+
+# 10. backup_dir differences don't cause spurious version bumps. -------------------
+#     PC made no book changes, only differs by backup_dir -> closing must NOT push.
+ok(close()["status"] == "unchanged",
+   "identical books with a different backup_dir hash the same -> no spurious export")
+
+# 11. A not-yet-downloaded cloud copy (placeholder) -> cloud_unavailable, no clobber.
+use(MAC); set_name("Mac Co v3"); close()          # cloud now has v3 (real)
+(CLOUD / sync.SYNC_DB).write_bytes(b"not a sqlite database yet")  # simulate Dropbox placeholder
+use(PC)
+before = (db.connect().execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0])
+r = pull()
+ok(r["status"] == "cloud_unavailable", "unreadable/placeholder cloud copy -> cloud_unavailable")
+after = (db.connect().execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0])
+ok(before == after, "local books NOT clobbered when the cloud copy isn't a valid DB")
+ok(sync.last_alert() and "downloading" in sync.last_alert()["message"],
+   "cloud_unavailable surfaces a helpful banner (not a silent failure)")
+
+# 12. _readable_db distinguishes a real DB from a placeholder. ----------------------
+ok(sync._readable_db(MAC / "books.db") is True, "_readable_db True for a real DB")
+ok(sync._readable_db(CLOUD / sync.SYNC_DB) is False, "_readable_db False for a placeholder file")
+
 import shutil  # noqa: E402
 shutil.rmtree(ROOT, ignore_errors=True)
 print("\nSYNC TESTS DONE")
