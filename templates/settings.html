@@ -135,7 +135,10 @@ test backup so you can confirm it works.</p>
         <strong class="warn">Cloud copy is older</strong> than your books here (the other computer may
         not have synced).
       {% elif sync_status.status == 'fast_forward' %}
-        <strong>Newer changes are waiting</strong> in the cloud - reopen the app to pull them.
+        <strong>Newer changes are waiting</strong> in the cloud - use "Pull from cloud now".
+      {% elif sync_status.status == 'cloud_unavailable' %}
+        <strong class="warn">Cloud copy still downloading</strong> - open your sync folder in
+        Finder to force the download, then "Pull from cloud now".
       {% elif sync_status.status == 'local_changes' %}
         <strong>Unsynced changes</strong> on this computer - they'll push on close, or use "Sync now".
       {% elif sync_status.status == 'up_to_date' %}
@@ -165,7 +168,8 @@ test backup so you can confirm it works.</p>
     {% endif %}
 
     <div class="toolbar">
-      <form class="inline" method="post" action="/sync/now"><button class="ghost" type="submit">Sync now</button></form>
+      <form class="inline" method="post" action="/sync/now"><button class="ghost" type="submit" title="Push this computer's books to the cloud">Sync now</button></form>
+      <form class="inline" method="post" action="/sync/pull"><button class="ghost" type="submit" title="Pull the latest books down from the cloud">Pull from cloud now</button></form>
       <form class="inline" method="post" action="/sync/enable">
         <input type="hidden" name="on" value="0">
         <button class="ghost" type="submit">Turn sync off</button>

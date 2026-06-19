@@ -1743,8 +1743,39 @@ def sync_now():
     elif s == "blocked_cloud_newer":
         return RedirectResponse("/settings?err=" + quote(
             "The cloud copy is newer than your last sync - the other computer pushed changes. "
-            "Reopen ShopBooks to pull them, or use 'Keep this computer's books' to overwrite."),
+            "Use 'Pull from cloud now' to get them, or 'Keep this computer's books' to overwrite."),
             status_code=303)
+    elif s == "no_cloud":
+        return RedirectResponse("/settings?err=" + quote(
+            "No cloud folder set - set a Backup folder in a synced location first."), status_code=303)
+    elif s == "disabled":
+        return RedirectResponse("/settings?err=" + quote("Turn cloud sync on first."), status_code=303)
+    else:
+        note = f"Sync: {s}" + (f" ({r['error']})" if r.get("error") else "")
+    return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
+
+
+@app.post("/sync/pull")
+def sync_pull():
+    from urllib.parse import quote
+    r = sync.pull()
+    s = r.get("status")
+    if r.get("imported"):
+        return RedirectResponse("/settings?msg=" + quote(
+            f"Pulled the latest books from the cloud (version {r.get('cloud_version')})."), status_code=303)
+    if s == "up_to_date":
+        note = "Already up to date with the cloud - nothing to pull."
+    elif s == "cloud_unavailable":
+        return RedirectResponse("/settings?err=" + quote(
+            "The cloud copy hasn't finished downloading yet. Open your sync folder in Finder/Explorer "
+            "to force it to download, then try Pull again."), status_code=303)
+    elif s == "conflict":
+        return RedirectResponse("/settings?err=" + quote(
+            "Both this computer and the cloud changed - choose 'Take the cloud copy' or "
+            "'Keep this computer's books' below."), status_code=303)
+    elif s == "local_ahead":
+        return RedirectResponse("/settings?err=" + quote(
+            "Your books here are newer than the cloud copy - nothing to pull."), status_code=303)
     elif s == "no_cloud":
         return RedirectResponse("/settings?err=" + quote(
             "No cloud folder set - set a Backup folder in a synced location first."), status_code=303)
