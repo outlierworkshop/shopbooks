@@ -14,6 +14,17 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-19 — Per-OS data location + auto-migration
+- `db._default_data_dir` is now OS-aware: Windows `%LOCALAPPDATA%\ShopBooks` (unchanged — existing
+  PC installs untouched), macOS `~/Library/Application Support/ShopBooks`, Linux `$XDG_DATA_HOME`/
+  `~/.local/share/ShopBooks`. Replaces the old Windows-style `~/AppData/Local/ShopBooks` fallback
+  that Mac/Linux were using.
+- `_migrate_from` (generalizes `_migrate_old_location`): on first launch at the new location, moves a
+  legacy dir's **books.db + docs + backups + sync_state.json** forward and repoints stored receipt
+  paths. Runs for both the in-repo `data/` and the old `~/AppData/Local/ShopBooks`. No-op once moved;
+  never runs under `SHOPBOOKS_DATA_DIR`. Verified live: the Mac's 21-entry books moved cleanly with
+  sync lineage intact. `test_datamigrate.py` added; `test_safety.py` migration cases still pass.
+
 ### 2026-06-19 — Harden two-machine cloud sync
 - **Machine-local settings no longer sync.** `backup_dir` (and `sync_enabled`) are preserved across
   an import, so pulling another computer's books can't overwrite this machine's cloud-folder path.
