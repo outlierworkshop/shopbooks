@@ -185,6 +185,36 @@ ok(sync.last_alert() and "downloading" in sync.last_alert()["message"],
 ok(sync._readable_db(MAC / "books.db") is True, "_readable_db True for a real DB")
 ok(sync._readable_db(CLOUD / sync.SYNC_DB) is False, "_readable_db False for a placeholder file")
 
+# 13. Receipt FILES sync between machines (docs-sync). -----------------------------
+for d in (MAC, PC, CLOUD):
+    shutil.rmtree(d, ignore_errors=True)
+use(MAC)
+c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+set_name("Docs Co")
+# add a receipt: a file in docs/ + a document row pointing at it (Mac-local path)
+(MAC / "docs").mkdir(parents=True, exist_ok=True)
+(MAC / "docs" / "rcpt_99.jpg").write_bytes(b"JPEGDATA")
+c = db.connect()
+c.execute("INSERT INTO documents(filename, path, vendor) VALUES('rcpt_99.jpg', ?, 'Test')",
+          (str(MAC / "docs" / "rcpt_99.jpg"),))
+c.commit(); c.close()
+close()                                            # exports DB + pushes receipt files
+ok((CLOUD / sync.SYNC_DOCS / "rcpt_99.jpg").exists(), "export pushes receipt files to the cloud")
+
+use(PC)
+c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+pull()                                             # imports DB + pulls receipt files
+ok((PC / "docs" / "rcpt_99.jpg").exists(), "pull brings the receipt file to the other machine")
+c = db.connect()
+p = c.execute("SELECT path FROM documents WHERE filename='rcpt_99.jpg'").fetchone()["path"]
+c.close()
+ok(p == str(PC / "docs" / "rcpt_99.jpg"), "imported receipt path repointed to THIS machine's docs")
+
+# 14. Backfill: a missing receipt is restored even when the DB is already up to date.
+os.remove(PC / "docs" / "rcpt_99.jpg")
+pull()
+ok((PC / "docs" / "rcpt_99.jpg").exists(), "pull backfills a missing receipt file when DB is up to date")
+
 import shutil  # noqa: E402
 shutil.rmtree(ROOT, ignore_errors=True)
 print("\nSYNC TESTS DONE")
