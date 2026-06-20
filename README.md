@@ -9,7 +9,10 @@ receipt images live in `data/docs/`. Back up the `data` folder and you've backed
 
 ## Run it
 
-Double-click **run.bat** (or run `.venv\Scripts\python.exe -m uvicorn app:app --port 8765`).
+- **Windows:** double-click **run.bat** (or `.venv\Scripts\python.exe -m uvicorn app:app --port 8765`).
+- **macOS:** double-click **run-mac.command** (or `./run-mac.command`). First run builds the
+  virtual environment automatically.
+
 The app opens at http://127.0.0.1:8765 and is only reachable from this computer.
 
 ## Monthly workflow
