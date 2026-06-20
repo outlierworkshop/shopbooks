@@ -48,11 +48,16 @@
     if (cache[url]) { cb(); return; }
     fetch(url).then(function (res) {
       var ct = res.headers.get("content-type") || "";
-      if (ct.indexOf("image/") === 0) { cache[url] = { kind: "image" }; cb(); }
+      if (!res.ok) {  // missing file etc. — show the server's message instead of an error
+        res.text().then(function (t) {
+          cache[url] = { kind: "text", text: esc(t || ("Couldn't load receipt (" + res.status + ")")) };
+          cb();
+        });
+      } else if (ct.indexOf("image/") === 0) { cache[url] = { kind: "image" }; cb(); }
       else if (ct.indexOf("text/") === 0) {
         res.text().then(function (t) { cache[url] = { kind: "text", text: esc(t.slice(0, 4000)) }; cb(); });
       } else { cache[url] = { kind: "pdf" }; cb(); }
-    }).catch(function () { cache[url] = { kind: "pdf" }; cb(); });
+    }).catch(function () { cache[url] = { kind: "text", text: "Couldn't load receipt." }; cb(); });
   }
 
   function attach(el) {
