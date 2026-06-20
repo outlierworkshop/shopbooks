@@ -86,6 +86,17 @@ r = client.post("/receipts/import-amazon",
                 files={"file": ("x.csv", io.BytesIO(b"foo,bar\n1,2\n"), "text/csv")}, follow_redirects=False)
 ok("Couldn't find Amazon columns" in unquote(r.headers["location"]), "non-Amazon CSV -> clear error")
 
+# --- /doc serves the receipt INLINE (opens in a tab), not as a download ---
+con = db.connect()
+did = con.execute("SELECT id FROM documents WHERE vendor='Amazon' LIMIT 1").fetchone()["id"]
+con.close()
+d = client.get(f"/doc/{did}")
+ok(d.status_code == 200, "receipt document is served")
+ok("inline" in d.headers.get("content-disposition", "").lower(),
+   "Amazon receipt opens inline in a tab (Content-Disposition: inline)")
+ok(d.headers.get("content-type", "").startswith("text/plain"),
+   "Amazon text receipt served as text/plain (renders in the browser)")
+
 import shutil  # noqa: E402
 shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
 print("\nAMAZON TESTS DONE")

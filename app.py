@@ -1,5 +1,7 @@
 """ShopBooks - local double-entry accounting for a one-person business."""
 import io
+import mimetypes
+import os
 import sqlite3
 from datetime import date as date_cls, datetime
 from pathlib import Path
@@ -721,6 +723,13 @@ def receipts_delete(doc_id: int = Form(...)):
         con.close()
 
 
+_INLINE_MEDIA = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif",
+    ".webp": "image/webp", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+    ".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8",
+}
+
+
 @app.get("/doc/{doc_id}")
 def doc_file(doc_id: int):
     con = db.connect()
@@ -728,7 +737,11 @@ def doc_file(doc_id: int):
         row = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
         if not row:
             return RedirectResponse("/receipts", status_code=303)
-        return FileResponse(row["path"], filename=row["filename"])
+        ext = os.path.splitext(row["path"])[1].lower()
+        media = _INLINE_MEDIA.get(ext) or mimetypes.guess_type(row["path"])[0] or "application/octet-stream"
+        # inline so the browser shows the receipt in a tab (image / PDF / Amazon text) — not a download
+        return FileResponse(row["path"], media_type=media, filename=row["filename"],
+                            content_disposition_type="inline")
     finally:
         con.close()
 
