@@ -14,6 +14,14 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-19 — Receipt hover preview + inline viewing
+- Clicking a receipt now opens it **inline in a new tab** (image / PDF / Amazon order text) instead
+  of downloading — `/doc` sends the right media type with `Content-Disposition: inline`.
+- New `static/receipt-preview.js` (loaded globally): hovering any `data-doc="/doc/<id>"` element shows
+  a small floating popup — the image, the Amazon receipt text, or a "PDF — click to open" note. Kind
+  is sniffed from the response Content-Type, so templates only add the attribute. Applied to the 📎 on
+  account registers and the Receipts page thumbnails. Pure progressive enhancement (click still works).
+
 ### 2026-06-19 — macOS launcher (`run-mac.command`)
 - Repo-committed, double-clickable macOS launcher (the Mac equivalent of `run.bat`). Resolves its own
   folder so it works wherever cloned; builds the venv on first run; frees port 8765; serves on the real

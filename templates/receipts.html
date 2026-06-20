@@ -63,7 +63,7 @@
      data-vendor="{{ (it.doc.vendor or '')|lower }}" data-date="{{ it.doc.doc_date or '' }}"
      data-amount="{{ it.doc.amount_cents or 0 }}" data-status="{{ it.doc.status or '' }}">
   <div style="display:flex; gap:16px; flex-wrap:wrap;">
-    <a href="/doc/{{ it.doc.id }}" target="_blank" title="open receipt in a new tab">
+    <a href="/doc/{{ it.doc.id }}" target="_blank" data-doc="/doc/{{ it.doc.id }}" title="hover to preview · click to open">
       {% set fn = it.doc.filename.lower() %}
       {% if fn.endswith('.jpg') or fn.endswith('.jpeg') or fn.endswith('.png') or fn.endswith('.gif') or fn.endswith('.webp') %}
         <img class="thumb" src="/doc/{{ it.doc.id }}" alt="receipt">

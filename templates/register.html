@@ -10,7 +10,7 @@
     <td>{{ r.date }}</td>
     <td>{{ r.payee }}{% if r.memo %} <span class="muted">- {{ r.memo }}</span>{% endif %}</td>
     <td class="muted">{{ r.other }}</td>
-    <td>{% if r.doc_id %}<a href="/doc/{{ r.doc_id }}" target="_blank" title="receipt attached">📎</a>{% endif %}</td>
+    <td>{% if r.doc_id %}<a href="/doc/{{ r.doc_id }}" target="_blank" data-doc="/doc/{{ r.doc_id }}" title="hover to preview · click to open">📎</a>{% endif %}</td>
     <td>
       <form class="inline" method="post" action="/entry/{{ r.entry_id }}/job">
         <input type="hidden" name="back" value="/register/{{ acct.id }}">
