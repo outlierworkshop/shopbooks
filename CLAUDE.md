@@ -9,10 +9,17 @@ or AI modules.**
 ## Run / verify
 
 ```powershell
-# from this directory
+# Windows (from this directory)
 .venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8765   # or run.bat
 .venv\Scripts\pip.exe install -r requirements.txt                          # rebuild env
 ```
+```bash
+# macOS / Linux (from this directory) — or double-click run-mac.command (builds the venv on first run)
+./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8765
+./.venv/bin/pip install -r requirements.txt                                # rebuild env
+```
+On Apple Silicon, native wheels are arm64; run Python as `arch -arm64 .venv/bin/python …` if a
+launcher (LaunchServices/Rosetta terminal) starts it as x86_64. `run-mac.command` handles this.
 
 `test_safety.py` is the committed canonical test and shows the **mandatory** pattern: set
 `SHOPBOOKS_DATA_DIR` to a temp dir **before importing `db`/`app`**, so a test can never touch

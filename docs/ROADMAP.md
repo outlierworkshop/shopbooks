@@ -14,6 +14,14 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-19 — macOS launcher (`run-mac.command`)
+- Repo-committed, double-clickable macOS launcher (the Mac equivalent of `run.bat`). Resolves its own
+  folder so it works wherever cloned; builds the venv on first run; frees port 8765; serves on the real
+  default data location (no `SHOPBOOKS_DATA_DIR`, so cloud sync/backups are active); opens the browser.
+  Forces `arch -arm64` on Apple Silicon (via `hw.optional.arm64`) so native wheels load even if a
+  Rosetta terminal would otherwise run x86_64. README + CLAUDE.md run instructions updated.
+- (The earlier `~/Applications/ShopBooks.app` Dock launcher is machine-specific and not in the repo.)
+
 ### 2026-06-19 — Per-OS data location + auto-migration
 - `db._default_data_dir` is now OS-aware: Windows `%LOCALAPPDATA%\ShopBooks` (unchanged — existing
   PC installs untouched), macOS `~/Library/Application Support/ShopBooks`, Linux `$XDG_DATA_HOME`/
