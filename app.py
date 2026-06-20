@@ -7,7 +7,7 @@ from datetime import date as date_cls, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, StreamingResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -737,6 +737,19 @@ def doc_file(doc_id: int):
         row = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
         if not row:
             return RedirectResponse("/receipts", status_code=303)
+        if not os.path.exists(row["path"]):
+            # File isn't on this machine — receipt files don't sync between computers (only the
+            # database does), so a receipt added on the other machine has no file here. Don't 500.
+            if (row["vendor"] or "").lower() == "amazon":
+                order = row["filename"].replace("amazon_", "").rsplit(".", 1)[0]
+                total = ledger.fmt_cents(row["amount_cents"]) if row["amount_cents"] is not None else "—"
+                return PlainTextResponse(
+                    f"Amazon order {order}\nDate: {row['doc_date'] or '—'}\nTotal: ${total}\n\n"
+                    "(Item details are on the computer where this was imported — receipt files don't "
+                    "sync between machines yet.)")
+            return PlainTextResponse(
+                "Receipt file isn't on this computer.\n(It was added on another computer; receipt "
+                "files don't sync between machines yet.)", status_code=404)
         ext = os.path.splitext(row["path"])[1].lower()
         media = _INLINE_MEDIA.get(ext) or mimetypes.guess_type(row["path"])[0] or "application/octet-stream"
         # inline so the browser shows the receipt in a tab (image / PDF / Amazon text) — not a download

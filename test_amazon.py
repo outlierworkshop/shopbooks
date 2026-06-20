@@ -97,6 +97,16 @@ ok("inline" in d.headers.get("content-disposition", "").lower(),
 ok(d.headers.get("content-type", "").startswith("text/plain"),
    "Amazon text receipt served as text/plain (renders in the browser)")
 
+# --- a receipt whose file is missing (e.g. synced from another machine) doesn't 500 ---
+con = db.connect()
+arow = con.execute("SELECT id, path FROM documents WHERE vendor='Amazon' LIMIT 1").fetchone()
+con.close()
+os.remove(arow["path"])                                   # simulate: row synced but file didn't
+d = client.get(f"/doc/{arow['id']}")
+ok(d.status_code == 200, "missing Amazon receipt file is handled, not a 500")
+ok("Amazon order" in d.text and "don't sync" in d.text,
+   "missing Amazon receipt regenerates a summary from the DB row")
+
 import shutil  # noqa: E402
 shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
 print("\nAMAZON TESTS DONE")
