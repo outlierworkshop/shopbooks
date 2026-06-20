@@ -33,6 +33,7 @@ dict, so a sync hiccup can never stop ShopBooks from opening or closing.
 """
 import hashlib
 import json
+import shutil
 import socket
 import sqlite3
 import time
@@ -45,6 +46,7 @@ import db
 
 SYNC_DB = "_sync.db"
 SYNC_MANIFEST = "_sync.json"
+SYNC_DOCS = "_sync_docs"          # cloud subfolder mirroring the receipts (docs/)
 STATE_FILE = "sync_state.json"
 
 # Settings that are specific to THIS machine and must never travel between computers:
@@ -230,6 +232,48 @@ def _wait_readable(path, attempts=1, delay=1.5):
     return _readable_db(path)
 
 
+def _mirror_files(src_dir, dst_dir):
+    """Copy files in src_dir that are missing from dst_dir. Receipts are immutable and uniquely
+    named, so this is a safe additive merge by filename (each machine ends up with the union).
+    Best-effort: skips dotfiles and anything unreadable (e.g. a not-yet-downloaded cloud file).
+    Returns the number copied."""
+    src_dir, dst_dir = Path(src_dir), Path(dst_dir)
+    if not src_dir.exists():
+        return 0
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for f in src_dir.iterdir():
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        dest = dst_dir / f.name
+        if dest.exists():
+            continue
+        try:
+            shutil.copy2(str(f), str(dest))
+            n += 1
+        except OSError:
+            pass  # e.g. cloud placeholder not downloaded yet; it'll copy next time
+    return n
+
+
+def _push_docs(cdir):
+    """Upload this machine's receipt files to the cloud (additive)."""
+    return _mirror_files(db.DOCS, Path(cdir) / SYNC_DOCS)
+
+
+def _pull_docs(cdir):
+    """Download receipt files from the cloud into this machine's docs (additive)."""
+    return _mirror_files(Path(cdir) / SYNC_DOCS, db.DOCS)
+
+
+def _repoint_doc_paths(con):
+    """After importing another machine's DB, the document rows carry that machine's file paths.
+    Keep each file's basename but point it at THIS machine's docs folder, so /doc resolves and
+    matches the files mirrored by _pull_docs."""
+    for r in con.execute("SELECT id, path FROM documents").fetchall():
+        con.execute("UPDATE documents SET path=? WHERE id=?", (str(db.DOCS / Path(r["path"]).name), r["id"]))
+
+
 def _apply_import(src):
     """Overwrite the live DB with `src` via the SQLite backup API, after stashing a pre-sync
     restore point. Preserves this machine's local settings (backup_dir, sync_enabled) so a
@@ -238,6 +282,7 @@ def _apply_import(src):
     src = Path(src)
     if not _readable_db(src):
         raise OSError(f"source is not a readable database (still downloading?): {src}")
+    _pull_docs(src.parent)            # bring the other machine's receipt files down first
     con = db.connect()
     try:  # remember machine-local settings to put back after the overwrite
         keep = {k: db.get_setting(con, k, "") for k in LOCAL_SETTINGS}
@@ -255,9 +300,10 @@ def _apply_import(src):
         source.close()
         dest.close()
     con = db.connect()
-    try:  # restore this machine's settings over the imported ones
+    try:  # restore this machine's settings, and repoint receipt paths at this machine's docs
         for k, v in keep.items():
             db.set_setting(con, k, v)
+        _repoint_doc_paths(con)
         con.commit()
     finally:
         con.close()
@@ -296,6 +342,8 @@ def _import(cdir, attempts, delay):
             # same content, higher version number: adopt it so we stop re-checking.
             _adopt(p["cloud_version"], p.get("local_sha"))
         # local_ahead / local_changes / conflict / no_cloud: leave the DB alone.
+        if cdir:  # backfill receipt files even when we didn't import the DB (additive, idempotent)
+            _pull_docs(cdir)
         _LAST = p
         return p
     except Exception as e:
@@ -330,6 +378,7 @@ def export_on_close(cdir=None, force=False):
             return {"status": "skipped_fresh"}
         cdir = Path(cdir)
         cdir.mkdir(parents=True, exist_ok=True)
+        _push_docs(cdir)               # upload receipt files (additive) even if the DB is unchanged
         local_sha = content_hash()
         man = read_manifest(cdir)
         base_v = int(load_state().get("base_version", 0))

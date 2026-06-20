@@ -14,6 +14,18 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-19 — Sync receipt files between machines (docs-sync)
+- Cloud sync now mirrors the **`docs/` folder** alongside `_sync.db`, via a `_sync_docs/` subfolder
+  in the cloud folder. `export`/`Sync now` pushes local receipts up (additive, even if the DB is
+  unchanged); `import`/`Pull` brings the other machine's receipts down — including a **backfill** when
+  the DB is already up to date (so previously-imported phantom receipts get their files). Receipts are
+  immutable + uniquely named, so it's a safe additive union by filename.
+- `_apply_import` now **repoints document paths** to this machine's docs folder (keeping each file's
+  basename), fixing imported rows that carried the other machine's absolute paths.
+- Pairs with the earlier `/doc` robustness (no 500 on a missing file). `test_sync.py` covers push,
+  pull, path-repoint, and backfill. NOTE: deletes aren't propagated (additive only) — an orphan file
+  may linger in `_sync_docs`, harmless since the DB row is gone.
+
 ### 2026-06-19 — Receipt hover preview + inline viewing
 - Clicking a receipt now opens it **inline in a new tab** (image / PDF / Amazon order text) instead
   of downloading — `/doc` sends the right media type with `Content-Disposition: inline`.
