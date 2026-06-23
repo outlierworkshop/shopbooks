@@ -220,7 +220,8 @@ def _post_staged(con, staged_id, category_id, remember=False):
         con.execute("UPDATE staged SET status='skipped' WHERE id=?", (staged_id,))
         return
     entry_id = ledger.post_entry(con, st["date"], st["description"],
-                                 [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])])
+                                 [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])],
+                                 memo=st["memo"])
     con.execute("UPDATE staged SET status='posted', entry_id=?, category_id=? WHERE id=?",
                 (entry_id, category_id, staged_id))
     if remember:
@@ -237,6 +238,17 @@ async def review_action(request: Request):
         def cat_for(sid):
             v = form.get(f"cat_{sid}", "")
             return int(v) if v else None
+
+        # Persist any typed memos first, so they survive a reload and are carried onto the entry
+        # when the row is posted (memo flows through _post_staged -> ledger.post_entry).
+        for k in form.keys():
+            if k.startswith("memo_"):
+                try:
+                    msid = int(k.split("_", 1)[1])
+                except ValueError:
+                    continue
+                con.execute("UPDATE staged SET memo=? WHERE id=? AND status='pending'",
+                            (str(form[k]).strip(), msid))
 
         if "post_one" in form:
             sid = int(form["post_one"])

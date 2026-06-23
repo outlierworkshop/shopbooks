@@ -13,6 +13,13 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Optional memo on imported transactions
+- `staged` gains a `memo` column (guarded ALTER in `_column_migrations`). The Review table now has
+  an optional Memo input per row; typed memos persist on any form submit and are carried onto the
+  posted entry (`_post_staged` -> `ledger.post_entry(..., memo=...)`). Manual entry already had memo.
+- Lets you annotate bare/ambiguous imported rows before posting. Verified: column migrates without
+  data loss, memo flows staged -> entry, migration idempotent.
+
 
 ### 2026-06-23 — Make AI categorization transfer-aware (issue #3 refinement)
 - The AI categorize step is only offered expense/income categories, so it was forced to mislabel

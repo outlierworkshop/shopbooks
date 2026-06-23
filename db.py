@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS staged(
   amount_cents INTEGER NOT NULL,           -- positive = money out (charge), negative = money in
   category_id INTEGER REFERENCES accounts(id),
   status TEXT NOT NULL DEFAULT 'pending',  -- pending/posted/skipped
-  entry_id INTEGER REFERENCES entries(id)
+  entry_id INTEGER REFERENCES entries(id),
+  memo TEXT NOT NULL DEFAULT ''            -- optional note, carried to the posted entry's memo
 );
 CREATE TABLE IF NOT EXISTS documents(
   id INTEGER PRIMARY KEY,
@@ -342,6 +343,9 @@ def _column_migrations(con):
     invc = {r["name"] for r in con.execute("PRAGMA table_info(invoices)").fetchall()}
     if "matched_entry_id" not in invc:
         con.execute("ALTER TABLE invoices ADD COLUMN matched_entry_id INTEGER REFERENCES entries(id)")
+    stg = {r["name"] for r in con.execute("PRAGMA table_info(staged)").fetchall()}
+    if "memo" not in stg:
+        con.execute("ALTER TABLE staged ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
 
 
 def init():
