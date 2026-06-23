@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Fix cross-OS receipt paths after sync (PC receipts unreachable on Mac)
+- After pulling the PC's books, every receipt opened as the "file not on this computer" placeholder
+  even though the files had synced. Cause: `sync._repoint_doc_paths` used `pathlib.Path(p).name`,
+  which doesn't split Windows `\` on macOS/Linux — so a Windows path `C:\...\docs\rcpt.txt` kept its
+  whole self as the "basename" and got stored as `<docs>/C:\...\rcpt.txt` (nonexistent).
+- Fix: new `sync._doc_basename` strips both `/` and `\` separators; repoint now resolves correctly
+  regardless of which OS wrote the path (and recovers already-mangled paths on the next import).
+  Repaired the live Mac books (75/75 receipts now resolve). `test_sync.py` covers Windows + POSIX.
+
 ### 2026-06-23 — Optional memo on imported transactions
 - `staged` gains a `memo` column (guarded ALTER in `_column_migrations`). The Review table now has
   an optional Memo input per row; typed memos persist on any form submit and are carried onto the

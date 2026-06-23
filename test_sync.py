@@ -215,6 +215,21 @@ os.remove(PC / "docs" / "rcpt_99.jpg")
 pull()
 ok((PC / "docs" / "rcpt_99.jpg").exists(), "pull backfills a missing receipt file when DB is up to date")
 
+# 15. Cross-OS path repoint: a Windows path imported on a Mac/Linux box must repoint by basename
+#     (pathlib doesn't split '\\' on POSIX, which broke receipt resolution PC -> Mac).
+ok(sync._doc_basename(r"C:\Users\outli\docs\rcpt_w.jpg") == "rcpt_w.jpg", "_doc_basename splits Windows backslashes")
+ok(sync._doc_basename("/home/u/docs/rcpt_w.jpg") == "rcpt_w.jpg", "_doc_basename splits POSIX slashes")
+use(PC)
+c = db.connect()
+c.execute("INSERT INTO documents(filename, path, vendor) VALUES('rcpt_w.jpg', ?, 'Win')",
+          (r"C:\Users\outli\AppData\Local\ShopBooks\docs\rcpt_w.jpg",))
+sync._repoint_doc_paths(c)
+c.commit()
+got = c.execute("SELECT path FROM documents WHERE filename='rcpt_w.jpg'").fetchone()["path"]
+c.close()
+ok(got == str(PC / "docs" / "rcpt_w.jpg"),
+   "a Windows-style stored path repoints to THIS machine's docs (not a C:\\... garbage path)")
+
 import shutil  # noqa: E402
 shutil.rmtree(ROOT, ignore_errors=True)
 print("\nSYNC TESTS DONE")
