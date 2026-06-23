@@ -83,3 +83,125 @@ table.sortable th.sortable-th:hover { text-decoration: underline; }
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Enforce bounds on desktop to prevent horizontal scroll */
+.review-table td select {
+  max-width: 190px;
+  width: 100%;
+  text-overflow: ellipsis;
+}
+.review-table td input[type="text"] {
+  max-width: 120px;
+  width: 100%;
+}
+.review-table td {
+  word-break: break-word;
+}
+
+/* Mobile responsive card view */
+@media (max-width: 800px) {
+  .table-responsive {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  .table-responsive table.review-table {
+    display: block;
+    width: 100% !important;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+  /* Hide table header */
+  .table-responsive table.review-table tr:first-child {
+    display: none !important;
+  }
+  .table-responsive table.review-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .table-responsive table.review-table tr {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    background: var(--card);
+    border: 1px solid var(--line) !important;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    padding: 14px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+    width: 100% !important;
+  }
+  .table-responsive table.review-table td {
+    display: block;
+    width: 100% !important;
+    padding: 2px 0;
+    border: none !important;
+    text-align: left !important;
+  }
+  
+  /* Date: top left */
+  .table-responsive table.review-table td:nth-child(1) {
+    grid-column: 1;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  /* Amount: top right */
+  .table-responsive table.review-table td:nth-child(4) {
+    grid-column: 2;
+    text-align: right !important;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  /* Description: span full width */
+  .table-responsive table.review-table td:nth-child(2) {
+    grid-column: 1 / span 2;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  /* Source: smaller, under description */
+  .table-responsive table.review-table td:nth-child(3) {
+    grid-column: 1 / span 2;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  /* Category select: full width */
+  .table-responsive table.review-table td:nth-child(5) {
+    grid-column: 1 / span 2;
+    margin-top: 4px;
+  }
+  .table-responsive table.review-table td:nth-child(5) select {
+    width: 100%;
+    max-width: 100% !important;
+  }
+  /* Memo: full width */
+  .table-responsive table.review-table td:nth-child(6) {
+    grid-column: 1 / span 2;
+  }
+  .table-responsive table.review-table td:nth-child(6) input {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  /* Remember checkbox */
+  .table-responsive table.review-table td:nth-child(7) {
+    grid-column: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .table-responsive table.review-table td:nth-child(7)::before {
+    content: "Remember rule:";
+    font-size: 12px;
+    color: var(--muted);
+  }
+  /* Action buttons: bottom right */
+  .table-responsive table.review-table td:nth-child(8) {
+    grid-column: 2;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    align-items: center;
+  }
+}

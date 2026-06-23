@@ -34,7 +34,7 @@
           onclick="return confirm('Discard the unposted rows of the selected batch? You can re-import the statement.')">Discard batch</button>
   {% endif %}
 </div>
-<table class="sortable">
+<table class="sortable review-table">
   <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th><th>Remember</th><th></th></tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
@@ -54,7 +54,7 @@
       </select>
     </td>
     <td><input type="text" name="memo_{{ it.id }}" value="{{ it.memo }}" placeholder="(optional note)"
-               style="width:150px" title="Optional note saved on this transaction"></td>
+               title="Optional note saved on this transaction"></td>
     <td><input type="checkbox" name="remember_{{ it.id }}" title="Create a rule from this payee"></td>
     <td>
       <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
