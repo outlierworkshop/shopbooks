@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Insights / analysis page (issue #6)
+- New /insights page (Insights nav) surfacing the deterministic numbers: income/expense/net growth
+  vs the prior period, monthly-net trend bars, biggest expense movers (insights.expense_changes),
+  profit-by-job, cash position, and bookkeeping health. Period selector (this/last year, quarter, month).
+- Optional on-demand AI readout: '✨ Explain these numbers' (ai.analyze) writes a plain-English summary
+  from the exact figures. AI-optional — the numbers always render; button hidden when AI is off; returns
+  None on failure. No API cost unless clicked.
+- Builds entirely on insights.py + timetracking job costing. test_insights.py covers expense_changes.
+
 ### 2026-06-23 — Fix cross-OS receipt paths after sync (PC receipts unreachable on Mac)
 - After pulling the PC's books, every receipt opened as the "file not on this computer" placeholder
   even though the files had synced. Cause: `sync._repoint_doc_paths` used `pathlib.Path(p).name`,
