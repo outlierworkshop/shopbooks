@@ -3,7 +3,13 @@
     var headers = table.querySelectorAll("th");
     if (headers.length === 0) return;
 
-    headers.forEach(function (th) {
+    // Ensure fluid layout initially
+    table.style.width = "100%";
+
+    headers.forEach(function (th, index) {
+      // The last column does not need a resize handle on its right edge
+      if (index === headers.length - 1) return;
+
       th.style.position = "relative";
 
       var handle = document.createElement("div");
@@ -19,29 +25,36 @@
 
       th.appendChild(handle);
 
-      var startX, startWidth, startTableWidth;
+      var startX, siblingHeaders, siblingWidths;
 
       handle.addEventListener("mousedown", function (e) {
         startX = e.pageX;
-        startWidth = th.offsetWidth;
-        startTableWidth = table.offsetWidth;
+        siblingHeaders = Array.from(headers);
+        siblingWidths = siblingHeaders.map(h => h.offsetWidth);
 
-        // Set explicit widths on all headers so they don't jump/collapse
-        var siblingHeaders = Array.from(headers);
-        var siblingWidths = siblingHeaders.map(h => h.offsetWidth);
+        // Lock table and columns to exact pixels during dragging
+        table.style.tableLayout = "fixed";
+        table.style.width = table.offsetWidth + "px";
         siblingHeaders.forEach(function (h, idx) {
           h.style.width = siblingWidths[idx] + "px";
         });
 
-        table.style.width = startTableWidth + "px";
         handle.style.borderRight = "2px solid var(--accent)";
+
+        var nextTh = th.nextElementSibling;
+        var thIdx = index;
+        var nextIdx = index + 1;
 
         function onMouseMove(e) {
           var diff = e.pageX - startX;
-          var width = startWidth + diff;
-          if (width > 40) {
-            th.style.width = width + "px";
-            table.style.width = (startTableWidth + diff) + "px";
+          var newThWidth = siblingWidths[thIdx] + diff;
+          var newNextWidth = siblingWidths[nextIdx] - diff;
+
+          if (newThWidth > 40 && newNextWidth > 40) {
+            th.style.width = newThWidth + "px";
+            if (nextTh) {
+              nextTh.style.width = newNextWidth + "px";
+            }
           }
         }
 
@@ -49,6 +62,14 @@
           handle.style.borderRight = "";
           document.removeEventListener("mousemove", onMouseMove);
           document.removeEventListener("mouseup", onMouseUp);
+
+          // Convert all column widths to percentages so layout remains 100% fluid/responsive
+          var currentWidths = siblingHeaders.map(h => h.offsetWidth);
+          var total = currentWidths.reduce((a, b) => a + b, 0);
+          siblingHeaders.forEach(function (h, idx) {
+            h.style.width = ((currentWidths[idx] / total) * 100) + "%";
+          });
+          table.style.width = "100%";
         }
 
         document.addEventListener("mousemove", onMouseMove);
@@ -65,6 +86,7 @@
       });
     });
   }
+
 
   // Run on all tables currently in document
   document.addEventListener("DOMContentLoaded", function () {
