@@ -279,11 +279,24 @@ async def review_action(request: Request):
                 if cid:
                     _post_staged(con, sid, cid)
         elif "flip_batch" in form:
-            con.execute("UPDATE staged SET amount_cents=-amount_cents WHERE batch_id=? AND status='pending'",
-                        (int(form["flip_batch"]),))
+            val = form.get("flip_batch")
+            if val and val.isdigit():
+                bid = int(val)
+            else:
+                bid_val = form.get("batch_id")
+                bid = int(bid_val) if (bid_val and bid_val.isdigit()) else 0
+            if bid:
+                con.execute("UPDATE staged SET amount_cents=-amount_cents WHERE batch_id=? AND status='pending'", (bid,))
         elif "discard_batch" in form:
             # drop the not-yet-posted rows of one import (e.g. to redo an import); posted rows untouched
-            con.execute("DELETE FROM staged WHERE batch_id=? AND status='pending'", (int(form["discard_batch"]),))
+            val = form.get("discard_batch")
+            if val and val.isdigit():
+                bid = int(val)
+            else:
+                bid_val = form.get("batch_id")
+                bid = int(bid_val) if (bid_val and bid_val.isdigit()) else 0
+            if bid:
+                con.execute("DELETE FROM staged WHERE batch_id=? AND status='pending'", (bid,))
         elif "ai_review" in form:
             return _ai_review_pending(con)
         elif "find_transfers" in form:

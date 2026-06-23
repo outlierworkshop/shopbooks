@@ -68,6 +68,18 @@
 
   // Run on all tables currently in document
   document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll("table").forEach(makeResizable);
+    document.querySelectorAll("table").forEach(function (table) {
+      // 1. Make the table resizable
+      makeResizable(table);
+
+      // 2. Wrap in responsive container unless it already has one
+      var parent = table.parentElement;
+      if (!parent.classList.contains("table-responsive") && parent.style.overflowX !== "auto") {
+        var wrapper = document.createElement("div");
+        wrapper.className = "table-responsive";
+        parent.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+      }
+    });
   });
 })();

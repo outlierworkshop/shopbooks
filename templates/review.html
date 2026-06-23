@@ -20,13 +20,19 @@
   <button type="submit" name="invoice_categorize" value="1" class="ghost"
           title="Match open invoices to pending deposits by amount and date, then suggest correct income categories. Nothing posts.">📄 Match open invoices</button>
   {% set batches = items|map(attribute='batch_id')|unique|list %}
-  {% for b in batches %}
-  <button type="submit" name="flip_batch" value="{{ b }}" class="ghost"
-          title="If amounts look backwards (deposits showing as charges), flip the whole batch.">Flip signs (batch {{ b }})</button>
-  <button type="submit" name="discard_batch" value="{{ b }}" class="ghost"
+  {% if batches %}
+  <span class="muted" style="margin-left: 10px; margin-right: 2px;">| Batch:</span>
+  <select name="batch_id" style="padding: 4px 8px; font-size: 13px; max-width: 120px;">
+    {% for b in batches %}
+    <option value="{{ b }}">Batch {{ b }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" name="flip_batch" value="flip" class="ghost" style="padding: 4px 10px; font-size: 13px;"
+          title="If amounts look backwards (deposits showing as charges), flip the whole batch.">Flip signs</button>
+  <button type="submit" name="discard_batch" value="discard" class="ghost" style="padding: 4px 10px; font-size: 13px; color: var(--bad);"
           title="Delete the not-yet-posted rows of this import (e.g. to re-import). Posted rows are kept."
-          onclick="return confirm('Discard the unposted rows of batch {{ b }}? You can re-import the statement.')">Discard batch {{ b }}</button>
-  {% endfor %}
+          onclick="return confirm('Discard the unposted rows of the selected batch? You can re-import the statement.')">Discard batch</button>
+  {% endif %}
 </div>
 <table class="sortable">
   <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th><th>Remember</th><th></th></tr>
