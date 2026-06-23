@@ -266,12 +266,20 @@ def _pull_docs(cdir):
     return _mirror_files(Path(cdir) / SYNC_DOCS, db.DOCS)
 
 
+def _doc_basename(path):
+    """The filename from a stored doc path, regardless of which OS wrote it. pathlib doesn't
+    split Windows '\\' on macOS/Linux, so a Windows path imported on a Mac would otherwise keep
+    its whole 'C:\\...\\rcpt.txt' as the 'name'. Handle both separators."""
+    return str(path or "").replace("\\", "/").rsplit("/", 1)[-1]
+
+
 def _repoint_doc_paths(con):
-    """After importing another machine's DB, the document rows carry that machine's file paths.
-    Keep each file's basename but point it at THIS machine's docs folder, so /doc resolves and
-    matches the files mirrored by _pull_docs."""
+    """After importing another machine's DB, the document rows carry that machine's file paths
+    (possibly Windows paths). Keep each file's basename but point it at THIS machine's docs
+    folder, so /doc resolves and matches the files mirrored by _pull_docs."""
     for r in con.execute("SELECT id, path FROM documents").fetchall():
-        con.execute("UPDATE documents SET path=? WHERE id=?", (str(db.DOCS / Path(r["path"]).name), r["id"]))
+        con.execute("UPDATE documents SET path=? WHERE id=?",
+                    (str(db.DOCS / _doc_basename(r["path"])), r["id"]))
 
 
 def _apply_import(src):
