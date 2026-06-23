@@ -14,20 +14,22 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
-### 2026-06-23 — Real fix for "shortcut launches blank": pin data dir outside AppData
+### 2026-06-23 — Real fix for "shortcut launches blank": Windows data dir moved outside %AppData%
 - Root cause finally found. When the desktop shortcut is opened from inside the Claude desktop
   app, the server runs in that app's **MSIX sandbox**, which silently redirects `%LOCALAPPDATA%`
   to a per-package cache (`...\Packages\Claude_*\LocalCache\Local\`). So the default data dir
   (`%LOCALAPPDATA%\ShopBooks`) resolved to a *different, empty* database — the books looked blank
   even though the real data was safe. (Earlier "stale duplicate server" theory was wrong; this is
   AppData virtualization.) Confirmed: a redirected copy existed under the Claude package cache.
-- Fix: `run.bat` now sets `SHOPBOOKS_DATA_DIR=%USERPROFILE%\ShopBooks` — a location MSIX never
-  redirects — so every launch (sandboxed or not) reads the same database. Existing books were
-  consolidated from `%LOCALAPPDATA%\ShopBooks` to `%USERPROFILE%\ShopBooks` (books.db + docs +
-  41 backups + sync_state.json). The old AppData copies are left in place as extra backups.
-- Caveat: launch via the shortcut/`run.bat` (which sets the pin). Running the raw uvicorn command
-  without the env var would fall back to the per-OS default. Consider promoting `%USERPROFILE%\
-  ShopBooks` to the Windows default in `db._default_data_dir()` later so all launch paths agree.
+- Fix (final): the Windows default in `db._default_data_dir()` is now `%USERPROFILE%\ShopBooks`
+  (was `%LOCALAPPDATA%\ShopBooks`) — a location MSIX never redirects — so **every** launch path
+  (shortcut, raw uvicorn, sandboxed or not) reads the same database; no env override needed.
+  `run.bat` reverted to its simple form (the `SHOPBOOKS_DATA_DIR` env stays test-only). The existing
+  `_migrate_old_location` → `_migrate_from(LEGACY_APPDATA)` now auto-carries any old
+  `~/AppData/Local/ShopBooks` install forward to the new location (verified by `test_datamigrate.py`).
+- Migration/cleanup for this user: books consolidated to `%USERPROFILE%\ShopBooks` (books.db + docs
+  + 41 backups + sync_state.json); the stale `%LOCALAPPDATA%\ShopBooks` and the Claude-package
+  sandbox copy were deleted, plus 57 leftover temp test DBs swept. Confirmed: relaunch shows real data.
 
 ### 2026-06-19 — Sync receipt files between machines (docs-sync)
 - Cloud sync now mirrors the **`docs/` folder** alongside `_sync.db`, via a `_sync_docs/` subfolder

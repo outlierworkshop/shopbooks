@@ -3,7 +3,9 @@
 Data location (the user's real books) is deliberately OUTSIDE the code folder so
 that git operations, a re-clone, or a careless test cleanup can never touch it:
 
-  - default:   %LOCALAPPDATA%\\ShopBooks  (stable per-user; not synced, not in repo)
+  - default:   %USERPROFILE%\\ShopBooks (Windows) / ~/Library/Application Support/ShopBooks (mac)
+               -- stable per-user, not synced, not in repo, and OUTSIDE %AppData% so an
+               MSIX-sandboxed host (e.g. the Claude desktop app) can't redirect it (see below)
   - override:  set SHOPBOOKS_DATA_DIR  (TESTS MUST set this to a temp dir)
 
 See backup.py for the automatic snapshot/cloud-backup system.
@@ -17,17 +19,25 @@ from pathlib import Path
 APP_NAME = "ShopBooks"
 REPO_DIR = Path(__file__).resolve().parent
 OLD_DATA = REPO_DIR / "data"   # legacy in-repo location, migrated away from on first run
-# Pre-1.x non-Windows fallback (a Windows-style path used on Mac/Linux before the per-OS dirs
-# below); migrated forward automatically. See _migrate_old_location.
+# ~/AppData/Local/ShopBooks: the old Windows default (pre-2026-06-23, before moving out of
+# %AppData% to dodge MSIX redirection) and also a pre-per-OS Mac/Linux fallback. Migrated forward
+# automatically by _migrate_old_location. Uses Path.home() so it reads the REAL profile, not a
+# sandbox-redirected one.
 LEGACY_APPDATA = Path.home() / "AppData" / "Local" / APP_NAME
 
 
 def _default_data_dir():
-    """Per-OS stable location, outside the repo. Windows keeps %LOCALAPPDATA% (unchanged, so
-    existing installs are untouched); macOS uses ~/Library/Application Support; Linux uses
-    $XDG_DATA_HOME or ~/.local/share."""
+    """Per-OS stable location, outside the repo AND outside %AppData%.
+
+    Windows uses %USERPROFILE%\\ShopBooks, deliberately NOT %LOCALAPPDATA%: when the app is
+    launched from inside an MSIX-packaged host (e.g. the Claude desktop app), %LOCALAPPDATA% is
+    silently redirected into a per-package sandbox, so a %LOCALAPPDATA%-based path resolves to a
+    different, empty database and the books look blank. %USERPROFILE% is never redirected. macOS
+    uses ~/Library/Application Support; Linux uses $XDG_DATA_HOME or ~/.local/share. Old Windows
+    installs under %LOCALAPPDATA%\\ShopBooks are carried forward automatically by
+    _migrate_old_location (that path == LEGACY_APPDATA on Windows)."""
     if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        base = os.environ.get("USERPROFILE") or str(Path.home())
     elif sys.platform == "darwin":
         base = str(Path.home() / "Library" / "Application Support")
     else:
@@ -90,8 +100,8 @@ def _migrate_old_location():
 
     Only runs for the DEFAULT location (never when SHOPBOOKS_DATA_DIR is set, so tests never
     pull real data into their temp dir). Handles both the old in-repo data/ folder and the
-    pre-per-OS Windows-style fallback (~/AppData/Local/ShopBooks) used earlier on Mac/Linux.
-    No-op once migrated. On Windows the fallback equals DATA, so _migrate_from skips it.
+    ~/AppData/Local/ShopBooks location (the old Windows default, and a pre-per-OS Mac/Linux
+    fallback) -> carried forward to the current %USERPROFILE%\\ShopBooks. No-op once migrated.
     """
     if os.environ.get("SHOPBOOKS_DATA_DIR"):
         return

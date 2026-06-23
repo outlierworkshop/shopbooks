@@ -30,7 +30,7 @@ env var first.
 
 > ⚠️ **NEVER run a test or any DB-mutating script without `SHOPBOOKS_DATA_DIR` set to a temp
 > dir.** The user's real books live in a per-OS app-data dir (Data location below), e.g.
-> `%LOCALAPPDATA%\ShopBooks` (Windows) or `~/Library/Application Support/ShopBooks` (macOS).
+> `%USERPROFILE%\ShopBooks` (Windows) or `~/Library/Application Support/ShopBooks` (macOS).
 > A test that imports `db`/`app` without the override will read, write, and—if it cleans up
 > after itself—**delete the real database.** This exact mistake destroyed the user's data once.
 > The harness env var is the guard; `test_safety.py` proves it works. (Even so, `backup.py`
@@ -39,12 +39,16 @@ env var first.
 ## Data location
 
 `db.py` resolves the data dir at import time: `SHOPBOOKS_DATA_DIR` if set, else a per-OS
-stable location (`_default_data_dir`): Windows `%LOCALAPPDATA%\ShopBooks`, macOS
+stable location (`_default_data_dir`): Windows `%USERPROFILE%\ShopBooks`, macOS
 `~/Library/Application Support/ShopBooks`, Linux `$XDG_DATA_HOME` or `~/.local/share/ShopBooks`.
-**Deliberately outside the repo** so git ops, re-clones, and test cleanup can't touch real books.
-`db.init()` runs a guarded one-time migration (`_migrate_old_location` → `_migrate_from`) that
-carries forward both the legacy in-repo `data/` folder and the pre-per-OS `~/AppData/Local/ShopBooks`
-fallback (books.db + docs + backups + `sync_state.json`, repointing receipt paths) — skipped when the
+**Deliberately outside the repo AND outside `%AppData%`.** The Windows location is `%USERPROFILE%`,
+NOT `%LOCALAPPDATA%`, on purpose: when launched from inside an MSIX-packaged host (e.g. the Claude
+desktop app), `%LOCALAPPDATA%` is silently redirected into a per-package sandbox, so a
+`%LOCALAPPDATA%`-based path pointed at a *different, empty* DB and the books looked blank (fixed
+2026-06-23). `db.init()` runs a guarded one-time migration (`_migrate_old_location` → `_migrate_from`)
+that carries forward the legacy in-repo `data/` folder AND `~/AppData/Local/ShopBooks` (the old
+Windows default / pre-per-OS fallback) → the current location (books.db + docs + backups +
+`sync_state.json`, repointing receipt paths) — skipped when the
 override is set, so tests don't pull real data in. `backup.snapshot()` runs on app startup (in
 `app.py`). The cloud mirror is suppressed when `SHOPBOOKS_DATA_DIR` is set, so tests never write to
 the user's real backup folder.
@@ -113,7 +117,7 @@ existing example). Existing user data must always survive an upgrade.
 | `templates/`, `static/style.css` | Server-rendered UI (vanilla; no JS framework) |
 | `backup.py` | Startup snapshots, retention, cloud mirror, full-ZIP download |
 | `migrate.py` | QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances) |
-| per-OS app-data dir (`db._default_data_dir`) | **User's real books** — books.db + docs/ (receipts) + backups/ + sync_state.json. Win `%LOCALAPPDATA%\ShopBooks`, mac `~/Library/Application Support/ShopBooks`. NOT in the repo. Never wipe |
+| per-OS app-data dir (`db._default_data_dir`) | **User's real books** — books.db + docs/ (receipts) + backups/ + sync_state.json. Win `%USERPROFILE%\ShopBooks` (outside %AppData% to dodge MSIX redirection), mac `~/Library/Application Support/ShopBooks`. NOT in the repo. Never wipe |
 | `docs/` | ARCHITECTURE.md (design + rationale), USER_GUIDE.md, ROADMAP.md (changelog + planned work) |
 
 ## AI assistant roadmap (GitHub milestone "AI accounting assistant", issues #2–#7)
