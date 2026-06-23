@@ -33,7 +33,7 @@
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
     <td>{{ it.date }}</td>
-    <td>{% if it.receipt_vendor %}<span class="pos" title="Receipt: {{ it.receipt_vendor }}">📎</span> {% endif %}{% if it.invoice_number %}<span class="pos" title="Invoice: {{ it.invoice_number }} - {{ it.invoice_customer }}">📄</span> {% endif %}{{ it.description }}
+    <td>{% if it.receipt_vendor %}<a href="/doc/{{ it.receipt_id }}" target="_blank" data-doc="/doc/{{ it.receipt_id }}" class="pos" title="Receipt: {{ it.receipt_vendor }} (hover to preview)" style="text-decoration: none;">📎</a> {% endif %}{% if it.invoice_number %}<a href="/invoices/{{ it.invoice_id }}" target="_blank" data-doc="/invoices/{{ it.invoice_id }}/summary" class="pos" title="Invoice: {{ it.invoice_number }} - {{ it.invoice_customer }} (hover to preview)" style="text-decoration: none;">📄</a> {% endif %}{{ it.description }}
       {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
       {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
       {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>

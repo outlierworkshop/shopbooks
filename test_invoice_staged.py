@@ -224,6 +224,15 @@ def test_review_page_shows_invoice():
     assert "\U0001f4c4" in resp.text, "Expected document icon 📄 in HTML"
     assert "INV-307" in resp.text, "Expected invoice number in HTML"
     assert "Test Customer" in resp.text, "Expected customer name in HTML"
+    assert 'data-doc="/invoices/307/summary"' in resp.text, "Expected data-doc link on Review page"
+    
+    # Test the summary endpoint itself
+    sum_resp = client.get("/invoices/307/summary")
+    assert sum_resp.status_code == 200
+    assert "Invoice: INV-307" in sum_resp.text
+    assert "Customer: Test Customer" in sum_resp.text
+    assert "Services" in sum_resp.text
+    assert "Total: $120.00" in sum_resp.text
     
     con = db.connect()
     con.execute("DELETE FROM staged WHERE id=407")

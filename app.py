@@ -205,8 +205,10 @@ def review(request: Request, note: str = ""):
             rinv = invoice_matches.get(r["id"])
             items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None,
                           "receipt_vendor": rdoc["vendor"] if rdoc else None,
+                          "receipt_id": rdoc["id"] if rdoc else None,
                           "invoice_number": rinv["number"] if rinv else None,
-                          "invoice_customer": rinv["customer"] if rinv else None})
+                          "invoice_customer": rinv["customer"] if rinv else None,
+                          "invoice_id": rinv["id"] if rinv else None})
         cats = categories(con)
         return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, note=note))
     finally:
@@ -1645,6 +1647,34 @@ def invoice_pdf(invoice_id: int):
         pdf = invoicing.render_pdf(con, inv, items, total)
         return StreamingResponse(iter([pdf]), media_type="application/pdf",
                                  headers={"Content-Disposition": f"inline; filename={inv['number']}.pdf"})
+    finally:
+        con.close()
+
+
+@app.get("/invoices/{invoice_id}/summary")
+def invoice_summary(invoice_id: int):
+    con = db.connect()
+    try:
+        inv, items, total = invoicing.get_invoice(con, invoice_id)
+        if not inv:
+            return PlainTextResponse("Invoice not found", status_code=404)
+        lines = [
+            f"Invoice: {inv['number']}",
+            f"Customer: {inv['customer']}",
+            f"Date: {inv['date']}",
+            f"Due: {inv['due_date']}",
+            f"Status: {inv['status'].upper()}",
+            f"Total: ${ledger.fmt_cents(total)}",
+            "",
+            "Items:"
+        ]
+        for it in items:
+            amt = round(it["qty"] * it["unit_cents"])
+            lines.append(f" - {it['description']} (x{it['qty']:g}): ${ledger.fmt_cents(amt)}")
+        if inv["memo"]:
+            lines.append("")
+            lines.append(f"Memo: {inv['memo']}")
+        return PlainTextResponse("\n".join(lines))
     finally:
         con.close()
 
