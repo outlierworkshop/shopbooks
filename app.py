@@ -192,6 +192,7 @@ def review(request: Request, note: str = ""):
             "FROM staged st JOIN batches b ON b.id=st.batch_id JOIN accounts a ON a.id=b.account_id "
             "WHERE st.status='pending' ORDER BY b.id DESC, st.date, st.id").fetchall()
         receipt_matches = staged_receipt_matches(con)
+        invoice_matches = staged_invoice_matches(con)
         items = []
         for r in rows:
             booked = importer.find_posted_transfer(con, r["source_id"], r["amount_cents"], r["date"])
@@ -201,8 +202,11 @@ def review(request: Request, note: str = ""):
             dup = (importer.possible_duplicate(con, r["source_id"], r["date"], r["amount_cents"])
                    and transfer_to is None and booked is None)
             rdoc = receipt_matches.get(r["id"])
+            rinv = invoice_matches.get(r["id"])
             items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None,
-                          "receipt_vendor": rdoc["vendor"] if rdoc else None})
+                          "receipt_vendor": rdoc["vendor"] if rdoc else None,
+                          "invoice_number": rinv["number"] if rinv else None,
+                          "invoice_customer": rinv["customer"] if rinv else None})
         cats = categories(con)
         return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, note=note))
     finally:
@@ -225,6 +229,14 @@ def _post_staged(con, staged_id, category_id, remember=False):
     entry_id = ledger.post_entry(con, st["date"], st["description"],
                                  [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])],
                                  memo=st["memo"])
+    if category_id:
+        cat_type = con.execute("SELECT type FROM accounts WHERE id=?", (category_id,)).fetchone()
+        if cat_type and cat_type["type"] == "income":
+            inv_matches = staged_invoice_matches(con)
+            matched_inv = inv_matches.get(staged_id)
+            if matched_inv:
+                con.execute("UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
+                            (st["date"], entry_id, matched_inv["id"]))
     con.execute("UPDATE staged SET status='posted', entry_id=?, category_id=? WHERE id=?",
                 (entry_id, category_id, staged_id))
     if remember:
@@ -283,6 +295,8 @@ async def review_action(request: Request):
             return RedirectResponse("/review?note=" + quote(note), status_code=303)
         elif "receipt_categorize" in form:
             return _receipt_review_pending(con)
+        elif "invoice_categorize" in form:
+            return _invoice_review_pending(con)
         con.commit()
         return RedirectResponse("/review", status_code=303)
     finally:
@@ -380,6 +394,84 @@ def _receipt_review_pending(con):
     if err:
         parts.append(err)
     return back("📎 " + "; ".join(parts) + ". Check the suggestions and post.")
+
+
+def _categorize_from_invoices(con):
+    """Match open invoices to pending staged deposits, then suggest correct income categories.
+    Returns (match_count, categorized_count, error_or_None)."""
+    matches = staged_invoice_matches(con)
+    if not matches:
+        return 0, 0, None
+    cats = {a["name"]: a["id"] for a in con.execute(
+        "SELECT id, name FROM accounts WHERE type='income' AND active=1"
+    ).fetchall()}
+    ai_suggestions = {}
+    if ai.available(con) and cats:
+        targets = [(sid, inv) for sid, inv in matches.items()]
+        txns = []
+        for sid, inv in targets:
+            items = con.execute("SELECT description FROM invoice_items WHERE invoice_id=?", (inv["id"],)).fetchall()
+            item_desc = ", ".join(it["description"] for it in items)
+            desc = f"Customer: {inv['customer']} | Memo: {inv['memo']} | Items: {item_desc}"
+            txns.append({"description": desc, "amount": inv["total"]})
+        suggestions = ai.categorize(con, txns, list(cats.keys()))
+        if suggestions:
+            for (sid, inv), name in zip(targets, suggestions):
+                cid = cats.get(name)
+                if cid:
+                    ai_suggestions[sid] = cid
+    categorized = 0
+    for sid, inv in matches.items():
+        cid = ai_suggestions.get(sid)
+        if not cid:
+            hist_row = con.execute(
+                "SELECT s.account_id FROM invoices i "
+                "JOIN entries e ON e.id = COALESCE(i.paid_entry_id, i.matched_entry_id) "
+                "JOIN splits s ON s.entry_id = e.id "
+                "JOIN accounts a ON a.id = s.account_id "
+                "WHERE i.customer_id = ? AND a.type = 'income' "
+                "GROUP BY s.account_id ORDER BY COUNT(*) DESC LIMIT 1",
+                (inv["customer_id"],)
+            ).fetchone()
+            if hist_row:
+                cid = hist_row["account_id"]
+            elif cats:
+                income_names = list(cats.keys())
+                preferred = [n for n in income_names if "service" in n.lower() or "sales" in n.lower() or "revenue" in n.lower()]
+                if preferred:
+                    cid = cats[preferred[0]]
+                else:
+                    cid = list(cats.values())[0]
+        if cid:
+            con.execute("UPDATE staged SET category_id=? WHERE id=? AND status='pending'", (cid, sid))
+            categorized += 1
+    err = None
+    if not ai_suggestions and ai.available(con) and cats:
+        err = "matched invoices but AI couldn't suggest categories — fell back to history/defaults"
+    elif not ai.available(con):
+        err = "AI is off — fell back to history/defaults"
+    return len(matches), categorized, err
+
+
+def _invoice_review_pending(con):
+    """Match open invoices to pending staged deposits, suggest income categories.
+    Suggestions only; nothing posts."""
+    from urllib.parse import quote
+    def back(note):
+        return RedirectResponse("/review?note=" + quote(note), status_code=303)
+    matched, categorized, err = _categorize_from_invoices(con)
+    con.commit()
+    if not matched and not err:
+        return back("No matching open invoices found for pending deposits "
+                    "(need an unpaid invoice with the same dollar amount, near the deposit date).")
+    parts = []
+    if matched:
+        parts.append(f"{matched} invoice(s) matched to pending deposits")
+    if categorized:
+        parts.append(f"{categorized} categorized")
+    if err:
+        parts.append(err)
+    return back("📄 " + "; ".join(parts) + ". Check the suggestions and post.")
 
 
 # ---------- registers & entries ----------
@@ -692,6 +784,61 @@ def staged_receipt_matches(con):
         result[sid] = doc
         used_staged.add(sid)
         used_docs.add(doc["id"])
+    return result
+
+
+def staged_invoice_matches(con):
+    """Find open/unpaid invoices whose total matches a pending staged deposit (-staged.amount_cents == invoice_total)
+    within a date range (deposit date must be between invoice.date - 5 days and invoice.date + 120 days).
+    Returns a dict {staged_id: invoice_row} (best match per staged row — nearest date, one invoice per row)."""
+    from collections import defaultdict
+    from datetime import date as dt_date
+    rows = con.execute(
+        "SELECT id, number, customer_id, date, due_date, status, memo FROM invoices "
+        "WHERE status != 'void' AND matched_entry_id IS NULL AND paid_entry_id IS NULL"
+    ).fetchall()
+    if not rows:
+        return {}
+    open_invs = []
+    for r in rows:
+        total = invoicing.invoice_total(con, r["id"])
+        if total > 0:
+            open_invs.append({**dict(r), "total": total})
+    if not open_invs:
+        return {}
+    pending = con.execute(
+        "SELECT id, date, amount_cents FROM staged WHERE status='pending' AND amount_cents < 0"
+    ).fetchall()
+    if not pending:
+        return {}
+    by_amount = defaultdict(list)
+    for inv in open_invs:
+        by_amount[inv["total"]].append(inv)
+    candidates = []
+    for st in pending:
+        deposit_amt = -st["amount_cents"]
+        for inv in by_amount.get(deposit_amt, []):
+            if inv["date"] and st["date"]:
+                try:
+                    dist = (dt_date.fromisoformat(st["date"]) -
+                            dt_date.fromisoformat(inv["date"])).days
+                except (ValueError, TypeError):
+                    dist = 0
+                if dist < -5 or dist > 120:
+                    continue
+            else:
+                dist = 0
+            candidates.append((st["id"], inv, abs(dist)))
+    candidates.sort(key=lambda x: x[2])
+    used_invs, used_staged, result = set(), set(), {}
+    for sid, inv, _ in candidates:
+        if sid in used_staged or inv["id"] in used_invs:
+            continue
+        cust = con.execute("SELECT name FROM customers WHERE id=?", (inv["customer_id"],)).fetchone()
+        inv["customer"] = cust["name"] if cust else "Unknown"
+        result[sid] = inv
+        used_staged.add(sid)
+        used_invs.add(inv["id"])
     return result
 
 
