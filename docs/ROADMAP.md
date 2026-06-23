@@ -14,6 +14,21 @@ boring tech, built for exactly one user.
 
 ## Changelog
 
+### 2026-06-23 — Make AI categorization transfer-aware (issue #3 refinement)
+- The AI categorize step is only offered expense/income categories, so it was forced to mislabel
+  internal money movements (it called credit-card payments "Bank & Merchant Fees" and bank
+  transfers "Personal"). Two fixes:
+  - `_ai_review_pending` now runs `importer.rescan_transfers` FIRST and skips any row already
+    pointed at one of your own bank/card accounts, so detected transfers are never overwritten by
+    a rule or the AI. Precedence is now transfers > rules > history > AI. Note reports transfers matched.
+  - `ai._categorize_prompt` tells the model that card payments / account transfers are not
+    expenses and to return "Uncategorized Expense" for them (so unmatched card payments to
+    untracked cards stop landing in a wrong expense bucket).
+- Verified live on real data: matched transfers -> the partner account; Capital One/AMEX/Chase
+  card payments and bare "Transfer" rows -> Uncategorized Expense (for review) instead of a wrong
+  category. test_categorize.py still 15/15.
+
+
 ### 2026-06-23 — Real fix for "shortcut launches blank": Windows data dir moved outside %AppData%
 - Root cause finally found. When the desktop shortcut is opened from inside the Claude desktop
   app, the server runs in that app's **MSIX sandbox**, which silently redirects `%LOCALAPPDATA%`

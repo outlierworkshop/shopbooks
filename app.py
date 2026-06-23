@@ -285,11 +285,21 @@ def _ai_review_pending(con):
     if not pending:
         return back("Nothing pending to review.")
 
+    # Internal transfers (credit-card payments, bank<->bank moves) are not expenses; detect them
+    # first so neither a rule nor the AI forces them into an expense category. rescan points each
+    # matched side at the partner account; we then leave those rows untouched below.
+    transfers = importer.rescan_transfers(con)
+    transfer_ids = {r["id"] for r in con.execute(
+        "SELECT st.id FROM staged st JOIN accounts a ON a.id=st.category_id "
+        "WHERE st.status='pending' AND a.kind IN ('bank','card')").fetchall()}
+
     cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
     name_to_id = {v: k for k, v in cats.items()}
     hist = importer.history_map(con)
     ruled, from_history, ai_targets = 0, 0, []
     for s in pending:
+        if s["id"] in transfer_ids:
+            continue  # a detected transfer - leave it pointed at the other account
         rid = importer.apply_rules(con, s["description"])
         hid = hist.get(importer.payee_key(s["description"]))
         if rid:
@@ -319,6 +329,8 @@ def _ai_review_pending(con):
     if ai_failed and not (ruled or from_history):
         return back("AI couldn't categorize this batch - try again, or set categories manually.")
     parts = []
+    if transfers:
+        parts.append(f"{transfers} matched as transfers")
     if ruled:
         parts.append(f"{ruled} matched a rule")
     if from_history:

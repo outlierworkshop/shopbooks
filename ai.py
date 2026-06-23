@@ -149,6 +149,10 @@ def _categorize_prompt(txns, category_names, examples=None):
         "Choose exactly one category per transaction from this list (use the exact name):\n"
         + "\n".join(f"- {c}" for c in category_names)
         + "\nIf nothing fits, use 'Uncategorized Expense'."
+        + " Money moving between the owner's own accounts is NOT an expense or income: if a line "
+        "looks like a credit-card payment (e.g. 'AUTOPAY', 'CRCARDPMT', 'CREDIT CRD', 'EPAYMENT', "
+        "'CARD PAYMENT', 'THANK YOU') or an account-to-account transfer (e.g. 'TRANSFER'), return "
+        "'Uncategorized Expense' for it - the app links transfers separately, they are not expenses."
         + ex
         + "\n\nReturn the categories array in the same order, one per transaction, "
         f"with exactly {len(txns)} items.\n\nTransactions:\n" + lines
