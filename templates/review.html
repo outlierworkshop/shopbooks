@@ -15,6 +15,8 @@
   <button type="submit" name="ai_review" value="1" class="ghost"
           title="Have Claude suggest a category for every pending transaction (rules first, AI for the rest). Nothing is posted - you still approve.">🤖 AI categorize pending</button>
   {% endif %}
+  <button type="submit" name="receipt_categorize" value="1" class="ghost"
+          title="Match unmatched receipts to pending transactions by amount, then use receipt vendor/items to suggest better categories. Nothing posts.">📎 Categorize from receipts</button>
   {% set batches = items|map(attribute='batch_id')|unique|list %}
   {% for b in batches %}
   <button type="submit" name="flip_batch" value="{{ b }}" class="ghost"
@@ -29,7 +31,7 @@
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
     <td>{{ it.date }}</td>
-    <td>{{ it.description }}
+    <td>{% if it.receipt_vendor %}<span class="pos" title="Receipt: {{ it.receipt_vendor }}">📎</span> {% endif %}{{ it.description }}
       {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
       {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
       {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>

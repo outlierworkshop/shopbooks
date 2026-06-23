@@ -191,6 +191,7 @@ def review(request: Request, note: str = ""):
             "SELECT st.*, b.filename, b.account_id source_id, a.name source_name "
             "FROM staged st JOIN batches b ON b.id=st.batch_id JOIN accounts a ON a.id=b.account_id "
             "WHERE st.status='pending' ORDER BY b.id DESC, st.date, st.id").fetchall()
+        receipt_matches = staged_receipt_matches(con)
         items = []
         for r in rows:
             booked = importer.find_posted_transfer(con, r["source_id"], r["amount_cents"], r["date"])
@@ -199,7 +200,9 @@ def review(request: Request, note: str = ""):
             transfer_to = catrow["name"] if catrow and catrow["kind"] in ("bank", "card") else None
             dup = (importer.possible_duplicate(con, r["source_id"], r["date"], r["amount_cents"])
                    and transfer_to is None and booked is None)
-            items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None})
+            rdoc = receipt_matches.get(r["id"])
+            items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None,
+                          "receipt_vendor": rdoc["vendor"] if rdoc else None})
         cats = categories(con)
         return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, note=note))
     finally:
@@ -278,6 +281,8 @@ async def review_action(request: Request):
                     "No new transfers found (need an equal, opposite amount in another of your "
                     "accounts within 7 days).")
             return RedirectResponse("/review?note=" + quote(note), status_code=303)
+        elif "receipt_categorize" in form:
+            return _receipt_review_pending(con)
         con.commit()
         return RedirectResponse("/review", status_code=303)
     finally:
@@ -352,6 +357,29 @@ def _ai_review_pending(con):
     if ai_failed:
         parts.append("AI was unavailable for the rest")
     return back("AI review done: " + (", ".join(parts) or "nothing to do") + ". Check the suggestions and post.")
+
+
+def _receipt_review_pending(con):
+    """Match unmatched receipts to pending staged rows by amount+date, use receipt
+    content to AI-suggest categories. Suggestions only; nothing posts."""
+    from urllib.parse import quote
+
+    def back(note):
+        return RedirectResponse("/review?note=" + quote(note), status_code=303)
+
+    matched, categorized, err = _categorize_from_receipts(con)
+    con.commit()
+    if not matched and not err:
+        return back("No matching receipts found for pending transactions "
+                    "(need an unmatched receipt with the same dollar amount, within 7 days).")
+    parts = []
+    if matched:
+        parts.append(f"{matched} receipt(s) matched to pending rows")
+    if categorized:
+        parts.append(f"{categorized} categorized from receipt content")
+    if err:
+        parts.append(err)
+    return back("📎 " + "; ".join(parts) + ". Check the suggestions and post.")
 
 
 # ---------- registers & entries ----------
@@ -620,6 +648,79 @@ def _receipt_context(doc):
         except OSError:
             pass
     return " | ".join(parts)[:2000] or (doc["vendor"] or "receipt")
+
+
+def staged_receipt_matches(con):
+    """Find unmatched receipts whose amount matches a pending staged transaction (±7 days).
+    Returns a dict {staged_id: doc_row} — one receipt per staged row (nearest date, each
+    receipt used at most once)."""
+    from collections import defaultdict
+    from datetime import date as dt_date
+    docs = con.execute(
+        "SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL"
+    ).fetchall()
+    if not docs:
+        return {}
+    pending = con.execute(
+        "SELECT id, date, amount_cents FROM staged WHERE status='pending'"
+    ).fetchall()
+    if not pending:
+        return {}
+    by_amount = defaultdict(list)
+    for d in docs:
+        by_amount[d["amount_cents"]].append(d)
+    candidates = []  # (staged_id, doc, date_distance)
+    for st in pending:
+        for doc in by_amount.get(st["amount_cents"], []):
+            if doc["doc_date"] and st["date"]:
+                try:
+                    dist = abs((dt_date.fromisoformat(st["date"]) -
+                                dt_date.fromisoformat(doc["doc_date"])).days)
+                except (ValueError, TypeError):
+                    dist = 0
+                if dist > 7:
+                    continue
+            else:
+                dist = 0
+            candidates.append((st["id"], doc, dist))
+    # Greedy assignment: nearest date first, each receipt and staged row used at most once
+    candidates.sort(key=lambda x: x[2])
+    used_docs, used_staged, result = set(), set(), {}
+    for sid, doc, _ in candidates:
+        if sid in used_staged or doc["id"] in used_docs:
+            continue
+        result[sid] = doc
+        used_staged.add(sid)
+        used_docs.add(doc["id"])
+    return result
+
+
+def _categorize_from_receipts(con):
+    """Match unmatched receipts to pending staged rows, then use receipt content (vendor/items)
+    to AI-suggest categories. Returns (match_count, categorized_count, error_or_None)."""
+    matches = staged_receipt_matches(con)
+    if not matches:
+        return 0, 0, None
+    if not ai.available(con):
+        return len(matches), 0, ("matched receipts but AI is off — add a Claude API key "
+                                  "in Settings for receipt-based suggestions")
+    cats = {a["name"]: a["id"] for a in con.execute(
+        "SELECT id, name FROM accounts WHERE type IN ('expense','income') AND active=1"
+    ).fetchall()}
+    targets = [(sid, doc) for sid, doc in matches.items()]
+    txns = [{"description": _receipt_context(doc), "amount": doc["amount_cents"] or 0}
+            for _, doc in targets]
+    suggestions = ai.categorize(con, txns, list(cats.keys()))
+    if not suggestions:
+        return len(matches), 0, "matched receipts but AI couldn't suggest categories — try again"
+    categorized = 0
+    for (sid, _), name in zip(targets, suggestions):
+        cid = cats.get(name)
+        if cid:
+            con.execute("UPDATE staged SET category_id=? WHERE id=? AND status='pending'",
+                        (cid, sid))
+            categorized += 1
+    return len(matches), categorized, None
 
 
 def _recategorize_from_receipts(con, docs):
