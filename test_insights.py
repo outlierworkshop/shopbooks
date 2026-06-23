@@ -73,6 +73,16 @@ c = insights.compare(con, "this-year", "last-year", today=EOY)
 ok(c["income"]["delta"] == 70000 and c["income"]["pct_change"] == 87.5, "income growth vs last year")
 ok(c["net"]["current"] == 95000 and c["net"]["previous"] == 70000, "net compared across years")
 
+# --- expense_changes (movers vs base period) ---------------------------------
+ec = insights.expense_changes(con, "this-year", "last-year", today=EOY)
+by = {r["name"]: r for r in ec["rows"]}
+# 2026 materials 500 vs 2025 materials 100 -> +400; biggest absolute mover should be first
+ok(ec["rows"][0]["name"] == "Materials & Supplies", "biggest mover sorted first")
+ok(by["Materials & Supplies"]["delta"] == 40000 and by["Materials & Supplies"]["pct_change"] == 400.0,
+   "materials change vs last year computed")
+ok(by["Uncategorized Expense"]["previous"] == 0 and by["Uncategorized Expense"]["pct_change"] is None,
+   "a category new this year has no prior and pct_change None")
+
 # --- monthly_trend -----------------------------------------------------------
 t = insights.monthly_trend(con, "2026-01-01", "2026-12-31")
 ok(len(t) == 12, "monthly trend has 12 months")

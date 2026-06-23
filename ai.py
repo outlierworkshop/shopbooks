@@ -339,3 +339,25 @@ def categorize(con, txns, category_names):
     if _task_backend(con, "categorize") == "ollama":
         return _ollama_categorize(con, txns, category_names, examples)
     return _claude_categorize(con, txns, category_names, examples)
+
+
+def analyze(con, facts):
+    """Plain-English readout of the deterministic business figures. `facts` is a text block of
+    exact numbers (computed by insights.py). Returns prose, or None if AI is unavailable or fails
+    — the Insights page always shows the numbers regardless (AI is optional everywhere)."""
+    if not _claude_ok(con):
+        return None
+    prompt = (
+        "You are a concise bookkeeping analyst for a one-person workshop/fabrication business. "
+        "Using ONLY the exact figures below (do not invent numbers), write a short plain-English "
+        "readout for the owner: what's growing or shrinking, the notable expense movers, "
+        "profitability, and anything worth watching. 4-7 sentences or tight bullet points. "
+        "Be specific with the dollar figures given.\n\n" + facts
+    )
+    try:
+        resp = _claude_client(con).messages.create(
+            model=_claude_model(con), max_tokens=900,
+            messages=[{"role": "user", "content": prompt}])
+        return "".join(b.text for b in resp.content if b.type == "text").strip() or None
+    except Exception:
+        return None

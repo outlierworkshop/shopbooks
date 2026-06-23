@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Insights{% endblock %}
+{% block content %}
+<h1>Insights</h1>
+
+<form method="get" action="/insights" class="toolbar" style="margin-bottom:14px">
+  <label class="muted">Period:</label>
+  <select name="period" onchange="this.form.submit()">
+    {% for v, lbl in [('this-year','This year'),('last-year','Last year'),
+                      ('this-quarter','This quarter'),('last-quarter','Last quarter'),
+                      ('this-month','This month'),('last-month','Last month')] %}
+    <option value="{{ v }}" {{ 'selected' if period == v else '' }}>{{ lbl }}</option>
+    {% endfor %}
+  </select>
+  <span class="muted">vs {{ growth.base_label }}</span>
+  <noscript><button type="submit">Go</button></noscript>
+</form>
+
+{# ---- AI narrative (optional; numbers below always show) ---- #}
+{% if ai_on %}
+<div class="card section" style="max-width:760px; background:#f6f8f6">
+  {% if narrative %}
+    <div style="white-space:pre-wrap; line-height:1.5">{{ narrative }}</div>
+    <p class="muted" style="margin-top:8px">✨ Written by Claude from the figures below.
+      <a href="/insights?period={{ period }}&base={{ base }}&explain=1">Regenerate</a></p>
+  {% else %}
+    <p style="margin:0">Want it in plain English?
+      <a class="btn" href="/insights?period={{ period }}&base={{ base }}&explain=1">✨ Explain these numbers</a></p>
+    {% if explained %}<p class="muted">(AI couldn't generate a summary just now — the figures below are still accurate.)</p>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+{# ---- Growth: income / expenses / net vs base period ---- #}
+<h2>{{ label }} vs {{ growth.base_label }}</h2>
+<div class="cards">
+  {% for key, title in [('income','Income'),('expenses','Expenses'),('net','Net profit')] %}
+  {% set g = growth[key] %}
+  <div class="card">
+    <div class="label">{{ title }}</div>
+    <div class="big {{ 'neg' if g.current < 0 else ('pos' if key in ('income','net') else '') }}">${{ g.current|money }}</div>
+    <div class="muted">
+      was ${{ g.previous|money }} ·
+      {% if g.pct_change is none %}—
+      {% else %}<span class="{{ 'pos' if g.delta >= 0 else 'neg' }}">{{ '%+.1f'|format(g.pct_change) }}%</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ---- Monthly net trend ---- #}
+{% if trend|length > 1 %}
+{% set maxnet = (trend|map(attribute='net')|map('abs')|max) or 1 %}
+<h2>Monthly net</h2>
+<div class="card section" style="max-width:760px">
+  {% for m in trend %}
+  <div style="display:flex; align-items:center; gap:10px; margin:3px 0">
+    <span class="muted" style="width:64px; font-size:12px">{{ m.month }}</span>
+    <div style="flex:1; background:#eee; border-radius:4px; height:16px; position:relative">
+      <div style="width:{{ (m.net|abs / maxnet * 100)|round(1) }}%; height:100%; border-radius:4px;
+                  background:{{ '#c0392b' if m.net < 0 else '#3a7d44' }}"></div>
+    </div>
+    <span class="num {{ 'neg' if m.net < 0 else '' }}" style="width:90px; font-size:12px">${{ m.net|money }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ---- Biggest expense movers ---- #}
+<h2>Expense movers <span class="muted">(vs {{ exp.base_label }})</span></h2>
+<table class="sortable">
+  <tr><th>Category</th><th class="num">{{ label }}</th><th class="num">{{ exp.base_label }}</th><th class="num">Change</th></tr>
+  {% for r in exp.rows[:12] %}
+  {% if r.current or r.previous %}
+  <tr>
+    <td>{{ r.name }}</td>
+    <td class="num">${{ r.current|money }}</td>
+    <td class="num muted">${{ r.previous|money }}</td>
+    <td class="num {{ 'neg' if r.delta > 0 else 'pos' }}">{{ '+' if r.delta >= 0 else '-' }}${{ r.delta|abs|money }}{% if r.pct_change is not none %} ({{ '%+.0f'|format(r.pct_change) }}%){% endif %}</td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+</table>
+<p class="muted">For expenses, a rise shows red — it grew vs the base period.</p>
+
+{# ---- Profit by job ---- #}
+{% if jobs %}
+<h2>Profit by job</h2>
+<table class="sortable">
+  <tr><th>Job</th><th>Customer</th><th class="num">Hours</th><th class="num">Net profit</th></tr>
+  {% for j in jobs %}
+  <tr>
+    <td><a href="/jobs/{{ j.id }}">{{ j.name }}</a></td>
+    <td class="muted">{{ j.customer or '—' }}</td>
+    <td class="num">{{ '%.1f'|format(j.hours) }}</td>
+    <td class="num {{ 'neg' if j.net_cash < 0 else 'pos' }}">{% if j.net_cash %}${{ j.net_cash|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{# ---- Cash + health ---- #}
+<div class="cols" style="display:flex; gap:32px; flex-wrap:wrap; margin-top:8px">
+  <div>
+    <h2>Cash position</h2>
+    <p>On hand: <strong class="pos">${{ cash.cash_on_hand|money }}</strong>
+       &nbsp;·&nbsp; Card debt: <strong class="{{ 'neg' if cash.card_debt else '' }}">${{ cash.card_debt|money }}</strong></p>
+  </div>
+  <div>
+    <h2>Bookkeeping health</h2>
+    {% if health.tidy %}<p class="pos">✓ Everything reviewed, categorized, and matched.</p>
+    {% else %}<ul>{% for i in health.issues %}<li>{{ i }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+</div>
+{% endblock %}

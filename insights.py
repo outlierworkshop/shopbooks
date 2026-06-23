@@ -171,6 +171,23 @@ def bookkeeping_health(con, start=None, end=None):
 
 # --- one-call snapshot for the chatbot --------------------------------------
 
+def expense_changes(con, period="this-year", base="last-year", today=None):
+    """Per-expense-category totals this period vs the base period, sorted by biggest absolute
+    change — the movers/outliers worth noticing. Each row: name, current, previous, delta, pct."""
+    cs, ce, clabel = parse_period(period, today)
+    bs, be, blabel = parse_period(base, today)
+    cur = {c["name"]: c["amount"] for c in pnl_summary(con, cs, ce)["expense_by_category"]}
+    prev = {c["name"]: c["amount"] for c in pnl_summary(con, bs, be)["expense_by_category"]}
+    rows = []
+    for n in set(cur) | set(prev):
+        a, b = cur.get(n, 0), prev.get(n, 0)
+        d = a - b
+        rows.append({"name": n, "current": a, "previous": b, "delta": d,
+                     "pct_change": round(d / abs(b) * 100, 1) if b else None})
+    rows.sort(key=lambda x: abs(x["delta"]), reverse=True)
+    return {"current_label": clabel, "base_label": blabel, "rows": rows}
+
+
 def business_snapshot(con, period="this-year", today=None):
     """Everything the chatbot needs for a 'how's the business doing?' answer, in one
     deterministic call: P&L, the monthly trend, current cash position, and what

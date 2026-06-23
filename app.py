@@ -17,6 +17,7 @@ import ai
 import backup
 import db
 import importer
+import insights
 import invoicing
 import ledger
 import migrate
@@ -1306,6 +1307,55 @@ def transactions_csv(start: str, end: str):
         buf.seek(0)
         return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                                  headers={"Content-Disposition": f"attachment; filename=transactions_{start}_{end}.csv"})
+    finally:
+        con.close()
+
+
+# ---------- insights / analysis ----------
+
+def _insights_facts(label, growth, exp, jobs, cash, health):
+    """Compact block of the exact figures (dollars) for the AI narration."""
+    m = ledger.fmt_cents
+    pct = lambda x: f"{x:+.1f}%" if x is not None else "n/a"
+    L = [f"Period: {label} (vs {growth['base_label']})."]
+    for k, lbl in (("income", "Income"), ("expenses", "Expenses"), ("net", "Net profit")):
+        g = growth[k]
+        L.append(f"{lbl}: ${m(g['current'])} vs ${m(g['previous'])} ({pct(g['pct_change'])}).")
+    movers = [r for r in exp["rows"] if r["delta"] != 0][:6]
+    if movers:
+        L.append("Biggest expense changes: " + "; ".join(
+            f"{r['name']} ${m(r['current'])} ({'+' if r['delta'] >= 0 else '-'}${m(abs(r['delta']))})" for r in movers))
+    prof = [j for j in jobs if j["net_cash"]][:5]
+    if prof:
+        L.append("Job net profit: " + "; ".join(f"{j['name']} ${m(j['net_cash'])}" for j in prof))
+    L.append(f"Cash on hand: ${m(cash['cash_on_hand'])}. Credit-card debt: ${m(cash['card_debt'])}.")
+    if health["issues"]:
+        L.append("Needs attention: " + "; ".join(health["issues"]) + ".")
+    return "\n".join(L)
+
+
+@app.get("/insights", response_class=HTMLResponse)
+def insights_page(request: Request, period: str = "this-year", base: str = "last-year", explain: str = ""):
+    con = db.connect()
+    try:
+        try:
+            start, end, label = insights.parse_period(period)
+        except ValueError:
+            period, (start, end, label) = "this-year", insights.parse_period("this-year")
+        pnl = insights.pnl_summary(con, start, end)
+        growth = insights.compare(con, period, base)
+        trend = insights.monthly_trend(con, start, end)
+        exp = insights.expense_changes(con, period, base)
+        cash = insights.cash_position(con, end)
+        health = insights.bookkeeping_health(con, start, end)
+        jobs = [j for j in timetracking.jobs_overview(con) if j["net_cash"] or j["hours"]]
+        narrative = None
+        if explain and ai.available(con):
+            narrative = ai.analyze(con, _insights_facts(label, growth, exp, jobs, cash, health))
+        return templates.TemplateResponse(request, "insights.html", ctx(
+            request, con, period=period, base=base, label=label, pnl=pnl, growth=growth,
+            trend=trend, exp=exp, cash=cash, health=health, jobs=jobs[:8],
+            narrative=narrative, explained=bool(explain)))
     finally:
         con.close()
 
