@@ -352,6 +352,18 @@ def _import(cdir, attempts, delay):
         # local_ahead / local_changes / conflict / no_cloud: leave the DB alone.
         if cdir:  # backfill receipt files even when we didn't import the DB (additive, idempotent)
             _pull_docs(cdir)
+            if not p.get("imported"):
+                # Repoint doc paths at THIS machine's docs folder even when no DB import ran, so a
+                # backfilled file is found regardless of what path another machine (or a previous
+                # data-dir location) stored. Without this, a pulled receipt stays "missing" because
+                # the row still points at a stale/foreign path. Idempotent (basename preserved);
+                # _apply_import already repoints on a real import, so only needed in the no-import case.
+                con = db.connect()
+                try:
+                    _repoint_doc_paths(con)
+                    con.commit()
+                finally:
+                    con.close()
         _LAST = p
         return p
     except Exception as e:

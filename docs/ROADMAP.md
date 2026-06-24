@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Repoint receipt paths on docs-backfill (receipts unreachable after data move)
+- Receipts showed the "file not on this computer" placeholder on the PC even though the files had
+  synced down, because `_repoint_doc_paths` only ran during a full DB import (fast_forward) - not
+  during the additive docs backfill on every pull/boot. After the data dir moved (%LOCALAPPDATA%
+  -> %USERPROFILE%), rows still pointed at the old/foreign docs folder, so /doc 404 -> placeholder.
+- Fix: `sync._import` now also runs `_repoint_doc_paths` after `_pull_docs` when no DB import ran
+  (idempotent; basename preserved). Updated the /doc placeholder text + stale comment (files DO sync).
+  Verified live: after restart all receipts resolve on the PC.
+
 ### 2026-06-23 — Insights / analysis page (issue #6)
 - New /insights page (Insights nav) surfacing the deterministic numbers: income/expense/net growth
   vs the prior period, monthly-net trend bars, biggest expense movers (insights.expense_changes),

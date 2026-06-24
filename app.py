@@ -1026,18 +1026,19 @@ def doc_file(doc_id: int):
         if not row:
             return RedirectResponse("/receipts", status_code=303)
         if not os.path.exists(row["path"]):
-            # File isn't on this machine — receipt files don't sync between computers (only the
-            # database does), so a receipt added on the other machine has no file here. Don't 500.
+            # File isn't on this machine. Receipt files DO sync (docs-sync mirrors them via the
+            # cloud and sync._import repoints paths), but it may not have run here yet — so show a
+            # helpful note instead of 500-ing.
             if (row["vendor"] or "").lower() == "amazon":
                 order = row["filename"].replace("amazon_", "").rsplit(".", 1)[0]
                 total = ledger.fmt_cents(row["amount_cents"]) if row["amount_cents"] is not None else "—"
                 return PlainTextResponse(
                     f"Amazon order {order}\nDate: {row['doc_date'] or '—'}\nTotal: ${total}\n\n"
-                    "(Item details are on the computer where this was imported — receipt files don't "
-                    "sync between machines yet.)")
+                    "(The receipt file isn't on this computer yet. If you sync between machines, "
+                    "open Settings -> Sync and click 'Pull from cloud now', then refresh.)")
             return PlainTextResponse(
-                "Receipt file isn't on this computer.\n(It was added on another computer; receipt "
-                "files don't sync between machines yet.)", status_code=404)
+                "Receipt file isn't on this computer yet.\n(If you sync between machines, open "
+                "Settings -> Sync and click 'Pull from cloud now', then refresh.)", status_code=404)
         ext = os.path.splitext(row["path"])[1].lower()
         media = _INLINE_MEDIA.get(ext) or mimetypes.guess_type(row["path"])[0] or "application/octet-stream"
         # inline so the browser shows the receipt in a tab (image / PDF / Amazon text) — not a download
