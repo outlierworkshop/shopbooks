@@ -13,6 +13,14 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Missing-receipts report (issue #5)
+- New `insights.missing_receipts(con, start, end, min_cents)`: posted EXPENSE transactions with no
+  receipt attached (excludes income/transfers and anything already matched), >= a $ threshold.
+- New `/receipts/missing` page (period + min-amount filters; count + total undocumented), linked from
+  the Receipts page; and a tax pre-flight checklist row "Expenses with a receipt" linking to it for
+  the year. Surfaces what lacks documentation at tax time. test_insights.py covers it.
+- (Fuzzy-vendor match improvement from #5 left as a later refinement; amount+date matching stays.)
+
 ### 2026-06-23 — Cache-bust static assets + Review column reorder & visible resize grip
 - Static assets (CSS/JS) now carry a `?v=<newest-static-mtime>` token via a Jinja global `static_v()`,
   so a browser always re-fetches them after a change. (A stale manual `?v=1.5` on style.css had been

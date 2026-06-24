@@ -200,3 +200,21 @@ def business_snapshot(con, period="this-year", today=None):
         "cash_position": cash_position(con, end),
         "health": bookkeeping_health(con, start, end),
     }
+
+
+def missing_receipts(con, start, end, min_cents=0):
+    """Posted EXPENSE transactions in [start, end] with no receipt attached and an expense
+    amount >= min_cents — the 'which purchases lack documentation' list for tax time. Excludes
+    transfers/income (no expense leg) and anything already matched to a document. Newest first."""
+    rows = con.execute(
+        "SELECT e.id, e.date, e.payee, "
+        "  COALESCE(SUM(CASE WHEN a.type='expense' THEN s.amount_cents ELSE 0 END),0) amount, "
+        "  (SELECT a2.name FROM splits s2 JOIN accounts a2 ON a2.id=s2.account_id "
+        "   WHERE s2.entry_id=e.id AND a2.type='expense' ORDER BY s2.amount_cents DESC LIMIT 1) category "
+        "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+        "WHERE e.date BETWEEN ? AND ? "
+        "  AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.entry_id=e.id) "
+        "GROUP BY e.id HAVING amount >= ? "
+        "ORDER BY e.date DESC, e.id DESC", (start, end, max(int(min_cents), 1))).fetchall()
+    return [{"entry_id": r["id"], "date": r["date"], "payee": r["payee"],
+             "amount": r["amount"], "category": r["category"]} for r in rows]

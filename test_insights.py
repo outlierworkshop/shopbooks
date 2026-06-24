@@ -107,6 +107,22 @@ ok(h["pending_review"] == 0 and h["unmatched_receipts"] == 0, "nothing pending /
 ok(h["tidy"] is False and any("Uncategorized" in i for i in h["issues"]),
    "not tidy: the uncategorized entry is reported as an issue")
 
+# --- missing_receipts --------------------------------------------------------
+# 2026 expense entries: materials 300, materials 200, uncategorized 50 (income has no expense leg)
+mr = insights.missing_receipts(con, "2026-01-01", "2026-12-31")
+ok(len(mr) == 3 and sum(r["amount"] for r in mr) == 55000,
+   "all three 2026 expenses lack a receipt (income/transfers excluded)")
+ok(all(r["category"] for r in mr), "each missing row names its expense category")
+# attach a receipt to the $300 materials entry -> it drops off the list
+e300 = con.execute("SELECT id FROM entries WHERE date='2026-01-15'").fetchone()["id"]
+con.execute("INSERT INTO documents(filename,path,entry_id,status) VALUES('r.jpg','/x/r.jpg',?, 'matched')", (e300,))
+con.commit()
+mr2 = insights.missing_receipts(con, "2026-01-01", "2026-12-31")
+ok(len(mr2) == 2 and all(r["amount"] != 30000 for r in mr2), "an entry with a matched receipt is excluded")
+# amount threshold
+ok(len(insights.missing_receipts(con, "2026-01-01", "2026-12-31", min_cents=10000)) == 1,
+   "min-amount filter keeps only expenses >= the threshold")
+
 # --- business_snapshot (the chatbot's one call) ------------------------------
 snap = insights.business_snapshot(con, "2026", today=EOY)
 ok(snap["period"] == "2026" and snap["pnl"]["net"] == 95000, "snapshot bundles the right P&L")
