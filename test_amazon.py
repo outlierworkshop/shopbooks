@@ -104,7 +104,7 @@ con.close()
 os.remove(arow["path"])                                   # simulate: row synced but file didn't
 d = client.get(f"/doc/{arow['id']}")
 ok(d.status_code == 200, "missing Amazon receipt file is handled, not a 500")
-ok("Amazon order" in d.text and "don't sync" in d.text,
+ok("Amazon order" in d.text and "Pull from cloud now" in d.text,
    "missing Amazon receipt regenerates a summary from the DB row")
 
 import shutil  # noqa: E402
