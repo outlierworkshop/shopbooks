@@ -28,6 +28,11 @@ boring tech, built for exactly one user.
 - `test_chat.py` covers the tool dispatch, cents→dollars conversion, schema well-formedness, graceful
   tool errors, and the AI-off path — all without a network call. Closes the wishlist capstone (#7).
 
+### 2026-06-24 — Inline transaction editing in register views
+- Added in-place editing of date, payee, memo, category, and job directly on the register tables.
+- Eliminates the need to delete and recreate entries for simple corrections, preserving database-level relationships (invoices, receipts, staged logs).
+- Added test_edit.py to the test suite to verify editing flows and splits-sum-to-zero invariants.
+
 ### 2026-06-23 — Missing-receipts report (issue #5)
 - New `insights.missing_receipts(con, start, end, min_cents)`: posted EXPENSE transactions with no
   receipt attached (excludes income/transfers and anything already matched), >= a $ threshold.
