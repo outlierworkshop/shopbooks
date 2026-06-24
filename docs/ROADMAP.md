@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Cache-bust static assets + Review column reorder & visible resize grip
+- Static assets (CSS/JS) now carry a `?v=<newest-static-mtime>` token via a Jinja global `static_v()`,
+  so a browser always re-fetches them after a change. (A stale manual `?v=1.5` on style.css had been
+  pinning the old stylesheet, so resize/width changes never showed no matter how you refreshed.)
+- Resize divider is now an always-visible grip (grey, green on hover) with a wider grab zone; header
+  no longer clips it (overflow moved to td only).
+- Review columns reordered to: Date, Remember, Post/Skip, Description, Source, Amount, Category, Memo
+  (quick-action columns up front). Category default widened to 320px. Mobile card view remapped to match.
+
 ### 2026-06-23 — Right-sized + draggable table columns (Review)
 - The Review table is now `table-layout: fixed; width: auto` with a `<colgroup>` of sensible default
   widths, so columns are only as wide as needed (Description no longer hogs; Category is wide enough

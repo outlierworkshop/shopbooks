@@ -37,13 +37,18 @@
 <div class="table-responsive">
 <table class="sortable review-table resizable">
   <colgroup>
-    <col style="width:92px"><col style="width:260px"><col style="width:120px"><col style="width:95px">
-    <col style="width:300px"><col style="width:160px"><col style="width:80px"><col style="width:100px">
+    <col style="width:92px"><col style="width:80px"><col style="width:118px"><col style="width:240px">
+    <col style="width:120px"><col style="width:95px"><col style="width:320px"><col style="width:160px">
   </colgroup>
-  <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th><th>Remember</th><th></th></tr>
+  <tr><th>Date</th><th>Remember</th><th></th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th></tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
     <td>{{ it.date }}</td>
+    <td><input type="checkbox" name="remember_{{ it.id }}" title="Create a rule from this payee"></td>
+    <td>
+      <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
+      <button class="small ghost" type="submit" name="skip_one" value="{{ it.id }}">Skip</button>
+    </td>
     <td>{% if it.receipt_vendor %}<a href="/doc/{{ it.receipt_id }}" target="_blank" data-doc="/doc/{{ it.receipt_id }}" class="pos" title="Receipt: {{ it.receipt_vendor }} (hover to preview)" style="text-decoration: none;">📎</a> {% endif %}{% if it.invoice_number %}<a href="/invoices/{{ it.invoice_id }}" target="_blank" data-doc="/invoices/{{ it.invoice_id }}/summary" class="pos" title="Invoice: {{ it.invoice_number }} - {{ it.invoice_customer }} (hover to preview)" style="text-decoration: none;">📄</a> {% endif %}{{ it.description }}
       {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
       {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
@@ -60,11 +65,6 @@
     </td>
     <td><input type="text" name="memo_{{ it.id }}" value="{{ it.memo }}" placeholder="(optional note)"
                title="Optional note saved on this transaction"></td>
-    <td><input type="checkbox" name="remember_{{ it.id }}" title="Create a rule from this payee"></td>
-    <td>
-      <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
-      <button class="small ghost" type="submit" name="skip_one" value="{{ it.id }}">Skip</button>
-    </td>
   </tr>
   {% endfor %}
 </table>

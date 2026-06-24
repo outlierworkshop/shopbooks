@@ -150,6 +150,8 @@ table.resizable th { position: relative; overflow: visible; }
     text-align: left !important;
   }
   
+  /* Column order on desktop is: 1 Date, 2 Remember, 3 Post/Skip, 4 Description, 5 Source,
+     6 Amount, 7 Category, 8 Memo. The mobile card re-places them by nth-child below. */
   /* Date: top left */
   .table-responsive table.review-table td:nth-child(1) {
     grid-column: 1;
@@ -158,56 +160,56 @@ table.resizable th { position: relative; overflow: visible; }
     font-size: 12px;
   }
   /* Amount: top right */
-  .table-responsive table.review-table td:nth-child(4) {
+  .table-responsive table.review-table td:nth-child(6) {
     grid-column: 2;
     text-align: right !important;
     font-weight: 700;
     font-size: 15px;
   }
   /* Description: span full width */
-  .table-responsive table.review-table td:nth-child(2) {
+  .table-responsive table.review-table td:nth-child(4) {
     grid-column: 1 / span 2;
     font-size: 14px;
     font-weight: 500;
     margin-top: 2px;
   }
   /* Source: smaller, under description */
-  .table-responsive table.review-table td:nth-child(3) {
+  .table-responsive table.review-table td:nth-child(5) {
     grid-column: 1 / span 2;
     font-size: 12px;
     color: var(--muted);
   }
   /* Category select: full width */
-  .table-responsive table.review-table td:nth-child(5) {
+  .table-responsive table.review-table td:nth-child(7) {
     grid-column: 1 / span 2;
     margin-top: 4px;
   }
-  .table-responsive table.review-table td:nth-child(5) select {
+  .table-responsive table.review-table td:nth-child(7) select {
     width: 100%;
     max-width: 100% !important;
   }
   /* Memo: full width */
-  .table-responsive table.review-table td:nth-child(6) {
+  .table-responsive table.review-table td:nth-child(8) {
     grid-column: 1 / span 2;
   }
-  .table-responsive table.review-table td:nth-child(6) input {
+  .table-responsive table.review-table td:nth-child(8) input {
     width: 100% !important;
     max-width: 100% !important;
   }
   /* Remember checkbox */
-  .table-responsive table.review-table td:nth-child(7) {
+  .table-responsive table.review-table td:nth-child(2) {
     grid-column: 1;
     display: flex;
     align-items: center;
     gap: 6px;
   }
-  .table-responsive table.review-table td:nth-child(7)::before {
+  .table-responsive table.review-table td:nth-child(2)::before {
     content: "Remember rule:";
     font-size: 12px;
     color: var(--muted);
   }
-  /* Action buttons: bottom right */
-  .table-responsive table.review-table td:nth-child(8) {
+  /* Post/Skip buttons: bottom right */
+  .table-responsive table.review-table td:nth-child(3) {
     grid-column: 2;
     display: flex;
     justify-content: flex-end;

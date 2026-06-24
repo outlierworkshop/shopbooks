@@ -31,6 +31,18 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
 templates.env.filters["money"] = ledger.fmt_cents
 
+
+def _static_v():
+    """Cache-busting token = newest mtime of any static file. Appended to /static asset URLs so a
+    browser always re-fetches CSS/JS after it changes (instead of serving a stale cached copy)."""
+    try:
+        return str(int(max(f.stat().st_mtime for f in (BASE / "static").glob("*"))))
+    except Exception:
+        return "0"
+
+
+templates.env.globals["static_v"] = _static_v  # usable in any template as {{ static_v() }}
+
 db.init()
 sync.import_on_boot()  # if cloud sync is on: fast-forward from the other machine (never clobbers)
 backup.snapshot()      # protect the books on every launch (local + cloud mirror)
