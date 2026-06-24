@@ -86,6 +86,34 @@ ok(checking in accounts and accounts[checking] == -10000, "checking split still 
 ok(supplies in accounts and accounts[supplies] == 10000, "category changed back to supplies via route")
 con.close()
 
+# 2b. Test modifying register account (bank/card) via HTTP route
+con = db.connect()
+card = con.execute("SELECT id FROM accounts WHERE name='Credit Card 1'").fetchone()["id"]
+con.close()
+
+r = client.post(
+    f"/entry/edit/{entry_id}",
+    data={
+        "date": "2026-06-03",
+        "payee": "Acme Route",
+        "memo": "Route memo",
+        "account_id": str(card), # Move from Checking to Credit Card 1
+        "category_id": str(supplies),
+        "job_id": "",
+        "register_account_id": str(checking),
+        "back": f"/register/{checking}"
+    },
+    follow_redirects=False
+)
+ok(r.status_code == 303, "route returns 303 redirect on account change")
+
+con = db.connect()
+splits = con.execute("SELECT account_id, amount_cents FROM splits WHERE entry_id=?", (entry_id,)).fetchall()
+accounts = {s["account_id"]: s["amount_cents"] for s in splits}
+ok(card in accounts and accounts[card] == -10000, "checking split moved to Credit Card 1")
+ok(supplies in accounts and accounts[supplies] == 10000, "category split remains supplies")
+con.close()
+
 # 3. Test HTTP route date validation error
 r = client.post(
     f"/entry/edit/{entry_id}",

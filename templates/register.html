@@ -23,15 +23,44 @@
     </td>
     <td class="muted">
       <span class="view-mode">{{ r.other }}</span>
-      {% if r.other != "(split)" %}
-      <select class="edit-mode" name="category_id" form="edit-form-{{ r.entry_id }}" style="display: none; width: 100%; max-width: 250px;">
-        {% for c in cats %}
-        <option value="{{ c.id }}" {{ 'selected' if c.name == r.other else '' }}>{{ c.label }}</option>
-        {% endfor %}
-      </select>
-      {% else %}
-      <span class="edit-mode muted" style="display: none;">(split - cannot edit)</span>
-      {% endif %}
+      <div class="edit-mode" style="display: none; gap: 8px; flex-direction: column;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px;">Account</label>
+          {% if acct.kind in ('bank', 'card') %}
+            <select name="account_id" form="edit-form-{{ r.entry_id }}" style="width: 100%; max-width: 250px;">
+              {% for a in bank_cards %}
+              <option value="{{ a.id }}" {{ 'selected' if a.id == acct.id else '' }}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <select name="category_id" form="edit-form-{{ r.entry_id }}" style="width: 100%; max-width: 250px;">
+              {% for a in bank_cards %}
+              <option value="{{ a.id }}" {{ 'selected' if a.name == r.other else '' }}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          {% endif %}
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px;">Category</label>
+          {% if r.other != "(split)" %}
+            {% if acct.kind in ('bank', 'card') %}
+              <select name="category_id" form="edit-form-{{ r.entry_id }}" style="width: 100%; max-width: 250px;">
+                {% for c in cats %}
+                <option value="{{ c.id }}" {{ 'selected' if c.name == r.other else '' }}>{{ c.label }}</option>
+                {% endfor %}
+              </select>
+            {% else %}
+              <select name="account_id" form="edit-form-{{ r.entry_id }}" style="width: 100%; max-width: 250px;">
+                {% for c in cats %}
+                <option value="{{ c.id }}" {{ 'selected' if c.id == acct.id else '' }}>{{ c.label }}</option>
+                {% endfor %}
+              </select>
+            {% endif %}
+          {% else %}
+            <span class="muted">(split - cannot edit)</span>
+          {% endif %}
+        </div>
+      </div>
     </td>
     <td>{% if r.doc_id %}<a href="/doc/{{ r.doc_id }}" target="_blank" data-doc="/doc/{{ r.doc_id }}" title="hover to preview · click to open">📎</a>{% endif %}</td>
     <td>

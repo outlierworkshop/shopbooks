@@ -106,27 +106,37 @@ def delete_entry(con, entry_id):
     con.execute("DELETE FROM entries WHERE id=?", (entry_id,))
 
 
-def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, register_account_id):
+def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, register_account_id, new_register_account_id=None):
     """Update date, payee, memo, and job on entries table.
-    For 2-split entries, update the split that is NOT register_account_id to category_id."""
+    For 2-split entries, update:
+      - the split that IS register_account_id to new_register_account_id (if provided)
+      - the split that is NOT register_account_id to category_id (if category_id is provided)"""
     con.execute(
         "UPDATE entries SET date=?, payee=?, memo=?, job_id=? WHERE id=?",
         (date, payee, memo, job_id or None, entry_id)
     )
-    if category_id is not None and register_account_id is not None:
-        splits = con.execute("SELECT id, account_id FROM splits WHERE entry_id=?", (entry_id,)).fetchall()
-        if len(splits) == 2:
-            # Find the split that is not register_account_id
-            other_split = None
-            for s in splits:
-                if s["account_id"] != register_account_id:
-                    other_split = s
-                    break
+    splits = con.execute("SELECT id, account_id FROM splits WHERE entry_id=?", (entry_id,)).fetchall()
+    if len(splits) == 2:
+        reg_split = None
+        other_split = None
+        for s in splits:
+            if s["account_id"] == register_account_id:
+                reg_split = s
+            else:
+                other_split = s
+        
+        # Fallbacks
+        if not reg_split and not other_split:
+            reg_split, other_split = splits[0], splits[1]
+        elif not reg_split:
+            reg_split = splits[0] if other_split["id"] != splits[0]["id"] else splits[1]
+        elif not other_split:
+            other_split = splits[0] if reg_split["id"] != splits[0]["id"] else splits[1]
             
-            # Fallback if both splits have the same account ID (rare edge case)
-            if not other_split:
-                other_split = splits[1]
-                
+        if new_register_account_id is not None and new_register_account_id != reg_split["account_id"]:
+            con.execute("UPDATE splits SET account_id=? WHERE id=?", (new_register_account_id, reg_split["id"]))
+            
+        if category_id is not None and category_id != other_split["account_id"]:
             con.execute("UPDATE splits SET account_id=? WHERE id=?", (category_id, other_split["id"]))
 
 

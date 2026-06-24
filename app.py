@@ -512,7 +512,8 @@ def register_view(request: Request, account_id: int, err: str = ""):
         acct, rows = ledger.register(con, account_id)
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
         return templates.TemplateResponse(request, "register.html", ctx(
-            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con), cats=categories(con), err=err))
+            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con), 
+            cats=categories(con), bank_cards=ledger.accounts_with_balances(con, kinds=('bank', 'card')), err=err))
     finally:
         con.close()
 
@@ -522,6 +523,7 @@ def entry_edit(entry_id: int,
                date: str = Form(...),
                payee: str = Form(...),
                memo: str = Form(""),
+               account_id: str = Form(None),
                category_id: str = Form(None),
                job_id: str = Form(""),
                register_account_id: int = Form(None),
@@ -530,9 +532,10 @@ def entry_edit(entry_id: int,
     try:
         norm_date = ledger.normalize_date(date)
         cat_id = int(category_id) if category_id and category_id.strip() else None
+        new_reg_acct_id = int(account_id) if account_id and account_id.strip() else None
         job_val = int(job_id) if job_id and job_id.strip() else None
         
-        ledger.update_entry_fields(con, entry_id, payee, memo, cat_id, job_val, norm_date, register_account_id)
+        ledger.update_entry_fields(con, entry_id, payee, memo, cat_id, job_val, norm_date, register_account_id, new_reg_acct_id)
         con.commit()
         return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
     except ValueError as e:
