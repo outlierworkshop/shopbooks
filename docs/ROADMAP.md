@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-23 — Right-sized + draggable table columns (Review)
+- The Review table is now `table-layout: fixed; width: auto` with a `<colgroup>` of sensible default
+  widths, so columns are only as wide as needed (Description no longer hogs; Category is wide enough
+  to show full names instead of truncating). Wrapped in `.table-responsive` so a wide table scrolls.
+- New `static/resize.js`: any `table.resizable` gets a drag handle on each column edge. Dragging a
+  divider changes only that column; columns to its right keep their size and shift (the table grows/
+  shrinks, never steals from the neighbor). Widths persist per page in localStorage. Handle swallows
+  the click so it does not also trigger sort. Divider is an always-visible grip (green on hover).
+
 ### 2026-06-23 — Repoint receipt paths on docs-backfill (receipts unreachable after data move)
 - Receipts showed the "file not on this computer" placeholder on the PC even though the files had
   synced down, because `_repoint_doc_paths` only ran during a full DB import (fast_forward) - not

@@ -34,7 +34,12 @@
           onclick="return confirm('Discard the unposted rows of the selected batch? You can re-import the statement.')">Discard batch</button>
   {% endif %}
 </div>
-<table class="sortable review-table">
+<div class="table-responsive">
+<table class="sortable review-table resizable">
+  <colgroup>
+    <col style="width:92px"><col style="width:260px"><col style="width:120px"><col style="width:95px">
+    <col style="width:300px"><col style="width:160px"><col style="width:80px"><col style="width:100px">
+  </colgroup>
   <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th><th>Remember</th><th></th></tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
@@ -63,6 +68,7 @@
   </tr>
   {% endfor %}
 </table>
+</div>
 </form>
 <p class="muted">Positive amounts are money out (charges/withdrawals); green negatives are money in (deposits/payments).
 <strong>Transfers are matched automatically</strong> (credit-card payments and bank-to-bank moves): the two sides

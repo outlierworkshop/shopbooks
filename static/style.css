@@ -84,19 +84,29 @@ table.sortable th.sortable-th:hover { text-decoration: underline; }
   box-shadow: none;
 }
 
-/* Enforce bounds on desktop to prevent horizontal scroll */
-.review-table td select {
-  max-width: 190px;
-  width: 100%;
-  text-overflow: ellipsis;
-}
+/* Inputs fill their column exactly (the column width is set by the colgroup / drag-resize), so the
+   category dropdown is as wide as its column — no fixed stub, no dead space. */
+.review-table td select,
 .review-table td input[type="text"] {
-  max-width: 120px;
   width: 100%;
+  min-width: 0;
 }
-.review-table td {
-  word-break: break-word;
+.review-table td { word-break: break-word; }
+
+/* Resizable tables: fixed layout so each column has an explicit width; width:auto so the table is
+   only as wide as its columns (and dragging one divider shifts the rest without resizing them). */
+table.resizable { table-layout: fixed; width: auto; }
+table.resizable td { overflow: hidden; }                 /* clip long cell text to its column */
+table.resizable th { position: relative; overflow: visible; }
+.col-resize {
+  position: absolute; top: 0; right: -2px; width: 12px; height: 100%;
+  cursor: col-resize; user-select: none; z-index: 5; touch-action: none;
 }
+.col-resize::after {                                      /* always-visible grip on the column edge */
+  content: ""; position: absolute; top: 18%; right: 5px; width: 2px; height: 64%;
+  background: var(--muted); opacity: .5; border-radius: 1px;
+}
+.col-resize:hover::after { opacity: 1; background: var(--accent); width: 3px; top: 0; height: 100%; }
 
 /* Mobile responsive card view */
 @media (max-width: 800px) {
