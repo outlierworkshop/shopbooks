@@ -139,6 +139,49 @@ ok(all(row["status"] == "matched" for row in doc_statuses), "both dummy document
 ok(doc_statuses[0]["entry_id"] is not None and doc_statuses[0]["entry_id"] == doc_statuses[1]["entry_id"], "both match the same entry")
 con.close()
 
+# --- combined Amazon matching on review page & automatic linking on post ---
+con = db.connect()
+# Insert batch
+con.execute("INSERT OR IGNORE INTO batches(id,filename,account_id,imported_at) VALUES(10,'review_test.pdf',?,?)",
+            (card, '2026-04-01'))
+# Insert staged pending transaction
+con.execute(
+    "INSERT INTO staged(id, batch_id, date, description, amount_cents, status) "
+    "VALUES(999, 10, '2026-04-02', 'AMAZON.COM MKTPL', 4000, 'pending')"
+)
+# Insert two unmatched Amazon receipts that sum to 4000 ($40.00)
+con.execute(
+    "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256) VALUES(?,?,?,?,?,?)",
+    ("amazon_review1.txt", "dummy_rev1.txt", "Amazon", "2026-04-01", 1500, "sha_rev1")
+)
+con.execute(
+    "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256) VALUES(?,?,?,?,?,?)",
+    ("amazon_review2.txt", "dummy_rev2.txt", "Amazon", "2026-04-01", 2500, "sha_rev2")
+)
+con.commit()
+
+# Verify staged_receipt_matches returns the combined match
+matches = appmod.staged_receipt_matches(con)
+ok(999 in matches, "staged row 999 matched to combined receipts")
+ok(matches[999]["vendor"] == "Amazon (2 items)", "vendor set to combined label")
+con.close()
+
+# Verify review page renders the paperclip with the combined vendor
+r_get = client.get("/review")
+ok("Amazon (2 items)" in r_get.text, "review page contains combined receipt vendor label")
+
+# Trigger Post on the staged row
+r_post = client.post("/review", data={"post_one": "999", "cat_999": str(supplies)}, follow_redirects=False)
+ok(r_post.status_code == 303, "post staged redirect 303")
+
+# Verify both receipts are now automatically marked as matched and linked to the new entry
+con = db.connect()
+review_docs = con.execute("SELECT status, entry_id FROM documents WHERE sha256 IN ('sha_rev1', 'sha_rev2')").fetchall()
+ok(len(review_docs) == 2, "found both review dummy documents")
+ok(all(row["status"] == "matched" for row in review_docs), "both review dummy documents matched on post")
+ok(review_docs[0]["entry_id"] is not None and review_docs[0]["entry_id"] == review_docs[1]["entry_id"], "both point to the same posted entry")
+con.close()
+
 import shutil  # noqa: E402
 shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
 print("\nAMAZON TESTS DONE")

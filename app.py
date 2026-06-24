@@ -326,6 +326,12 @@ async def review_action(request: Request):
             return _receipt_review_pending(con)
         elif "invoice_categorize" in form:
             return _invoice_review_pending(con)
+        # Auto-match unmatched documents/receipts (including combined ones) to the newly posted entries
+        for d in con.execute("SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL").fetchall():
+            match_entry_id = resolve_receipt_match(con, d)
+            if match_entry_id:
+                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, d["id"]))
+        match_combined_amazon_receipts(con)
         con.commit()
         return RedirectResponse("/review", status_code=303)
     finally:
@@ -960,17 +966,18 @@ def _receipt_context(doc):
 
 def staged_receipt_matches(con):
     """Find unmatched receipts whose amount matches a pending staged transaction (±7 days).
+    Also supports matching a staged Amazon transaction to a combination of unmatched Amazon receipts.
     Returns a dict {staged_id: doc_row} — one receipt per staged row (nearest date, each
     receipt used at most once)."""
     from collections import defaultdict
-    from datetime import date as dt_date
+    from datetime import date as dt_date, timedelta
     docs = con.execute(
         "SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL"
     ).fetchall()
     if not docs:
         return {}
     pending = con.execute(
-        "SELECT id, date, amount_cents FROM staged WHERE status='pending'"
+        "SELECT id, date, amount_cents, description FROM staged WHERE status='pending'"
     ).fetchall()
     if not pending:
         return {}
@@ -1000,6 +1007,50 @@ def staged_receipt_matches(con):
         result[sid] = doc
         used_staged.add(sid)
         used_docs.add(doc["id"])
+
+    # Now, find combined matches for the remaining unmatched staged rows with AMAZON in description
+    remaining_staged = [
+        st for st in pending
+        if st["id"] not in used_staged and ("AMAZON" in st["description"].upper() or "AMZN" in st["description"].upper())
+    ]
+    remaining_docs = [
+        d for d in docs
+        if d["id"] not in used_docs and (d["vendor"] or "").lower() == "amazon"
+    ]
+    if remaining_staged and remaining_docs:
+        for st in remaining_staged:
+            target = st["amount_cents"]
+            try:
+                ed = dt_date.fromisoformat(st["date"])
+            except (ValueError, TypeError):
+                continue
+            window_docs = []
+            for d in remaining_docs:
+                if d["id"] in used_docs or not d["doc_date"]:
+                    continue
+                try:
+                    dd = dt_date.fromisoformat(d["doc_date"])
+                    if ed - timedelta(days=4) <= dd <= ed + timedelta(days=1):
+                        window_docs.append(d)
+                except (ValueError, TypeError):
+                    continue
+            if len(window_docs) < 2:
+                continue
+            n = len(window_docs)
+            matching_subsets = []
+            for i in range(1 << n):
+                subset = [window_docs[j] for j in range(n) if (i & (1 << j))]
+                if len(subset) >= 2 and sum(d["amount_cents"] for d in subset) == target:
+                    matching_subsets.append(subset)
+            if len(matching_subsets) == 1:
+                best_subset = matching_subsets[0]
+                doc_repr = dict(best_subset[0])
+                doc_repr["vendor"] = f"Amazon ({len(best_subset)} items)"
+                result[st["id"]] = doc_repr
+                used_staged.add(st["id"])
+                for d in best_subset:
+                    used_docs.add(d["id"])
+
     return result
 
 
