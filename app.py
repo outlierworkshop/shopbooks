@@ -618,6 +618,68 @@ def receipt_candidates(con, doc):
     return con.execute(q, args).fetchall()
 
 
+def vendor_match(vendor, payee):
+    if not vendor or not payee:
+        return False
+    from importer import payee_key
+    v = payee_key(vendor)
+    p = payee_key(payee)
+    if not v or not p:
+        return False
+    if v in p or p in v:
+        return True
+    v_words = {w for w in v.split() if len(w) >= 3}
+    p_words = {w for w in p.split() if len(w) >= 3}
+    if v_words & p_words:
+        return True
+    return False
+
+
+def resolve_receipt_match(con, doc):
+    """Find a unique candidate entry for a receipt document using date, amount, and vendor matching."""
+    cands = receipt_candidates(con, doc)
+    if not cands:
+        return None
+    if len(cands) == 1:
+        return cands[0]["id"]
+        
+    # If there are multiple candidates, try to match by vendor name
+    vendor = doc["vendor"] if doc["vendor"] else ""
+    if vendor:
+        from importer import payee_key
+        matched_cands = [c for c in cands if vendor_match(vendor, c["payee"])]
+        if len(matched_cands) == 1:
+            return matched_cands[0]["id"]
+        if len(matched_cands) > 1:
+            first_key = payee_key(matched_cands[0]["payee"])
+            if all(payee_key(c["payee"]) == first_key for c in matched_cands):
+                if doc["doc_date"]:
+                    from datetime import date as dt_date
+                    def dist(c):
+                        try:
+                            return abs((dt_date.fromisoformat(c["date"]) - dt_date.fromisoformat(doc["doc_date"])).days)
+                        except Exception:
+                            return 999
+                    matched_cands.sort(key=dist)
+                return matched_cands[0]["id"]
+
+    # If no vendor was extracted, but all candidates are for the exact same payee (and thus interchangeable):
+    from importer import payee_key
+    first_key = payee_key(cands[0]["payee"])
+    if all(payee_key(c["payee"]) == first_key for c in cands):
+        if doc["doc_date"]:
+            from datetime import date as dt_date
+            def dist(c):
+                try:
+                    return abs((dt_date.fromisoformat(c["date"]) - dt_date.fromisoformat(doc["doc_date"])).days)
+                except Exception:
+                    return 999
+            cands.sort(key=dist)
+        return cands[0]["id"]
+
+    return None
+
+
 RECEIPT_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"}
 
 
@@ -652,9 +714,9 @@ def _ingest_receipt(con, data: bytes, original_name: str):
         "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents,sha256) VALUES(?,?,?,?,?,?)",
         (safe, str(dest), vendor, ddate, cents, sha))
     doc = con.execute("SELECT * FROM documents WHERE id=?", (cur.lastrowid,)).fetchone()
-    cands = receipt_candidates(con, doc)
-    if len(cands) == 1:  # unambiguous - auto-match
-        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], doc["id"]))
+    match_entry_id = resolve_receipt_match(con, doc)
+    if match_entry_id:
+        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, doc["id"]))
         return "matched"
     return "imported"
 
@@ -717,9 +779,9 @@ def _ingest_amazon_order(con, order):
         "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents,sha256) VALUES(?,?,?,?,?,?)",
         (safe, str(dest), "Amazon", order["date"], order["total_cents"], sha))
     doc = con.execute("SELECT * FROM documents WHERE id=?", (cur.lastrowid,)).fetchone()
-    cands = receipt_candidates(con, doc)
-    if len(cands) == 1:
-        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], doc["id"]))
+    match_entry_id = resolve_receipt_match(con, doc)
+    if match_entry_id:
+        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, doc["id"]))
         return "matched"
     return "imported"
 
@@ -797,9 +859,9 @@ def receipts_rematch():
     try:
         matched = 0
         for d in con.execute("SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL").fetchall():
-            cands = receipt_candidates(con, d)
-            if len(cands) == 1:
-                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (cands[0]["id"], d["id"]))
+            match_entry_id = resolve_receipt_match(con, d)
+            if match_entry_id:
+                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, d["id"]))
                 matched += 1
         con.commit()
         return RedirectResponse("/receipts?msg=" + quote(f"Re-checked matches: {matched} newly matched."), status_code=303)

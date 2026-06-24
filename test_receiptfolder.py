@@ -28,11 +28,14 @@ def fake_receipt(con, path):
     return {"vendor": "Depot", "date": "2026-03-12", "total": 50.00}
 ai.extract_receipt = lambda con, path: fake_receipt(con, path)
 
-# post an expense entry the $50 receipt should match (Materials & Supplies, within 7 days)
+# post two expense entries with the same date and amount, but different payees
 con = db.connect()
 mats = con.execute("SELECT id FROM accounts WHERE name='Materials & Supplies'").fetchone()["id"]
 card = con.execute("SELECT id FROM accounts WHERE name='Credit Card 1'").fetchone()["id"]
+# Transaction A (Home Depot, $50) - matches receipt vendor "Depot"
 ledger.post_entry(con, "2026-03-10", "Home Depot", [(mats, 5000), (card, -5000)])
+# Transaction B (USPS Post Office, $50) - same date/amount, different vendor
+ledger.post_entry(con, "2026-03-10", "USPS Post Office", [(mats, 5000), (card, -5000)])
 con.commit(); con.close()
 
 # build a receipt folder: 2 top-level images, 1 ignored txt, 1 in a subfolder
@@ -81,11 +84,11 @@ n = con.execute("SELECT status FROM documents WHERE filename='store_nomatch.png'
 con.close()
 ok(n == "matched", "store_nomatch is now matched")
 
-# nothing posted by receipt handling - entry count unchanged at 2
+# nothing posted by receipt handling - entry count unchanged at 3
 con = db.connect()
 ne = con.execute("SELECT COUNT(*) c FROM entries").fetchone()["c"]
 con.close()
-ok(ne == 2, "receipt import/match never creates ledger entries (only the 2 we posted)")
+ok(ne == 3, "receipt import/match never creates ledger entries (only the 3 we posted)")
 
 import shutil  # noqa: E402
 shutil.rmtree(TMP, ignore_errors=True)
