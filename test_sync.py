@@ -173,10 +173,14 @@ ok(close()["status"] == "unchanged",
 use(MAC); set_name("Mac Co v3"); close()          # cloud now has v3 (real)
 (CLOUD / sync.SYNC_DB).write_bytes(b"not a sqlite database yet")  # simulate Dropbox placeholder
 use(PC)
-before = (db.connect().execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0])
+c_temp = db.connect()
+before = c_temp.execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0]
+c_temp.close()
 r = pull()
 ok(r["status"] == "cloud_unavailable", "unreadable/placeholder cloud copy -> cloud_unavailable")
-after = (db.connect().execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0])
+c_temp = db.connect()
+after = c_temp.execute("SELECT value FROM settings WHERE key='business_name'").fetchone()[0]
+c_temp.close()
 ok(before == after, "local books NOT clobbered when the cloud copy isn't a valid DB")
 ok(sync.last_alert() and "downloading" in sync.last_alert()["message"],
    "cloud_unavailable surfaces a helpful banner (not a silent failure)")

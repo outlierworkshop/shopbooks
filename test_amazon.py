@@ -107,6 +107,38 @@ ok(d.status_code == 200, "missing Amazon receipt file is handled, not a 500")
 ok("Amazon order" in d.text and "Pull from cloud now" in d.text,
    "missing Amazon receipt regenerates a summary from the DB row")
 
+# --- combined Amazon matching via rematch endpoint ---
+con = db.connect()
+card = con.execute("SELECT id FROM accounts WHERE name='Credit Card 1'").fetchone()["id"]
+supplies = con.execute("SELECT id FROM accounts WHERE name='Materials & Supplies'").fetchone()["id"]
+
+# Insert two unmatched Amazon receipts
+con.execute(
+    "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256) VALUES(?,?,?,?,?,?)",
+    ("amazon_order1.txt", "dummy1.txt", "Amazon", "2026-03-01", 1000, "dummy_sha1")
+)
+con.execute(
+    "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256) VALUES(?,?,?,?,?,?)",
+    ("amazon_order2.txt", "dummy2.txt", "Amazon", "2026-03-01", 1500, "dummy_sha2")
+)
+
+# Insert an AMAZON transaction that sums to 25.00
+ledger.post_entry(con, "2026-03-02", "AMAZON MKTPL", [(supplies, 2500), (card, -2500)])
+con.commit()
+con.close()
+
+# Trigger rematch
+r = client.post("/receipts/rematch", follow_redirects=False)
+ok(r.status_code == 303, "rematch redirect status code 303")
+ok("2 newly matched" in unquote(r.headers["location"]), "rematch output counts 2 newly matched combined documents")
+
+con = db.connect()
+doc_statuses = con.execute("SELECT status, entry_id FROM documents WHERE sha256 IN ('dummy_sha1', 'dummy_sha2')").fetchall()
+ok(len(doc_statuses) == 2, "found both dummy documents")
+ok(all(row["status"] == "matched" for row in doc_statuses), "both dummy documents are matched")
+ok(doc_statuses[0]["entry_id"] is not None and doc_statuses[0]["entry_id"] == doc_statuses[1]["entry_id"], "both match the same entry")
+con.close()
+
 import shutil  # noqa: E402
 shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
 print("\nAMAZON TESTS DONE")

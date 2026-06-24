@@ -680,6 +680,77 @@ def resolve_receipt_match(con, doc):
     return None
 
 
+def match_combined_amazon_receipts(con):
+    """Find unmatched Amazon entries that sum exactly to a combination of unmatched Amazon receipts.
+    Matches them in the database and returns the number of newly matched documents."""
+    # 1. Fetch all unmatched expense entries where payee is Amazon
+    entries = con.execute(
+        "SELECT DISTINCT e.id, e.date, e.payee, s.amount_cents FROM entries e "
+        "JOIN splits s ON s.entry_id=e.id "
+        "JOIN accounts a ON a.id=s.account_id "
+        "WHERE a.type='expense' "
+        "AND e.payee LIKE '%AMAZON%' "
+        "AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.entry_id=e.id)"
+    ).fetchall()
+    
+    # 2. Fetch all unmatched Amazon documents
+    docs = con.execute(
+        "SELECT * FROM documents "
+        "WHERE status='unmatched' "
+        "AND vendor='Amazon' "
+        "AND amount_cents IS NOT NULL"
+    ).fetchall()
+    
+    if not entries or not docs:
+        return 0
+        
+    from datetime import date as dt_date, timedelta
+    
+    matched_count = 0
+    assigned_doc_ids = set()
+    
+    for entry in entries:
+        target = entry["amount_cents"]
+        entry_date_str = entry["date"]
+        try:
+            ed = dt_date.fromisoformat(entry_date_str)
+        except ValueError:
+            continue
+            
+        # Filter unmatched docs within date window: [entry_date - 4 days, entry_date + 1 day]
+        window_docs = []
+        for d in docs:
+            if d["id"] in assigned_doc_ids or not d["doc_date"]:
+                continue
+            try:
+                dd = dt_date.fromisoformat(d["doc_date"])
+                if ed - timedelta(days=4) <= dd <= ed + timedelta(days=1):
+                    window_docs.append(d)
+            except ValueError:
+                continue
+                
+        if len(window_docs) < 2:
+            continue
+            
+        # Find subset sum
+        n = len(window_docs)
+        matching_subsets = []
+        for i in range(1 << n):
+            subset = [window_docs[j] for j in range(n) if (i & (1 << j))]
+            if len(subset) >= 2 and sum(d["amount_cents"] for d in subset) == target:
+                matching_subsets.append(subset)
+                
+        # If exactly one unique combination matches the target, link them!
+        if len(matching_subsets) == 1:
+            best_subset = matching_subsets[0]
+            for d in best_subset:
+                con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry["id"], d["id"]))
+                assigned_doc_ids.add(d["id"])
+                matched_count += 1
+                
+    return matched_count
+
+
 RECEIPT_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"}
 
 
@@ -810,9 +881,12 @@ async def receipts_import_amazon(file: UploadFile = File(...)):
         counts = {"matched": 0, "imported": 0, "duplicate": 0}
         for o in orders:
             counts[_ingest_amazon_order(con, o)] += 1
+        combined_matched = match_combined_amazon_receipts(con)
         con.commit()
-        note = (f"Amazon: {len(orders)} orders read - {counts['matched']} matched, "
-                f"{counts['imported']} imported (need matching), {counts['duplicate']} already imported. "
+        total_matched = counts["matched"] + combined_matched
+        remaining_imported = max(0, counts["imported"] - combined_matched)
+        note = (f"Amazon: {len(orders)} orders read - {total_matched} matched (including combined), "
+                f"{remaining_imported} imported (need matching), {counts['duplicate']} already imported. "
                 "Amazon bills per shipment, so some orders won't match a single charge - match those by hand.")
         return RedirectResponse("/receipts?msg=" + quote(note), status_code=303)
     finally:
@@ -863,6 +937,8 @@ def receipts_rematch():
             if match_entry_id:
                 con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, d["id"]))
                 matched += 1
+        combined_matched = match_combined_amazon_receipts(con)
+        matched += combined_matched
         con.commit()
         return RedirectResponse("/receipts?msg=" + quote(f"Re-checked matches: {matched} newly matched."), status_code=303)
     finally:
