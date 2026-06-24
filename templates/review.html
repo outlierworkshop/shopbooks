@@ -16,7 +16,7 @@
           title="Have Claude suggest a category for every pending transaction (rules first, AI for the rest). Nothing is posted - you still approve.">🤖 AI categorize pending</button>
   {% endif %}
   <button type="submit" name="receipt_categorize" value="1" class="ghost"
-          title="Match unmatched receipts to pending transactions by amount, then use receipt vendor/items to suggest better categories. Nothing posts.">📎 Categorize from receipts</button>
+          title="Match unmatched receipts to pending transactions by amount, then use receipt vendor/items to suggest better categories. Nothing posts.">📎 Match receipts</button>
   <button type="submit" name="invoice_categorize" value="1" class="ghost"
           title="Match open invoices to pending deposits by amount and date, then suggest correct income categories. Nothing posts.">📄 Match open invoices</button>
   {% set batches = items|map(attribute='batch_id')|unique|list %}
