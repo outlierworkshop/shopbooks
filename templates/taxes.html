@@ -36,6 +36,11 @@
     <td>Receipts matched</td>
     <td>{{ receipts_matched }} matched{% if receipts_unmatched %}, <a href="/receipts">{{ receipts_unmatched }} unmatched</a>{% endif %}</td>
   </tr>
+  <tr>
+    <td>{% if missing_receipts == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+    <td>Expenses with a receipt</td>
+    <td>{% if missing_receipts %}<a href="/receipts/missing?period={{ year }}">{{ missing_receipts }} expense(s) missing a receipt</a>{% else %}every expense documented{% endif %}</td>
+  </tr>
 </table>
 
 <h2>What's in the ZIP</h2>

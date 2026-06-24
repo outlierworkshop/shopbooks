@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Missing receipts{% endblock %}
+{% block content %}
+<h1>Transactions missing a receipt</h1>
+<p class="muted">Posted expenses with no receipt attached — the purchases you'd want documentation for
+at tax time. <a href="/receipts">← Receipts</a></p>
+
+<form method="get" action="/receipts/missing" class="toolbar" style="margin-bottom:12px">
+  <label class="muted">Period:</label>
+  <select name="period" onchange="this.form.submit()">
+    {% for v, lbl in [('this-year','This year'),('last-year','Last year'),
+                      ('this-quarter','This quarter'),('last-quarter','Last quarter'),
+                      ('this-month','This month'),('last-month','Last month')] %}
+    <option value="{{ v }}" {{ 'selected' if period == v else '' }}>{{ lbl }}</option>
+    {% endfor %}
+  </select>
+  <label class="muted">Min amount $</label>
+  <input type="text" name="minamt" value="{{ minamt }}" placeholder="0" style="width:90px">
+  <button type="submit">Filter</button>
+</form>
+
+<div class="cards">
+  <div class="card"><div class="label">{{ label }} — missing receipts</div><div class="big">{{ count }}</div></div>
+  <div class="card"><div class="label">Total undocumented</div><div class="big">${{ total|money }}</div></div>
+</div>
+
+<table class="sortable">
+  <tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.date }}</td>
+    <td>{{ r.payee }}</td>
+    <td class="muted">{{ r.category or '—' }}</td>
+    <td class="num">${{ r.amount|money }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="pos">✓ Every expense in this period has a receipt.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">To attach a receipt, upload it on the <a href="/receipts">Receipts</a> page — it
+auto-matches by amount + date. (Recurring items like fees, subscriptions, or transfers usually
+don't need one; use the amount filter to focus on bigger purchases.)</p>
+{% endblock %}

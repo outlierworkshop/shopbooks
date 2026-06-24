@@ -4,6 +4,7 @@
 <h1>Receipts</h1>
 {% if msg %}<p class="note">{{ msg }}</p>{% endif %}
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted">📋 <a href="/receipts/missing">See which posted expenses are missing a receipt →</a></p>
 
 <form method="post" action="/receipts/upload" enctype="multipart/form-data" class="toolbar">
   <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp,.gif,.pdf" multiple required>

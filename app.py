@@ -649,6 +649,26 @@ def receipts(request: Request, msg: str = "", err: str = ""):
         con.close()
 
 
+@app.get("/receipts/missing", response_class=HTMLResponse)
+def receipts_missing(request: Request, period: str = "this-year", minamt: str = ""):
+    con = db.connect()
+    try:
+        try:
+            start, end, label = insights.parse_period(period)
+        except ValueError:
+            period, (start, end, label) = "this-year", insights.parse_period("this-year")
+        try:
+            min_cents = ledger.parse_amount_to_cents(minamt) if minamt.strip() else 0
+        except ValueError:
+            min_cents = 0
+        rows = insights.missing_receipts(con, start, end, min_cents)
+        return templates.TemplateResponse(request, "receipts_missing.html", ctx(
+            request, con, rows=rows, period=period, label=label, minamt=minamt,
+            total=sum(r["amount"] for r in rows), count=len(rows)))
+    finally:
+        con.close()
+
+
 def _ingest_amazon_order(con, order):
     """Turn one parsed Amazon order into a receipt document and auto-match. Dedupes on order id.
     Returns 'matched' | 'imported' | 'duplicate'."""
@@ -1851,10 +1871,12 @@ def taxes_page(request: Request, year: int = 0):
             "SELECT COUNT(*) c FROM documents d JOIN entries e ON e.id=d.entry_id "
             "WHERE d.status='matched' AND e.date BETWEEN ? AND ?", (start, end)).fetchone()["c"]
         receipts_unmatched = con.execute("SELECT COUNT(*) c FROM documents WHERE status='unmatched'").fetchone()["c"]
+        missing_receipts = len(insights.missing_receipts(con, start, end))
         return templates.TemplateResponse(request, "taxes.html", ctx(
             request, con, year=year, pnl=p, miles=miles, rate=rate,
             mileage_deduction=round(miles * rate * 100), uncat=uncat, pending=pending,
-            receipts_matched=receipts_matched, receipts_unmatched=receipts_unmatched))
+            receipts_matched=receipts_matched, receipts_unmatched=receipts_unmatched,
+            missing_receipts=missing_receipts))
     finally:
         con.close()
 
