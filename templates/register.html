@@ -3,38 +3,113 @@
 {% block content %}
 <h1>{{ acct.name }} <span class="muted">({{ acct.type }})</span></h1>
 <p>Current balance: <strong class="{{ 'neg' if balance < 0 else '' }}">${{ balance|money }}</strong></p>
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
 <table class="sortable">
   <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
   {% for r in rows %}
   <tr>
-    <td>{{ r.date }}</td>
-    <td>{{ r.payee }}{% if r.memo %} <span class="muted">- {{ r.memo }}</span>{% endif %}</td>
-    <td class="muted">{{ r.other }}</td>
+    <td>
+      <span class="view-mode">{{ r.date }}</span>
+      <input class="edit-mode" type="date" name="date" value="{{ r.date }}" form="edit-form-{{ r.entry_id }}" required style="display: none; width: 130px;">
+    </td>
+    <td>
+      <div class="view-mode">
+        {{ r.payee }}{% if r.memo %} <span class="muted">- {{ r.memo }}</span>{% endif %}
+      </div>
+      <div class="edit-mode" style="display: none; gap: 4px; flex-direction: column;">
+        <input type="text" name="payee" value="{{ r.payee }}" form="edit-form-{{ r.entry_id }}" required placeholder="Payee" style="width: 100%;">
+        <input type="text" name="memo" value="{{ r.memo or '' }}" form="edit-form-{{ r.entry_id }}" placeholder="Memo (optional)" style="width: 100%;">
+      </div>
+    </td>
+    <td class="muted">
+      <span class="view-mode">{{ r.other }}</span>
+      {% if r.other != "(split)" %}
+      <select class="edit-mode" name="category_id" form="edit-form-{{ r.entry_id }}" style="display: none; width: 100%; max-width: 250px;">
+        {% for c in cats %}
+        <option value="{{ c.id }}" {{ 'selected' if c.name == r.other else '' }}>{{ c.label }}</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <span class="edit-mode muted" style="display: none;">(split - cannot edit)</span>
+      {% endif %}
+    </td>
     <td>{% if r.doc_id %}<a href="/doc/{{ r.doc_id }}" target="_blank" data-doc="/doc/{{ r.doc_id }}" title="hover to preview · click to open">📎</a>{% endif %}</td>
     <td>
-      <form class="inline" method="post" action="/entry/{{ r.entry_id }}/job">
-        <input type="hidden" name="back" value="/register/{{ acct.id }}">
-        <select name="job_id" onchange="this.form.submit()" style="max-width:150px">
-          <option value="">(no job)</option>
-          {% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if j.id == r.job_id else '' }}>{{ j.name }}</option>{% endfor %}
-          {% if r.job_id and r.job not in jobs|map(attribute='name')|list %}
-          <option value="{{ r.job_id }}" selected>{{ r.job }} (done)</option>
-          {% endif %}
-        </select>
-      </form>
+      <div class="view-mode">
+        <form class="inline" method="post" action="/entry/{{ r.entry_id }}/job">
+          <input type="hidden" name="back" value="/register/{{ acct.id }}">
+          <select name="job_id" onchange="this.form.submit()" style="max-width:150px">
+            <option value="">(no job)</option>
+            {% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if j.id == r.job_id else '' }}>{{ j.name }}</option>{% endfor %}
+            {% if r.job_id and r.job not in jobs|map(attribute='name')|list %}
+            <option value="{{ r.job_id }}" selected>{{ r.job }} (done)</option>
+            {% endif %}
+          </select>
+        </form>
+      </div>
+      <select class="edit-mode" name="job_id" form="edit-form-{{ r.entry_id }}" style="display: none; max-width:150px">
+        <option value="">(no job)</option>
+        {% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if j.id == r.job_id else '' }}>{{ j.name }}</option>{% endfor %}
+        {% if r.job_id and r.job not in jobs|map(attribute='name')|list %}
+        <option value="{{ r.job_id }}" selected>{{ r.job }} (done)</option>
+        {% endif %}
+      </select>
     </td>
     <td class="num {{ 'neg' if r.amount < 0 else '' }}">${{ r.amount|money }}</td>
     <td class="num">${{ r.balance|money }}</td>
     <td>
-      <form class="inline" method="post" action="/entry/delete/{{ r.entry_id }}"
-            onsubmit="return confirm('Delete this entry? Imported lines return to Review.')">
-        <input type="hidden" name="back" value="/register/{{ acct.id }}">
-        <button class="small danger" type="submit">✕</button>
-      </form>
+      <div class="view-mode" style="display: flex; gap: 4px; align-items: center;">
+        <button class="small ghost" type="button" onclick="startEdit({{ r.entry_id }}, this)">Edit</button>
+        <form class="inline" method="post" action="/entry/delete/{{ r.entry_id }}"
+              onsubmit="return confirm('Delete this entry? Imported lines return to Review.')">
+          <input type="hidden" name="back" value="/register/{{ acct.id }}">
+          <button class="small danger" type="submit">✕</button>
+        </form>
+      </div>
+      <div class="edit-mode" style="display: none; gap: 4px; align-items: center;">
+        <form id="edit-form-{{ r.entry_id }}" method="post" action="/entry/edit/{{ r.entry_id }}">
+          <input type="hidden" name="back" value="/register/{{ acct.id }}">
+          <input type="hidden" name="register_account_id" value="{{ acct.id }}">
+          <button class="small" type="submit">Save</button>
+          <button class="small ghost" type="button" onclick="cancelEdit({{ r.entry_id }}, this)">Cancel</button>
+        </form>
+      </div>
     </td>
   </tr>
   {% else %}
   <tr><td colspan="8" class="muted">No activity yet.</td></tr>
   {% endfor %}
 </table>
+
+<script>
+function startEdit(entryId, button) {
+  const row = button.closest('tr');
+  row.querySelectorAll('.view-mode').forEach(el => {
+    el.style.setProperty('display', 'none', 'important');
+  });
+  row.querySelectorAll('.edit-mode').forEach(el => {
+    if (el.tagName === 'DIV' && el.style.gap) {
+      el.style.display = 'flex';
+    } else if (el.tagName === 'INPUT' || el.tagName === 'SELECT') {
+      el.style.display = 'inline-block';
+    } else {
+      el.style.display = 'block';
+    }
+  });
+}
+
+function cancelEdit(entryId, button) {
+  const row = button.closest('tr');
+  row.querySelectorAll('.view-mode').forEach(el => {
+    if (el.tagName === 'FORM' && el.classList.contains('inline')) {
+      el.style.display = 'inline';
+    } else {
+      el.style.display = '';
+    }
+  });
+  row.querySelectorAll('.edit-mode').forEach(el => {
+    el.style.setProperty('display', 'none', 'important');
+  });
+}
+</script>
 {% endblock %}

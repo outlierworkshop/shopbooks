@@ -106,6 +106,30 @@ def delete_entry(con, entry_id):
     con.execute("DELETE FROM entries WHERE id=?", (entry_id,))
 
 
+def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, register_account_id):
+    """Update date, payee, memo, and job on entries table.
+    For 2-split entries, update the split that is NOT register_account_id to category_id."""
+    con.execute(
+        "UPDATE entries SET date=?, payee=?, memo=?, job_id=? WHERE id=?",
+        (date, payee, memo, job_id or None, entry_id)
+    )
+    if category_id is not None and register_account_id is not None:
+        splits = con.execute("SELECT id, account_id FROM splits WHERE entry_id=?", (entry_id,)).fetchall()
+        if len(splits) == 2:
+            # Find the split that is not register_account_id
+            other_split = None
+            for s in splits:
+                if s["account_id"] != register_account_id:
+                    other_split = s
+                    break
+            
+            # Fallback if both splits have the same account ID (rare edge case)
+            if not other_split:
+                other_split = splits[1]
+                
+            con.execute("UPDATE splits SET account_id=? WHERE id=?", (category_id, other_split["id"]))
+
+
 def raw_balance(con, account_id, as_of=None):
     if as_of:
         row = con.execute(

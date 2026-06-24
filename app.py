@@ -506,13 +506,39 @@ def _invoice_review_pending(con):
 # ---------- registers & entries ----------
 
 @app.get("/register/{account_id}", response_class=HTMLResponse)
-def register_view(request: Request, account_id: int):
+def register_view(request: Request, account_id: int, err: str = ""):
     con = db.connect()
     try:
         acct, rows = ledger.register(con, account_id)
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
         return templates.TemplateResponse(request, "register.html", ctx(
-            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con)))
+            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con), cats=categories(con), err=err))
+    finally:
+        con.close()
+
+
+@app.post("/entry/edit/{entry_id}")
+def entry_edit(entry_id: int,
+               date: str = Form(...),
+               payee: str = Form(...),
+               memo: str = Form(""),
+               category_id: str = Form(None),
+               job_id: str = Form(""),
+               register_account_id: int = Form(None),
+               back: str = Form("/")):
+    con = db.connect()
+    try:
+        norm_date = ledger.normalize_date(date)
+        cat_id = int(category_id) if category_id and category_id.strip() else None
+        job_val = int(job_id) if job_id and job_id.strip() else None
+        
+        ledger.update_entry_fields(con, entry_id, payee, memo, cat_id, job_val, norm_date, register_account_id)
+        con.commit()
+        return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
+    except ValueError as e:
+        redirect_url = back if back.startswith("/") else "/"
+        sep = "&" if "?" in redirect_url else "?"
+        return RedirectResponse(f"{redirect_url}{sep}err={str(e)}", status_code=303)
     finally:
         con.close()
 
