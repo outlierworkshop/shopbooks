@@ -894,7 +894,7 @@ def receipts(request: Request, msg: str = "", err: str = ""):
                     entries.append({"entry": entry, "category": cat})
             
             matched_ids = {e["entry"]["id"] for e in entries}
-            doc_posted = [p for p in latest_posted if p["id"] not in matched_ids]
+            doc_posted = list(latest_posted)
             
             # Ensure currently matched entries are always in the list even if old
             for me in entries:
