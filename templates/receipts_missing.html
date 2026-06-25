@@ -25,16 +25,17 @@ at tax time. <a href="/receipts">← Receipts</a></p>
 </div>
 
 <table class="sortable">
-  <tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr>
+  <tr><th>Date</th><th>Account</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr>
   {% for r in rows %}
   <tr>
     <td>{{ r.date }}</td>
+    <td>{{ r.account or '—' }}</td>
     <td>{{ r.payee }}</td>
     <td class="muted">{{ r.category or '—' }}</td>
     <td class="num">${{ r.amount|money }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="4" class="pos">✓ Every expense in this period has a receipt.</td></tr>
+  <tr><td colspan="5" class="pos">✓ Every expense in this period has a receipt.</td></tr>
   {% endfor %}
 </table>
 <p class="muted">To attach a receipt, upload it on the <a href="/receipts">Receipts</a> page — it

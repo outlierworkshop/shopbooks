@@ -210,11 +210,13 @@ def missing_receipts(con, start, end, min_cents=0):
         "SELECT e.id, e.date, e.payee, "
         "  COALESCE(SUM(CASE WHEN a.type='expense' THEN s.amount_cents ELSE 0 END),0) amount, "
         "  (SELECT a2.name FROM splits s2 JOIN accounts a2 ON a2.id=s2.account_id "
-        "   WHERE s2.entry_id=e.id AND a2.type='expense' ORDER BY s2.amount_cents DESC LIMIT 1) category "
+        "   WHERE s2.entry_id=e.id AND a2.type='expense' ORDER BY s2.amount_cents DESC LIMIT 1) category, "
+        "  (SELECT a3.name FROM splits s3 JOIN accounts a3 ON a3.id=s3.account_id "
+        "   WHERE s3.entry_id=e.id AND a3.type IN ('asset','liability') LIMIT 1) source_account "
         "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
         "WHERE e.date BETWEEN ? AND ? "
         "  AND NOT EXISTS (SELECT 1 FROM document_entry_links d WHERE d.entry_id=e.id) "
         "GROUP BY e.id HAVING amount >= ? "
         "ORDER BY e.date DESC, e.id DESC", (start, end, max(int(min_cents), 1))).fetchall()
     return [{"entry_id": r["id"], "date": r["date"], "payee": r["payee"],
-             "amount": r["amount"], "category": r["category"]} for r in rows]
+             "amount": r["amount"], "category": r["category"], "account": r["source_account"]} for r in rows]
