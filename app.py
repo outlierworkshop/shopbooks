@@ -870,16 +870,8 @@ def receipts(request: Request, msg: str = "", err: str = ""):
             "WHERE st.status='pending' ORDER BY st.date, st.id"
         ).fetchall()
 
-        # Fetch the latest 100 posted transactions (expense/income splits)
-        latest_posted = con.execute(
-            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
-            "FROM entries e "
-            "JOIN splits s ON s.entry_id=e.id "
-            "JOIN accounts a ON a.id=s.account_id "
-            "WHERE a.type IN ('expense','income') "
-            "ORDER BY e.date DESC, e.id DESC "
-            "LIMIT 100"
-        ).fetchall()
+        # Fetch the latest 100 posted transactions (expense/income splits) for fallback
+        latest_posted = None
 
         items = []
         for d in docs:
@@ -894,23 +886,61 @@ def receipts(request: Request, msg: str = "", err: str = ""):
                     entries.append({"entry": entry, "category": cat})
             
             matched_ids = {e["entry"]["id"] for e in entries}
-            doc_posted = list(latest_posted)
             
-            # Ensure currently matched entries are always in the list even if old
-            for me in entries:
-                eid = me["entry"]["id"]
-                if not any(lp["id"] == eid for lp in latest_posted):
-                    row = con.execute(
+            if d["status"] == "unmatched":
+                doc_date = d["doc_date"]
+                if doc_date:
+                    # Query 50 on or before doc_date
+                    before_rows = con.execute(
                         "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
                         "FROM entries e "
                         "JOIN splits s ON s.entry_id=e.id "
                         "JOIN accounts a ON a.id=s.account_id "
-                        "WHERE e.id=? AND a.type IN ('expense','income')", (eid,)
-                    ).fetchone()
-                    if row:
-                        doc_posted.append(row)
-            
-            doc_posted.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
+                        "WHERE a.type IN ('expense','income') AND e.date <= ? "
+                        "ORDER BY e.date DESC, e.id DESC "
+                        "LIMIT 50", (doc_date,)
+                    ).fetchall()
+                    # Query 50 after doc_date
+                    after_rows = con.execute(
+                        "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+                        "FROM entries e "
+                        "JOIN splits s ON s.entry_id=e.id "
+                        "JOIN accounts a ON a.id=s.account_id "
+                        "WHERE a.type IN ('expense','income') AND e.date > ? "
+                        "ORDER BY e.date ASC, e.id ASC "
+                        "LIMIT 50", (doc_date,)
+                    ).fetchall()
+                    doc_posted = list(before_rows) + list(after_rows)
+                else:
+                    if latest_posted is None:
+                        latest_posted = con.execute(
+                            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+                            "FROM entries e "
+                            "JOIN splits s ON s.entry_id=e.id "
+                            "JOIN accounts a ON a.id=s.account_id "
+                            "WHERE a.type IN ('expense','income') "
+                            "ORDER BY e.date DESC, e.id DESC "
+                            "LIMIT 100"
+                        ).fetchall()
+                    doc_posted = list(latest_posted)
+                
+                # Ensure currently matched entries are always in the list even if old
+                for me in entries:
+                    eid = me["entry"]["id"]
+                    if not any(p["id"] == eid for p in doc_posted):
+                        row = con.execute(
+                            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+                            "FROM entries e "
+                            "JOIN splits s ON s.entry_id=e.id "
+                            "JOIN accounts a ON a.id=s.account_id "
+                            "WHERE e.id=? AND a.type IN ('expense','income')", (eid,)
+                        ).fetchone()
+                        if row:
+                            doc_posted.append(row)
+                
+                doc_posted.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
+            else:
+                doc_posted = []
 
             items.append({
                 "doc": d,
