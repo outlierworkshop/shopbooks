@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Confirm Import{% endblock %}
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Confirm Import</h1>
+    <a href="/import" class="btn ghost">← Back</a>
+  </div>
+
+  {% if error %}
+  <p class="error">{{ error }}</p>
+  {% endif %}
+
+  {% if note %}
+  <p class="note">{{ note }}</p>
+  {% endif %}
+
+  <div class="cards" style="margin-bottom: 24px;">
+    <div class="card">
+      <div class="label">File name</div>
+      <div style="font-size: 15px; font-weight: 500; margin-top: 4px; word-break: break-all;">{{ filename }}</div>
+    </div>
+    <div class="card">
+      <div class="label">Transactions parsed</div>
+      <div class="big">{{ txns_count }}</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: 24px; padding: 20px;">
+    <h2 style="margin-top: 0; margin-bottom: 16px;">Target Account Selection</h2>
+    <form method="post" action="/import/confirm" class="formgrid" style="max-width: 100%; border: none; padding: 0; box-shadow: none;">
+      <input type="hidden" name="filename" value="{{ filename }}">
+      <input type="hidden" name="temp_file_path" value="{{ temp_file_path }}">
+      <input type="hidden" name="txns_json" value="{{ txns_json }}">
+      <input type="hidden" name="note" value="{{ note }}">
+
+      <label for="account_id" style="font-weight: 600;">Confirm Target Account</label>
+      <div>
+        <select name="account_id" id="account_id" style="width: 100%; padding: 8px 12px; font-size: 14px;" required>
+          {% for s in sources %}
+          <option value="{{ s.id }}" {% if s.id == detected_account_id %}selected{% endif %}>
+            {{ s.name }} {% if s.id == detected_account_id %}(Auto-detected){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <p class="muted" style="margin-top: 6px; margin-bottom: 0;">
+          Verify that this matches the statement's institution and account. Override if necessary.
+        </p>
+      </div>
+
+      <span></span>
+      <div style="margin-top: 10px;">
+        <button type="submit" style="padding: 10px 20px; font-size: 14px; font-weight: 600;">Confirm & Stage Transactions</button>
+      </div>
+    </form>
+  </div>
+
+  <h2>Preview (First 10 Transactions)</h2>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Description</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in txns %}
+        <tr>
+          <td>{{ t.date }}</td>
+          <td>{{ t.description }}</td>
+          <td class="num {% if t.amount_cents < 0 %}pos{% else %}neg{% endif %}">
+            {{ '-' if t.amount_cents > 0 else '+' }}${{ t.amount_cents|abs|money }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

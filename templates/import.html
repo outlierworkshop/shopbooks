@@ -6,12 +6,8 @@
 <form method="post" enctype="multipart/form-data" class="formgrid">
   <label>Statement file</label>
   <input type="file" name="file" accept=".pdf,.csv" required>
-  <label>Account</label>
-  <select name="account_id" required>
-    {% for s in sources %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
-  </select>
   <span></span>
-  <span><button type="submit">Import</button></span>
+  <span><button type="submit">Upload</button></span>
 </form>
 <p class="muted">PDF statements are parsed {{ 'with Claude (AI on)' if ai_on else 'with a basic text parser - add an API key in Settings for much better results' }}.
 CSV exports from your bank also work and are the most reliable. After import, transactions land in

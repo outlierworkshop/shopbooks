@@ -410,3 +410,54 @@ def stage_transactions(con, batch_id, txns, source_account_id, category_names_by
             "INSERT INTO staged(batch_id,date,description,amount_cents,category_id) VALUES(?,?,?,?,?)",
             (batch_id, t["date"], t["description"], t["amount_cents"], cat_id))
     rescan_transfers(con)
+
+
+def detect_account_id(con, filename, file_content_text):
+    """Auto-detect target bank/card account ID based on the filename and content text."""
+    accounts = con.execute("SELECT id, name, kind FROM accounts WHERE active=1 AND kind IN ('bank', 'card')").fetchall()
+    if not accounts:
+        return None
+
+    filename_lower = str(filename).lower()
+    content_lower = str(file_content_text).lower()
+
+    best_acct_id = None
+    best_score = -1
+
+    stop_words = {'bank', 'card', 'checking', 'savings', 'account', 'credit', 'biz', 'business', 'statement', 'association', 'national', 'services'}
+
+    for acct in accounts:
+        acct_id = acct["id"]
+        acct_name = acct["name"]
+        acct_name_lower = acct_name.lower()
+
+        score = 0
+
+        # 1. Direct match of full account name in filename
+        if acct_name_lower in filename_lower:
+            score += 50
+
+        # 2. Direct match of full account name in content
+        if acct_name_lower in content_lower:
+            score += 30
+
+        # 3. Match of individual significant words in filename and content
+        words = re.findall(r'[a-z0-9]+', acct_name_lower)
+        camel_words = re.findall(r'[A-Z]?[a-z0-9]+|[A-Z]+(?=[A-Z][a-z0-9]|\b)', acct_name)
+        all_words = set(words + [w.lower() for w in camel_words])
+        sig_words = [w for w in all_words if w not in stop_words and len(w) > 1]
+
+        for w in sig_words:
+            if w in filename_lower:
+                score += 15
+            if w in content_lower:
+                score += 10
+
+        if score > best_score and score > 0:
+            best_score = score
+            best_acct_id = acct_id
+
+    if best_acct_id is None:
+        best_acct_id = accounts[0]["id"]
+
+    return best_acct_id

@@ -140,19 +140,42 @@ def import_page(request: Request):
 
 
 @app.post("/import")
-async def do_import(request: Request, file: UploadFile = File(...), account_id: int = Form(...)):
+async def do_import(request: Request, file: UploadFile = File(...), account_id: int = Form(None)):
     con = db.connect()
     try:
         raw = await file.read()
         name = (file.filename or "statement").lower()
-        acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not (name.endswith(".csv") or name.endswith(".pdf")):
+            raise ValueError("Upload a .pdf or .csv file.")
+            
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        if name.endswith(".pdf"):
+            tmp = db.DOCS / f"stmt_{timestamp}_{Path(name).name}"
+        else:
+            tmp = db.DOCS / f"temp_stmt_{timestamp}_{Path(name).name}"
+            
+        db.DOCS.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(raw)
+        
+        # 1. Text extraction & Account Auto-detection:
+        if name.endswith(".pdf"):
+            text = importer.pdf_text(tmp)
+        else:
+            text = raw.decode("utf-8-sig", errors="replace")
+            
+        detected_account_id = importer.detect_account_id(con, file.filename or "", text)
+        
+        target_account_id = account_id if account_id is not None else detected_account_id
+        
+        acct = con.execute("SELECT * FROM accounts WHERE id=?", (target_account_id,)).fetchone()
+        if not acct:
+            raise ValueError("Target account not found.")
+            
+        # 2. Extract transactions:
         txns, note = [], ""
         if name.endswith(".csv"):
             txns = importer.parse_csv(raw)
         elif name.endswith(".pdf"):
-            tmp = db.DOCS / f"stmt_{datetime.now().strftime('%Y%m%d%H%M%S')}_{Path(name).name}"
-            tmp.write_bytes(raw)
-            text = importer.pdf_text(tmp)
             extracted = None
             if ai.available(con):
                 extracted = (ai.extract_statement(con, text, acct["name"]) if text.strip()
@@ -168,13 +191,87 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
             else:
                 txns = importer.regex_parse_statement(text)
                 note = "Parsed without AI (no API key set) - double-check amounts and signs."
-        else:
-            raise ValueError("Upload a .pdf or .csv file.")
+        
         if not txns:
+            if not name.endswith(".pdf") and tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
             raise ValueError("No transactions found in that file.")
+            
+        # If account_id was passed, we process single-step import (backwards compatibility for tests)
+        if account_id is not None:
+            if not name.endswith(".pdf") and tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+            
+            cur = con.execute("INSERT INTO batches(filename,account_id) VALUES(?,?)", (file.filename, account_id))
+            batch_id = cur.lastrowid
+            cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
+            ai_cats = None
+            uncategorized = [t for t in txns if importer.apply_rules(con, t["description"]) is None]
+            if uncategorized and ai.available(con):
+                ai_all = ai.categorize(con, [{"description": t["description"], "amount": t["amount_cents"]} for t in txns],
+                                       list(cats.values()))
+                ai_cats = ai_all
+            importer.stage_transactions(con, batch_id, txns, account_id, cats, ai_cats)
+            _categorize_from_receipts(con)
+            con.commit()
+            
+            from urllib.parse import quote
+            dates = sorted(t["date"] for t in txns if t.get("date"))
+            if dates:
+                note = (note + f" Imported {len(txns)} transactions dated {dates[0]} to {dates[-1]} "
+                        "- check the year looks right before posting.").strip()
+            return RedirectResponse("/review?note=" + quote(note), status_code=303)
+            
+        # Otherwise, render the confirmation page
+        sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
+        
+        import json
+        txns_json = json.dumps(txns)
+        
+        return templates.TemplateResponse(request, "import_confirm.html", ctx(
+            request, con,
+            filename=file.filename,
+            temp_file_path=str(tmp),
+            txns=txns[:10],
+            txns_count=len(txns),
+            detected_account_id=detected_account_id,
+            sources=sources,
+            txns_json=txns_json,
+            note=note
+        ))
+        
+    except ValueError as e:
+        sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "import.html", ctx(request, con, sources=sources, error=str(e)))
+    finally:
+        con.close()
 
-        cur = con.execute("INSERT INTO batches(filename,account_id) VALUES(?,?)", (file.filename, account_id))
+
+@app.post("/import/confirm")
+async def do_import_confirm(
+    request: Request,
+    filename: str = Form(...),
+    temp_file_path: str = Form(...),
+    account_id: int = Form(...),
+    txns_json: str = Form(...),
+    note: str = Form("")
+):
+    import json
+    con = db.connect()
+    try:
+        txns = json.loads(txns_json)
+        if not txns:
+            raise ValueError("No transactions to import.")
+            
+        cur = con.execute("INSERT INTO batches(filename,account_id) VALUES(?,?)", (filename, account_id))
         batch_id = cur.lastrowid
+        
         cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
         ai_cats = None
         uncategorized = [t for t in txns if importer.apply_rules(con, t["description"]) is None]
@@ -182,16 +279,34 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
             ai_all = ai.categorize(con, [{"description": t["description"], "amount": t["amount_cents"]} for t in txns],
                                    list(cats.values()))
             ai_cats = ai_all
+            
         importer.stage_transactions(con, batch_id, txns, account_id, cats, ai_cats)
         _categorize_from_receipts(con)
         con.commit()
+        
+        if "temp_stmt_" in temp_file_path:
+            p = Path(temp_file_path)
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+                    
         from urllib.parse import quote
         dates = sorted(t["date"] for t in txns if t.get("date"))
         if dates:
             note = (note + f" Imported {len(txns)} transactions dated {dates[0]} to {dates[-1]} "
                     "- check the year looks right before posting.").strip()
         return RedirectResponse("/review?note=" + quote(note), status_code=303)
-    except ValueError as e:
+        
+    except Exception as e:
+        if "temp_stmt_" in temp_file_path:
+            p = Path(temp_file_path)
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
         sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "import.html", ctx(request, con, sources=sources, error=str(e)))
     finally:
