@@ -13,6 +13,21 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-24 — Assistant: the Opus chatbot (issue #7)
+- New `chat.py` + `/chat` page ("Assistant" in the nav): a conversational helper whose three jobs are
+  (1) how to use ShopBooks, (2) general tax strategy for a sole proprietor, (3) business analysis on the
+  owner's REAL numbers.
+- Architecture: an agentic tool-use loop on `claude-opus-4-8` (adaptive thinking). Claude is given the
+  `insights.py` / `timetracking` read-only functions as tools (business_snapshot, profit_and_loss,
+  compare_periods, monthly_trend, expense_changes, cash_position, bookkeeping_health, missing_receipts,
+  jobs_overview). It must fetch every figure from a tool — it never invents or computes numbers. The tool
+  layer converts integer cents → dollars so the model only reports, keeping the ledger deterministic.
+- AI-optional: with no Anthropic key, the page explains how to turn it on; `chat.ask()` returns a friendly
+  off-message and makes no network call. Transcript is in-memory (single local user; resets on restart),
+  with suggested-prompt chips and a Clear button. Tools re-run each turn, so follow-ups stay grounded.
+- `test_chat.py` covers the tool dispatch, cents→dollars conversion, schema well-formedness, graceful
+  tool errors, and the AI-off path — all without a network call. Closes the wishlist capstone (#7).
+
 ### 2026-06-23 — Missing-receipts report (issue #5)
 - New `insights.missing_receipts(con, start, end, min_cents)`: posted EXPENSE transactions with no
   receipt attached (excludes income/transfers and anything already matched), >= a $ threshold.
