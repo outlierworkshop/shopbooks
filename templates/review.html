@@ -58,7 +58,31 @@
       <a href="#" onclick="togglePairing({{ it.id }}); return false;" class="muted" style="font-size: 11px; margin-left: 8px; text-decoration: underline;">Pair Receipts</a>
       {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
       {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
-      {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>
+      {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}
+
+      <!-- Inline Pairing Drawer -->
+      <div id="pair-{{ it.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left;">
+        <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair unmatched receipts with this transaction:</div>
+        <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+          {% for r in unmatched_receipts %}
+            <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
+              <input type="checkbox" name="docs_{{ it.id }}" value="{{ r.id }}" 
+                     {{ 'checked' if r.id in it.matched_doc_ids else '' }} style="margin-right: 6px;">
+              <span style="min-width: 70px; display: inline-block;">${{ r.amount_cents|money if r.amount_cents is not none else '—' }}</span>
+              <span style="min-width: 120px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.vendor or 'Unknown' }}</span>
+              <span style="min-width: 80px; display: inline-block; color: #888;">{{ r.doc_date or 'No Date' }}</span>
+              <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.filename }}</span>
+            </label>
+          {% else %}
+            <span class="muted" style="font-size: 12px;">No unmatched receipts available.</span>
+          {% endfor %}
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" name="save_matches" value="{{ it.id }}" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
+          <button type="button" class="small ghost" onclick="togglePairing({{ it.id }})" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+        </div>
+      </div>
+    </td>
     <td class="muted">{{ it.source_name }}</td>
     <td class="num {{ 'pos' if it.amount_cents < 0 else '' }}">${{ it.amount_cents|money }}</td>
     <td>
@@ -71,29 +95,6 @@
     </td>
     <td><input type="text" name="memo_{{ it.id }}" value="{{ it.memo }}" placeholder="(optional note)"
                title="Optional note saved on this transaction"></td>
-  </tr>
-  <tr id="pair-{{ it.id }}" class="pair-row" style="display:none; background: #fdfdfb;">
-    <td colspan="8" style="padding: 12px; border-bottom: 1px solid #c9c6bd;">
-      <div style="font-weight: 600; margin-bottom: 6px; color: #444;">Pair unmatched receipts with this transaction:</div>
-      <div style="max-height: 160px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 6px; padding: 8px 12px; background: #fff; margin-bottom: 8px; max-width: 800px;">
-        {% for r in unmatched_receipts %}
-          <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 13px; cursor: pointer;">
-            <input type="checkbox" name="docs_{{ it.id }}" value="{{ r.id }}" 
-                   {{ 'checked' if r.id in it.matched_doc_ids else '' }} style="margin-right: 8px;">
-            <span style="min-width: 80px; display: inline-block;">${{ r.amount_cents|money if r.amount_cents is not none else '—' }}</span>
-            <span style="min-width: 150px; display: inline-block; color: #555;">{{ r.vendor or 'Unknown Vendor' }}</span>
-            <span style="min-width: 100px; display: inline-block; color: #888;">{{ r.doc_date or 'No Date' }}</span>
-            <span style="color: #444;">{{ r.filename }}</span>
-          </label>
-        {% else %}
-          <span class="muted">No unmatched receipts available.</span>
-        {% endfor %}
-      </div>
-      <div style="display: flex; gap: 8px;">
-        <button type="submit" name="save_matches" value="{{ it.id }}" class="small">Save Matches</button>
-        <button type="button" class="small ghost" onclick="togglePairing({{ it.id }})">Cancel</button>
-      </div>
-    </td>
   </tr>
   {% endfor %}
 </table>
@@ -111,7 +112,7 @@ transfers</strong> above to scan the whole queue.</p>
 function togglePairing(id) {
   var row = document.getElementById("pair-" + id);
   if (row) {
-    row.style.display = (row.style.display === "none") ? "table-row" : "none";
+    row.style.display = (row.style.display === "none") ? "block" : "none";
   }
 }
 </script>
