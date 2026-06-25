@@ -115,6 +115,7 @@
 
         <div style="margin-top: 10px; margin-bottom: 10px;">
           <a href="#" onclick="togglePairing({{ it.doc.id }}); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Transactions</a>
+          <a href="#" onclick="togglePairPosted({{ it.doc.id }}); return false;" class="muted" style="font-size: 11px; text-decoration: underline; margin-left: 12px;">Pair Posted</a>
           
           <!-- Inline Transaction Pairing Drawer -->
           <div id="pair-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
@@ -141,6 +142,32 @@
               </div>
             </form>
           </div>
+
+          <!-- Inline Posted Transaction Pairing Drawer -->
+          <div id="pair-posted-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair already posted transactions with this receipt:</div>
+            <form method="post" action="/receipts/save-entry-matches">
+              <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+              <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+                {% for e in it.posted_transactions %}
+                  <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
+                    <input type="checkbox" name="entry_{{ it.doc.id }}" value="{{ e.id }}" 
+                           {{ 'checked' if e.id in it.matched_entry_ids else '' }} style="margin-right: 6px;">
+                    <span style="min-width: 80px; display: inline-block;">{{ e.date }}</span>
+                    <span style="min-width: 70px; display: inline-block; text-align: right; margin-right: 12px; color: black">${{ e.amount_cents|money }}</span>
+                    <span style="min-width: 100px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 12px; margin-right: 12px;">{{ e.acct }}</span>
+                    <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.payee }}</span>
+                  </label>
+                {% else %}
+                  <span class="muted" style="font-size: 12px;">No posted transactions available.</span>
+                {% endfor %}
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="submit" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
+                <button type="button" class="small ghost" onclick="togglePairPosted({{ it.doc.id }})" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+              </div>
+            </form>
+          </div>
         </div>
       {% endif %}
       <form class="inline" method="post" action="/receipts/delete"
@@ -158,6 +185,12 @@
 <script>
 function togglePairing(id) {
   var row = document.getElementById("pair-" + id);
+  if (row) {
+    row.style.display = (row.style.display === "none") ? "block" : "none";
+  }
+}
+function togglePairPosted(id) {
+  var row = document.getElementById("pair-posted-" + id);
   if (row) {
     row.style.display = (row.style.display === "none") ? "block" : "none";
   }

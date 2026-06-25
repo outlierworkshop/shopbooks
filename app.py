@@ -870,6 +870,17 @@ def receipts(request: Request, msg: str = "", err: str = ""):
             "WHERE st.status='pending' ORDER BY st.date, st.id"
         ).fetchall()
 
+        # Fetch the latest 100 posted transactions (expense/income splits)
+        latest_posted = con.execute(
+            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+            "FROM entries e "
+            "JOIN splits s ON s.entry_id=e.id "
+            "JOIN accounts a ON a.id=s.account_id "
+            "WHERE a.type IN ('expense','income') "
+            "ORDER BY e.date DESC, e.id DESC "
+            "LIMIT 100"
+        ).fetchall()
+
         items = []
         for d in docs:
             cands = receipt_candidates(con, d) if d["status"] == "unmatched" else []
@@ -882,13 +893,34 @@ def receipts(request: Request, msg: str = "", err: str = ""):
                     cat = ledger.entry_category(con, d["entry_id"])
                     entries.append({"entry": entry, "category": cat})
             
+            matched_ids = {e["entry"]["id"] for e in entries}
+            doc_posted = [p for p in latest_posted if p["id"] not in matched_ids]
+            
+            # Ensure currently matched entries are always in the list even if old
+            for me in entries:
+                eid = me["entry"]["id"]
+                if not any(lp["id"] == eid for lp in latest_posted):
+                    row = con.execute(
+                        "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+                        "FROM entries e "
+                        "JOIN splits s ON s.entry_id=e.id "
+                        "JOIN accounts a ON a.id=s.account_id "
+                        "WHERE e.id=? AND a.type IN ('expense','income')", (eid,)
+                    ).fetchone()
+                    if row:
+                        doc_posted.append(row)
+            
+            doc_posted.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
+
             items.append({
                 "doc": d,
                 "candidates": cands,
                 "entries": entries,
                 "entry": entries[0]["entry"] if entries else None,
                 "category": entries[0]["category"] if entries else None,
-                "matched_staged_ids": doc_staged_map[d["id"]]
+                "matched_staged_ids": doc_staged_map[d["id"]],
+                "matched_entry_ids": matched_ids,
+                "posted_transactions": doc_posted
             })
             
         exp_cats = con.execute("SELECT id, name FROM accounts WHERE type='expense' AND active=1 ORDER BY name").fetchall()
@@ -1411,6 +1443,32 @@ async def save_staged_matches(request: Request):
             if category_id:
                 _post_staged(con, sid, category_id)
         
+        con.commit()
+        return RedirectResponse("/receipts", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/save-entry-matches")
+async def save_entry_matches(request: Request):
+    form = await request.form()
+    doc_id = int(form["doc_id"])
+    entry_ids = [int(x) for x in form.getlist(f"entry_{doc_id}")]
+    con = db.connect()
+    try:
+        # Delete existing links in document_entry_links for this document
+        con.execute("DELETE FROM document_entry_links WHERE document_id=?", (doc_id,))
+        for eid in entry_ids:
+            con.execute("INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) VALUES(?, ?)", (doc_id, eid))
+        
+        # Update document status and the legacy entry_id column
+        if entry_ids:
+            con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_ids[0], doc_id))
+        else:
+            # Check if there are still staged matches
+            has_staged = con.execute("SELECT 1 FROM document_staged_links WHERE document_id=?", (doc_id,)).fetchone()
+            if not has_staged:
+                con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE id=?", (doc_id,))
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
     finally:
