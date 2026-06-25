@@ -115,7 +115,8 @@ ok(len(mr) == 3 and sum(r["amount"] for r in mr) == 55000,
 ok(all(r["category"] for r in mr), "each missing row names its expense category")
 # attach a receipt to the $300 materials entry -> it drops off the list
 e300 = con.execute("SELECT id FROM entries WHERE date='2026-01-15'").fetchone()["id"]
-con.execute("INSERT INTO documents(filename,path,entry_id,status) VALUES('r.jpg','/x/r.jpg',?, 'matched')", (e300,))
+cur = con.execute("INSERT INTO documents(filename,path,entry_id,status) VALUES('r.jpg','/x/r.jpg',?, 'matched')", (e300,))
+con.execute("INSERT INTO document_entry_links(document_id, entry_id) VALUES(?, ?)", (cur.lastrowid, e300))
 con.commit()
 mr2 = insights.missing_receipts(con, "2026-01-01", "2026-12-31")
 ok(len(mr2) == 2 and all(r["amount"] != 30000 for r in mr2), "an entry with a matched receipt is excluded")

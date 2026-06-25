@@ -78,12 +78,14 @@
         <input type="text" name="amount" value="{{ it.doc.amount_cents|money if it.doc.amount_cents else '' }}" placeholder="total" style="width:90px">
         <button class="small ghost" type="submit">Save</button>
       </form>
-      {% if it.doc.status == 'matched' and it.entry %}
-        <p class="pos">✓ Matched to {{ it.entry.date }} - {{ it.entry.payee }}
-        <form class="inline" method="post" action="/receipts/unmatch">
+      {% if it.doc.status == 'matched' and it.entries %}
+        {% for e in it.entries %}
+          <p class="pos" style="margin: 2px 0;">✓ Matched to {{ e.entry.date }} - {{ e.entry.payee }}</p>
+        {% endfor %}
+        <form class="inline" method="post" action="/receipts/unmatch" style="margin: 4px 0; display: block;">
           <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
           <button class="small ghost" type="submit">Unmatch</button>
-        </form></p>
+        </form>
         {% if it.category %}
         <form method="post" action="/receipts/setcategory" class="toolbar" style="margin:4px 0">
           <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
@@ -96,18 +98,50 @@
           {% endif %}
         </form>
         {% endif %}
-      {% elif it.candidates %}
-        <p class="muted">Possible matches:</p>
-        {% for c in it.candidates %}
-        <form class="inline" method="post" action="/receipts/match">
-          <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
-          <input type="hidden" name="entry_id" value="{{ c.id }}">
-          <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
-        </form>
-        {% endfor %}
       {% else %}
-        <p class="warn">No matching transaction found yet - import the statement that contains this purchase,
-           or check the amount/date above.</p>
+        {% if it.candidates %}
+          <p class="muted">Possible matches:</p>
+          {% for c in it.candidates %}
+          <form class="inline" method="post" action="/receipts/match">
+            <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+            <input type="hidden" name="entry_id" value="{{ c.id }}">
+            <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
+          </form>
+          {% endfor %}
+        {% else %}
+          <p class="warn">No matching transaction found yet - import the statement that contains this purchase,
+             or check the amount/date above.</p>
+        {% endif %}
+
+        <div style="margin-top: 10px; margin-bottom: 10px;">
+          <a href="#" onclick="togglePairing({{ it.doc.id }}); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Transactions</a>
+          
+          <!-- Inline Transaction Pairing Drawer -->
+          <div id="pair-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair pending staged transactions with this receipt:</div>
+            <form method="post" action="/receipts/save-staged-matches">
+              <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
+              <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+                {% for st in pending_transactions %}
+                  <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
+                    <input type="checkbox" name="staged_{{ it.doc.id }}" value="{{ st.id }}" 
+                           {{ 'checked' if st.id in it.matched_staged_ids else '' }} style="margin-right: 6px;">
+                    <span style="min-width: 80px; display: inline-block;">{{ st.date }}</span>
+                    <span style="min-width: 70px; display: inline-block; text-align: right; margin-right: 12px; color: {{ 'green' if st.amount_cents < 0 else 'black' }}">${{ st.amount_cents|money }}</span>
+                    <span style="min-width: 100px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ st.source_name }}</span>
+                    <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ st.description }}</span>
+                  </label>
+                {% else %}
+                  <span class="muted" style="font-size: 12px;">No pending staged transactions available.</span>
+                {% endfor %}
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="submit" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
+                <button type="button" class="small ghost" onclick="togglePairing({{ it.doc.id }})" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
       {% endif %}
       <form class="inline" method="post" action="/receipts/delete"
             onsubmit="return confirm('Delete this receipt image?')">
@@ -121,4 +155,12 @@
 <p class="muted">No receipts yet. Snap photos and drop them here.</p>
 {% endfor %}
 </div>
+<script>
+function togglePairing(id) {
+  var row = document.getElementById("pair-" + id);
+  if (row) {
+    row.style.display = (row.style.display === "none") ? "block" : "none";
+  }
+}
+</script>
 {% endblock %}

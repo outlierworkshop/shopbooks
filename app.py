@@ -244,6 +244,14 @@ def _link_staged_receipt(con, staged_id, entry_id):
             "UPDATE documents SET status='matched', entry_id=?, staged_id=NULL WHERE id=?",
             (entry_id, doc["id"])
         )
+        con.execute(
+            "INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) VALUES(?, ?)",
+            (doc["id"], entry_id)
+        )
+        con.execute(
+            "DELETE FROM document_staged_links WHERE document_id=? AND staged_id=?",
+            (doc["id"], staged_id)
+        )
 
 
 def _post_staged(con, staged_id, category_id, remember=False):
@@ -303,11 +311,17 @@ async def review_action(request: Request):
             sid = int(form["save_matches"])
             doc_ids = [int(x) for x in form.getlist(f"docs_{sid}")]
             con.execute("UPDATE documents SET staged_id=NULL WHERE staged_id=?", (sid,))
+            con.execute("DELETE FROM document_staged_links WHERE staged_id=?", (sid,))
             if doc_ids:
                 con.execute(
                     f"UPDATE documents SET staged_id=? WHERE id IN ({','.join('?' for _ in doc_ids)})",
                     [sid] + doc_ids
                 )
+                for did in doc_ids:
+                    con.execute(
+                        "INSERT OR IGNORE INTO document_staged_links(document_id, staged_id) VALUES(?, ?)",
+                        (did, sid)
+                    )
             con.commit()
             return RedirectResponse("/review", status_code=303)
         elif "post_one" in form:
@@ -831,18 +845,55 @@ def _ingest_receipt(con, data: bytes, original_name: str):
 def receipts(request: Request, msg: str = "", err: str = ""):
     con = db.connect()
     try:
+        from collections import defaultdict
         docs = con.execute("SELECT * FROM documents WHERE kind='receipt' ORDER BY status DESC, uploaded_at DESC").fetchall()
+        
+        # 1. Fetch matched staged links map
+        staged_links = con.execute("SELECT document_id, staged_id FROM document_staged_links").fetchall()
+        doc_staged_map = defaultdict(set)
+        for lnk in staged_links:
+            doc_staged_map[lnk["document_id"]].add(lnk["staged_id"])
+
+        # 2. Fetch matched entry links map
+        entry_links = con.execute("SELECT document_id, entry_id FROM document_entry_links").fetchall()
+        doc_entries_map = defaultdict(list)
+        for lnk in entry_links:
+            entry = con.execute("SELECT * FROM entries WHERE id=?", (lnk["entry_id"],)).fetchone()
+            if entry:
+                cat = ledger.entry_category(con, lnk["entry_id"])
+                doc_entries_map[lnk["document_id"]].append({"entry": entry, "category": cat})
+
+        # 3. Fetch pending staged transactions
+        pending_transactions = con.execute(
+            "SELECT st.id, st.date, st.amount_cents, st.description, a.name source_name "
+            "FROM staged st JOIN batches b ON b.id=st.batch_id JOIN accounts a ON a.id=b.account_id "
+            "WHERE st.status='pending' ORDER BY st.date, st.id"
+        ).fetchall()
+
         items = []
         for d in docs:
             cands = receipt_candidates(con, d) if d["status"] == "unmatched" else []
-            entry, cat = None, None
-            if d["entry_id"]:
+            entries = doc_entries_map[d["id"]]
+            
+            # Fallback for legacy database rows without join table links populated
+            if not entries and d["entry_id"]:
                 entry = con.execute("SELECT * FROM entries WHERE id=?", (d["entry_id"],)).fetchone()
-                cat = ledger.entry_category(con, d["entry_id"])  # None for transfers/multi-split
-            items.append({"doc": d, "candidates": cands, "entry": entry, "category": cat})
+                if entry:
+                    cat = ledger.entry_category(con, d["entry_id"])
+                    entries.append({"entry": entry, "category": cat})
+            
+            items.append({
+                "doc": d,
+                "candidates": cands,
+                "entries": entries,
+                "entry": entries[0]["entry"] if entries else None,
+                "category": entries[0]["category"] if entries else None,
+                "matched_staged_ids": doc_staged_map[d["id"]]
+            })
+            
         exp_cats = con.execute("SELECT id, name FROM accounts WHERE type='expense' AND active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "receipts.html", ctx(
-            request, con, items=items, exp_cats=exp_cats, msg=msg, err=err))
+            request, con, items=items, exp_cats=exp_cats, pending_transactions=pending_transactions, msg=msg, err=err))
     finally:
         con.close()
 
@@ -1003,14 +1054,16 @@ def staged_receipt_matches(con):
     from collections import defaultdict
     from datetime import date as dt_date, timedelta
 
-    # 1. Fetch manual matches (documents with staged_id set)
+    # 1. Fetch manual matches (documents linked via document_staged_links)
     manual_matches = defaultdict(list)
     manually_used_doc_ids = set()
-    for d in con.execute(
-        "SELECT * FROM documents WHERE status='unmatched' AND staged_id IS NOT NULL"
+    for r in con.execute(
+        "SELECT d.*, l.staged_id FROM documents d "
+        "JOIN document_staged_links l ON l.document_id=d.id "
+        "WHERE d.status='unmatched'"
     ).fetchall():
-        manual_matches[d["staged_id"]].append(d)
-        manually_used_doc_ids.add(d["id"])
+        manual_matches[r["staged_id"]].append(r)
+        manually_used_doc_ids.add(r["id"])
 
     # 2. Fetch the remaining unmatched documents (excluding manual matches)
     docs = [
@@ -1200,19 +1253,29 @@ def _recategorize_from_receipts(con, docs):
     category leg of simple expense entries; transfers/multi-split are skipped."""
     if not ai.available(con):
         return 0, "AI is off - add a Claude API key in Settings."
-    targets = [d for d in docs if d["entry_id"] and ledger.entry_category(con, d["entry_id"])]
+    
+    # Compile list of (document, entry_id) targets
+    targets = []
+    for d in docs:
+        entry_ids = [r["entry_id"] for r in con.execute("SELECT entry_id FROM document_entry_links WHERE document_id=?", (d["id"],)).fetchall()]
+        if not entry_ids and d["entry_id"]:
+            entry_ids = [d["entry_id"]]
+        for eid in entry_ids:
+            if ledger.entry_category(con, eid):
+                targets.append((d, eid))
+
     if not targets:
         return 0, "No matched receipts with a simple expense category to refine."
     exp = {a["name"]: a["id"] for a in con.execute(
         "SELECT id, name FROM accounts WHERE type='expense' AND active=1").fetchall()}
-    txns = [{"description": _receipt_context(d), "amount": d["amount_cents"] or 0} for d in targets]
+    txns = [{"description": _receipt_context(d), "amount": d["amount_cents"] or 0} for d, _ in targets]
     sugg = ai.categorize(con, txns, list(exp.keys()))
     if not sugg:
         return 0, "AI couldn't suggest categories - try again."
     changed = 0
-    for d, name in zip(targets, sugg):
+    for (d, eid), name in zip(targets, sugg):
         nid = exp.get(name)
-        if nid and ledger.set_entry_category(con, d["entry_id"], nid) is not None:
+        if nid and ledger.set_entry_category(con, eid, nid) is not None:
             changed += 1
     return changed, None
 
@@ -1273,6 +1336,7 @@ def receipts_match(doc_id: int = Form(...), entry_id: int = Form(...)):
     con = db.connect()
     try:
         con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_id, doc_id))
+        con.execute("INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) VALUES(?, ?)", (doc_id, entry_id))
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
     finally:
@@ -1298,6 +1362,23 @@ def receipts_unmatch(doc_id: int = Form(...)):
     con = db.connect()
     try:
         con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE id=?", (doc_id,))
+        con.execute("DELETE FROM document_entry_links WHERE document_id=?", (doc_id,))
+        con.commit()
+        return RedirectResponse("/receipts", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/receipts/save-staged-matches")
+async def save_staged_matches(request: Request):
+    form = await request.form()
+    doc_id = int(form["doc_id"])
+    staged_ids = [int(x) for x in form.getlist(f"staged_{doc_id}")]
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM document_staged_links WHERE document_id=?", (doc_id,))
+        for sid in staged_ids:
+            con.execute("INSERT OR IGNORE INTO document_staged_links(document_id, staged_id) VALUES(?, ?)", (doc_id, sid))
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
     finally:

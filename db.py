@@ -168,6 +168,16 @@ CREATE TABLE IF NOT EXISTS documents(
   uploaded_at TEXT DEFAULT (datetime('now')),
   staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL
 );
+CREATE TABLE IF NOT EXISTS document_staged_links(
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  staged_id INTEGER NOT NULL REFERENCES staged(id) ON DELETE CASCADE,
+  PRIMARY KEY (document_id, staged_id)
+);
+CREATE TABLE IF NOT EXISTS document_entry_links(
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+  PRIMARY KEY (document_id, entry_id)
+);
 CREATE TABLE IF NOT EXISTS mileage(
   id INTEGER PRIMARY KEY,
   date TEXT NOT NULL,
@@ -332,11 +342,38 @@ def _column_migrations(con):
     """Add columns to existing tables. `CREATE TABLE IF NOT EXISTS` never alters an existing
     table, so every new column on a shipped table needs a guarded ALTER here. Existing user
     data must always survive an upgrade."""
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS document_staged_links(
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      staged_id INTEGER NOT NULL REFERENCES staged(id) ON DELETE CASCADE,
+      PRIMARY KEY (document_id, staged_id)
+    )""")
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS document_entry_links(
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      PRIMARY KEY (document_id, entry_id)
+    )""")
+
     have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
     if "sha256" not in have:
         con.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
     if "staged_id" not in have:
         con.execute("ALTER TABLE documents ADD COLUMN staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL")
+
+    if "staged_id" in have:
+        if not con.execute("SELECT 1 FROM document_staged_links LIMIT 1").fetchone():
+            con.execute(
+                "INSERT INTO document_staged_links(document_id, staged_id) "
+                "SELECT id, staged_id FROM documents WHERE staged_id IS NOT NULL"
+            )
+    if "entry_id" in have:
+        if not con.execute("SELECT 1 FROM document_entry_links LIMIT 1").fetchone():
+            con.execute(
+                "INSERT INTO document_entry_links(document_id, entry_id) "
+                "SELECT id, entry_id FROM documents WHERE entry_id IS NOT NULL"
+            )
+
     acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
     if "parent_id" not in acct:
         con.execute("ALTER TABLE accounts ADD COLUMN parent_id INTEGER REFERENCES accounts(id)")

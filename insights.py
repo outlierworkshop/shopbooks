@@ -213,7 +213,7 @@ def missing_receipts(con, start, end, min_cents=0):
         "   WHERE s2.entry_id=e.id AND a2.type='expense' ORDER BY s2.amount_cents DESC LIMIT 1) category "
         "FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
         "WHERE e.date BETWEEN ? AND ? "
-        "  AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.entry_id=e.id) "
+        "  AND NOT EXISTS (SELECT 1 FROM document_entry_links d WHERE d.entry_id=e.id) "
         "GROUP BY e.id HAVING amount >= ? "
         "ORDER BY e.date DESC, e.id DESC", (start, end, max(int(min_cents), 1))).fetchall()
     return [{"entry_id": r["id"], "date": r["date"], "payee": r["payee"],

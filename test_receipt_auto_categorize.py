@@ -154,6 +154,11 @@ def test_auto_cat():
     ok(manual_staged_id in manual_matches, "staged row has matches")
     ok(len(manual_matches[manual_staged_id]) == 2, "paired with exactly 2 documents")
     ok({d["id"] for d in manual_matches[manual_staged_id]} == {m1_id, m2_id}, "linked to correct document IDs")
+
+    # Assert new link table is populated
+    links = con.execute("SELECT * FROM document_staged_links WHERE staged_id=?", (manual_staged_id,)).fetchall()
+    ok(len(links) == 2, "2 rows in document_staged_links")
+    ok({l["document_id"] for l in links} == {m1_id, m2_id}, "staged links point to correct documents")
     con.close()
 
     # Now post the transaction
@@ -174,6 +179,14 @@ def test_auto_cat():
     doc2 = con.execute("SELECT * FROM documents WHERE id=?", (m2_id,)).fetchone()
     ok(doc1["status"] == "matched" and doc1["entry_id"] == manual_entry_id, "first manual receipt linked")
     ok(doc2["status"] == "matched" and doc2["entry_id"] == manual_entry_id, "second manual receipt linked")
+    
+    # Assert entry links table is populated and staged links table is cleared
+    entry_links = con.execute("SELECT * FROM document_entry_links WHERE entry_id=?", (manual_entry_id,)).fetchall()
+    ok(len(entry_links) == 2, "2 rows in document_entry_links")
+    ok({l["document_id"] for l in entry_links} == {m1_id, m2_id}, "entry links point to correct documents")
+    
+    staged_links_rem = con.execute("SELECT * FROM document_staged_links WHERE staged_id=?", (manual_staged_id,)).fetchall()
+    ok(len(staged_links_rem) == 0, "staged links cleared after post")
     con.close()
 
 test_auto_cat()
