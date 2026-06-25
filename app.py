@@ -183,6 +183,7 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
                                    list(cats.values()))
             ai_cats = ai_all
         importer.stage_transactions(con, batch_id, txns, account_id, cats, ai_cats)
+        _categorize_from_receipts(con)
         con.commit()
         from urllib.parse import quote
         dates = sorted(t["date"] for t in txns if t.get("date"))
@@ -229,6 +230,51 @@ def review(request: Request, note: str = ""):
         con.close()
 
 
+def _link_staged_receipt(con, staged_id, entry_id):
+    """Find the receipt(s) matched to a staged transaction and link them directly to the posted entry."""
+    matches = staged_receipt_matches(con)
+    doc = matches.get(staged_id)
+    if not doc:
+        return
+    
+    # Check if this was a combined Amazon match
+    if "Amazon (" in (doc["vendor"] or ""):
+        st = con.execute("SELECT * FROM staged WHERE id=?", (staged_id,)).fetchone()
+        if not st:
+            return
+        from datetime import date as dt_date, timedelta
+        target = st["amount_cents"]
+        try:
+            ed = dt_date.fromisoformat(st["date"])
+        except Exception:
+            return
+        docs = con.execute(
+            "SELECT * FROM documents WHERE status='unmatched' AND vendor='Amazon' AND amount_cents IS NOT NULL"
+        ).fetchall()
+        window_docs = []
+        for d in docs:
+            if not d["doc_date"]:
+                continue
+            try:
+                dd = dt_date.fromisoformat(d["doc_date"])
+                if ed - timedelta(days=4) <= dd <= ed + timedelta(days=1):
+                    window_docs.append(d)
+            except Exception:
+                continue
+        if len(window_docs) >= 2:
+            n = len(window_docs)
+            matching_subsets = []
+            for i in range(1 << n):
+                subset = [window_docs[j] for j in range(n) if (i & (1 << j))]
+                if len(subset) >= 2 and sum(d["amount_cents"] for d in subset) == target:
+                    matching_subsets.append(subset)
+            if len(matching_subsets) == 1:
+                for d in matching_subsets[0]:
+                    con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_id, d["id"]))
+    else:
+        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_id, doc["id"]))
+
+
 def _post_staged(con, staged_id, category_id, remember=False):
     st = con.execute(
         "SELECT st.*, b.account_id source_id FROM staged st JOIN batches b ON b.id=st.batch_id WHERE st.id=?",
@@ -245,6 +291,7 @@ def _post_staged(con, staged_id, category_id, remember=False):
     entry_id = ledger.post_entry(con, st["date"], st["description"],
                                  [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])],
                                  memo=st["memo"])
+    _link_staged_receipt(con, staged_id, entry_id)
     if category_id:
         cat_type = con.execute("SELECT type FROM accounts WHERE id=?", (category_id,)).fetchone()
         if cat_type and cat_type["type"] == "income":
@@ -869,6 +916,7 @@ async def receipts_upload(files: list[UploadFile] = File(...)):
     try:
         for f in files:
             _ingest_receipt(con, await f.read(), f.filename or "receipt.jpg")
+        _categorize_from_receipts(con)
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
     finally:
@@ -888,6 +936,7 @@ async def receipts_import_amazon(file: UploadFile = File(...)):
         for o in orders:
             counts[_ingest_amazon_order(con, o)] += 1
         combined_matched = match_combined_amazon_receipts(con)
+        _categorize_from_receipts(con)
         con.commit()
         total_matched = counts["matched"] + combined_matched
         remaining_imported = max(0, counts["imported"] - combined_matched)
@@ -919,6 +968,7 @@ def receipts_import_folder(folder: str = Form(...), recursive: str = Form("")):
             except Exception:
                 res = "error"
             counts[res] += 1
+        _categorize_from_receipts(con)
         con.commit()
         if scanned == 0:
             return RedirectResponse(
