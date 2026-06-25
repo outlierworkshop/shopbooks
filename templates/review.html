@@ -49,7 +49,13 @@
       <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
       <button class="small ghost" type="submit" name="skip_one" value="{{ it.id }}">Skip</button>
     </td>
-    <td>{% if it.receipt_vendor %}<a href="/doc/{{ it.receipt_id }}" target="_blank" data-doc="/doc/{{ it.receipt_id }}" class="pos" title="Receipt: {{ it.receipt_vendor }} (hover to preview)" style="text-decoration: none;">📎</a> {% endif %}{% if it.invoice_number %}<a href="/invoices/{{ it.invoice_id }}" target="_blank" data-doc="/invoices/{{ it.invoice_id }}/summary" class="pos" title="Invoice: {{ it.invoice_number }} - {{ it.invoice_customer }} (hover to preview)" style="text-decoration: none;">📄</a> {% endif %}{{ it.description }}
+    <td>
+      {% for rcpt in it.receipts %}
+        <a href="/doc/{{ rcpt.id }}" target="_blank" data-doc="/doc/{{ rcpt.id }}" class="pos" title="Receipt: {{ rcpt.vendor }} (hover to preview)" style="text-decoration: none;">📎</a>
+      {% endfor %}
+      {% if it.invoice_number %}<a href="/invoices/{{ it.invoice_id }}" target="_blank" data-doc="/invoices/{{ it.invoice_id }}/summary" class="pos" title="Invoice: {{ it.invoice_number }} - {{ it.invoice_customer }} (hover to preview)" style="text-decoration: none;">📄</a> {% endif %}
+      {{ it.description }}
+      <a href="#" onclick="togglePairing({{ it.id }}); return false;" class="muted" style="font-size: 11px; margin-left: 8px; text-decoration: underline;">Pair Receipts</a>
       {% if it.transfer_booked %}<br><span class="warn">↔ transfer already recorded from the other statement - will be skipped (don't post)</span>
       {% elif it.transfer_to %}<br><span class="pos">↔ transfer to {{ it.transfer_to }} - posts once</span>
       {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}</td>
@@ -66,6 +72,29 @@
     <td><input type="text" name="memo_{{ it.id }}" value="{{ it.memo }}" placeholder="(optional note)"
                title="Optional note saved on this transaction"></td>
   </tr>
+  <tr id="pair-{{ it.id }}" class="pair-row" style="display:none; background: #fdfdfb;">
+    <td colspan="8" style="padding: 12px; border-bottom: 1px solid #c9c6bd;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #444;">Pair unmatched receipts with this transaction:</div>
+      <div style="max-height: 160px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 6px; padding: 8px 12px; background: #fff; margin-bottom: 8px; max-width: 800px;">
+        {% for r in unmatched_receipts %}
+          <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 13px; cursor: pointer;">
+            <input type="checkbox" name="docs_{{ it.id }}" value="{{ r.id }}" 
+                   {{ 'checked' if r.id in it.matched_doc_ids else '' }} style="margin-right: 8px;">
+            <span style="min-width: 80px; display: inline-block;">${{ r.amount_cents|money if r.amount_cents is not none else '—' }}</span>
+            <span style="min-width: 150px; display: inline-block; color: #555;">{{ r.vendor or 'Unknown Vendor' }}</span>
+            <span style="min-width: 100px; display: inline-block; color: #888;">{{ r.doc_date or 'No Date' }}</span>
+            <span style="color: #444;">{{ r.filename }}</span>
+          </label>
+        {% else %}
+          <span class="muted">No unmatched receipts available.</span>
+        {% endfor %}
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button type="submit" name="save_matches" value="{{ it.id }}" class="small">Save Matches</button>
+        <button type="button" class="small ghost" onclick="togglePairing({{ it.id }})">Cancel</button>
+      </div>
+    </td>
+  </tr>
   {% endfor %}
 </table>
 </div>
@@ -77,4 +106,13 @@ booked only once - so "Post all" is safe even with both statements in the queue.
 is the second side and is skipped for you. Imported data from before this matched? Click <strong>↔ Find
 transfers</strong> above to scan the whole queue.</p>
 {% endif %}
+
+<script>
+function togglePairing(id) {
+  var row = document.getElementById("pair-" + id);
+  if (row) {
+    row.style.display = (row.style.display === "none") ? "table-row" : "none";
+  }
+}
+</script>
 {% endblock %}

@@ -163,12 +163,12 @@ con.commit()
 # Verify staged_receipt_matches returns the combined match
 matches = appmod.staged_receipt_matches(con)
 ok(999 in matches, "staged row 999 matched to combined receipts")
-ok(matches[999]["vendor"] == "Amazon (2 items)", "vendor set to combined label")
+ok(len(matches[999]) == 2, "2 documents in combined match")
 con.close()
 
 # Verify review page renders the paperclip with the combined vendor
 r_get = client.get("/review")
-ok("Amazon (2 items)" in r_get.text, "review page contains combined receipt vendor label")
+ok("Receipt: Amazon" in r_get.text, "review page contains receipt vendor label")
 
 # Trigger Post on the staged row
 r_post = client.post("/review", data={"post_one": "999", "cat_999": str(supplies)}, follow_redirects=False)

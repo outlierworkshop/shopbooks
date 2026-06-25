@@ -46,8 +46,8 @@ def test_match_by_amount_and_date():
     con.commit()
     matches = webapp.staged_receipt_matches(con)
     assert 100 in matches, f"Expected staged id 100 in matches, got {matches}"
-    assert matches[100]["id"] == 200
-    assert matches[100]["vendor"] == "SpeTool Bits"
+    assert matches[100][0]["id"] == 200
+    assert matches[100][0]["vendor"] == "SpeTool Bits"
     con.execute("DELETE FROM staged WHERE id=100")
     con.execute("DELETE FROM documents WHERE id=200")
     con.commit()

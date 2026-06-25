@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS documents(
   amount_cents INTEGER,
   status TEXT NOT NULL DEFAULT 'unmatched',  -- unmatched/matched
   entry_id INTEGER REFERENCES entries(id),
-  uploaded_at TEXT DEFAULT (datetime('now'))
+  uploaded_at TEXT DEFAULT (datetime('now')),
+  staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL
 );
 CREATE TABLE IF NOT EXISTS mileage(
   id INTEGER PRIMARY KEY,
@@ -334,6 +335,8 @@ def _column_migrations(con):
     have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
     if "sha256" not in have:
         con.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
+    if "staged_id" not in have:
+        con.execute("ALTER TABLE documents ADD COLUMN staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL")
     acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
     if "parent_id" not in acct:
         con.execute("ALTER TABLE accounts ADD COLUMN parent_id INTEGER REFERENCES accounts(id)")

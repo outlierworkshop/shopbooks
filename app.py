@@ -208,6 +208,9 @@ def review(request: Request, note: str = ""):
             "WHERE st.status='pending' ORDER BY b.id DESC, st.date, st.id").fetchall()
         receipt_matches = staged_receipt_matches(con)
         invoice_matches = staged_invoice_matches(con)
+        unmatched_receipts = con.execute(
+            "SELECT * FROM documents WHERE status='unmatched' ORDER BY doc_date DESC, id DESC"
+        ).fetchall()
         items = []
         for r in rows:
             booked = importer.find_posted_transfer(con, r["source_id"], r["amount_cents"], r["date"])
@@ -216,16 +219,16 @@ def review(request: Request, note: str = ""):
             transfer_to = catrow["name"] if catrow and catrow["kind"] in ("bank", "card") else None
             dup = (importer.possible_duplicate(con, r["source_id"], r["date"], r["amount_cents"])
                    and transfer_to is None and booked is None)
-            rdoc = receipt_matches.get(r["id"])
+            rdocs = receipt_matches.get(r["id"], [])
             rinv = invoice_matches.get(r["id"])
             items.append({**dict(r), "dup": dup, "transfer_to": transfer_to, "transfer_booked": booked is not None,
-                          "receipt_vendor": rdoc["vendor"] if rdoc else None,
-                          "receipt_id": rdoc["id"] if rdoc else None,
+                          "receipts": [{"id": d["id"], "vendor": d["vendor"]} for d in rdocs],
+                          "matched_doc_ids": {d["id"] for d in rdocs},
                           "invoice_number": rinv["number"] if rinv else None,
                           "invoice_customer": rinv["customer"] if rinv else None,
                           "invoice_id": rinv["id"] if rinv else None})
         cats = categories(con)
-        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, note=note))
+        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, unmatched_receipts=unmatched_receipts, note=note))
     finally:
         con.close()
 
@@ -233,46 +236,14 @@ def review(request: Request, note: str = ""):
 def _link_staged_receipt(con, staged_id, entry_id):
     """Find the receipt(s) matched to a staged transaction and link them directly to the posted entry."""
     matches = staged_receipt_matches(con)
-    doc = matches.get(staged_id)
-    if not doc:
+    docs = matches.get(staged_id)
+    if not docs:
         return
-    
-    # Check if this was a combined Amazon match
-    if "Amazon (" in (doc["vendor"] or ""):
-        st = con.execute("SELECT * FROM staged WHERE id=?", (staged_id,)).fetchone()
-        if not st:
-            return
-        from datetime import date as dt_date, timedelta
-        target = st["amount_cents"]
-        try:
-            ed = dt_date.fromisoformat(st["date"])
-        except Exception:
-            return
-        docs = con.execute(
-            "SELECT * FROM documents WHERE status='unmatched' AND vendor='Amazon' AND amount_cents IS NOT NULL"
-        ).fetchall()
-        window_docs = []
-        for d in docs:
-            if not d["doc_date"]:
-                continue
-            try:
-                dd = dt_date.fromisoformat(d["doc_date"])
-                if ed - timedelta(days=4) <= dd <= ed + timedelta(days=1):
-                    window_docs.append(d)
-            except Exception:
-                continue
-        if len(window_docs) >= 2:
-            n = len(window_docs)
-            matching_subsets = []
-            for i in range(1 << n):
-                subset = [window_docs[j] for j in range(n) if (i & (1 << j))]
-                if len(subset) >= 2 and sum(d["amount_cents"] for d in subset) == target:
-                    matching_subsets.append(subset)
-            if len(matching_subsets) == 1:
-                for d in matching_subsets[0]:
-                    con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_id, d["id"]))
-    else:
-        con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (entry_id, doc["id"]))
+    for doc in docs:
+        con.execute(
+            "UPDATE documents SET status='matched', entry_id=?, staged_id=NULL WHERE id=?",
+            (entry_id, doc["id"])
+        )
 
 
 def _post_staged(con, staged_id, category_id, remember=False):
@@ -328,7 +299,18 @@ async def review_action(request: Request):
                 con.execute("UPDATE staged SET memo=? WHERE id=? AND status='pending'",
                             (str(form[k]).strip(), msid))
 
-        if "post_one" in form:
+        if "save_matches" in form:
+            sid = int(form["save_matches"])
+            doc_ids = [int(x) for x in form.getlist(f"docs_{sid}")]
+            con.execute("UPDATE documents SET staged_id=NULL WHERE staged_id=?", (sid,))
+            if doc_ids:
+                con.execute(
+                    f"UPDATE documents SET staged_id=? WHERE id IN ({','.join('?' for _ in doc_ids)})",
+                    [sid] + doc_ids
+                )
+            con.commit()
+            return RedirectResponse("/review", status_code=303)
+        elif "post_one" in form:
             sid = int(form["post_one"])
             _post_staged(con, sid, cat_for(sid), remember=f"remember_{sid}" in form)
         elif "skip_one" in form:
@@ -1015,27 +997,49 @@ def _receipt_context(doc):
 
 
 def staged_receipt_matches(con):
-    """Find unmatched receipts whose amount matches a pending staged transaction (±7 days).
+    """Find unmatched receipts matched to pending staged transactions (manual or auto ±7 days).
     Also supports matching a staged Amazon transaction to a combination of unmatched Amazon receipts.
-    Returns a dict {staged_id: doc_row} — one receipt per staged row (nearest date, each
-    receipt used at most once)."""
+    Returns a dict {staged_id: list_of_doc_rows}."""
     from collections import defaultdict
     from datetime import date as dt_date, timedelta
-    docs = con.execute(
-        "SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL"
-    ).fetchall()
-    if not docs:
-        return {}
+
+    # 1. Fetch manual matches (documents with staged_id set)
+    manual_matches = defaultdict(list)
+    manually_used_doc_ids = set()
+    for d in con.execute(
+        "SELECT * FROM documents WHERE status='unmatched' AND staged_id IS NOT NULL"
+    ).fetchall():
+        manual_matches[d["staged_id"]].append(d)
+        manually_used_doc_ids.add(d["id"])
+
+    # 2. Fetch the remaining unmatched documents (excluding manual matches)
+    docs = [
+        d for d in con.execute(
+            "SELECT * FROM documents WHERE status='unmatched' AND amount_cents IS NOT NULL"
+        ).fetchall()
+        if d["id"] not in manually_used_doc_ids
+    ]
+
     pending = con.execute(
         "SELECT id, date, amount_cents, description FROM staged WHERE status='pending'"
     ).fetchall()
     if not pending:
-        return {}
+        return {sid: list_of_docs for sid, list_of_docs in manual_matches.items()}
+
+    # Initialize result dictionary with the manual matches
+    result = {sid: list_of_docs for sid, list_of_docs in manual_matches.items()}
+
+    # Only auto-match for staged rows that do not have manual matches
+    pending_for_auto = [st for st in pending if st["id"] not in result]
+    if not docs or not pending_for_auto:
+        return result
+
     by_amount = defaultdict(list)
     for d in docs:
         by_amount[d["amount_cents"]].append(d)
+
     candidates = []  # (staged_id, doc, date_distance)
-    for st in pending:
+    for st in pending_for_auto:
         for doc in by_amount.get(st["amount_cents"], []):
             if doc["doc_date"] and st["date"]:
                 try:
@@ -1048,19 +1052,20 @@ def staged_receipt_matches(con):
             else:
                 dist = 0
             candidates.append((st["id"], doc, dist))
+
     # Greedy assignment: nearest date first, each receipt and staged row used at most once
     candidates.sort(key=lambda x: x[2])
-    used_docs, used_staged, result = set(), set(), {}
+    used_docs, used_staged = set(), set()
     for sid, doc, _ in candidates:
         if sid in used_staged or doc["id"] in used_docs:
             continue
-        result[sid] = doc
+        result[sid] = [doc]
         used_staged.add(sid)
         used_docs.add(doc["id"])
 
     # Now, find combined matches for the remaining unmatched staged rows with AMAZON in description
     remaining_staged = [
-        st for st in pending
+        st for st in pending_for_auto
         if st["id"] not in used_staged and ("AMAZON" in st["description"].upper() or "AMZN" in st["description"].upper())
     ]
     remaining_docs = [
@@ -1094,9 +1099,7 @@ def staged_receipt_matches(con):
                     matching_subsets.append(subset)
             if len(matching_subsets) == 1:
                 best_subset = matching_subsets[0]
-                doc_repr = dict(best_subset[0])
-                doc_repr["vendor"] = f"Amazon ({len(best_subset)} items)"
-                result[st["id"]] = doc_repr
+                result[st["id"]] = best_subset
                 used_staged.add(st["id"])
                 for d in best_subset:
                     used_docs.add(d["id"])
@@ -1171,9 +1174,12 @@ def _categorize_from_receipts(con):
     cats = {a["name"]: a["id"] for a in con.execute(
         "SELECT id, name FROM accounts WHERE type IN ('expense','income') AND active=1"
     ).fetchall()}
-    targets = [(sid, doc) for sid, doc in matches.items()]
-    txns = [{"description": _receipt_context(doc), "amount": doc["amount_cents"] or 0}
-            for _, doc in targets]
+    targets = [(sid, docs) for sid, docs in matches.items()]
+    txns = []
+    for sid, docs in targets:
+        combined_desc = " & ".join(_receipt_context(d) for d in docs)[:2000]
+        total_cents = sum(d["amount_cents"] or 0 for d in docs)
+        txns.append({"description": combined_desc, "amount": total_cents})
     suggestions = ai.categorize(con, txns, list(cats.keys()))
     if not suggestions:
         return len(matches), 0, "matched receipts but AI couldn't suggest categories — try again"

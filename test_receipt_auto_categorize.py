@@ -63,7 +63,7 @@ def test_auto_cat():
     # Verify that the receipt is indeed matching in staged_receipt_matches.
     matches = app.staged_receipt_matches(con)
     ok(st["id"] in matches, "receipt match exists in staged_receipt_matches")
-    ok(matches[st["id"]]["sha256"] == "sha_test1", "matched the correct receipt by SHA")
+    ok(matches[st["id"]][0]["sha256"] == "sha_test1", "matched the correct receipt by SHA")
     con.close()
 
     # 4. Now test receipt upload auto-matching.
@@ -92,7 +92,7 @@ def test_auto_cat():
     # Verify that the staged row matches it
     matches2 = app.staged_receipt_matches(con)
     ok(staged_id in matches2, "receipt matched to pending transaction after upload")
-    ok(matches2[staged_id]["id"] == uploaded_doc["id"], "linked to the uploaded doc id")
+    ok(matches2[staged_id][0]["id"] == uploaded_doc["id"], "linked to the uploaded doc id")
     con.close()
 
     # 5. Test auto-linking matched receipt on post.
@@ -114,6 +114,66 @@ def test_auto_cat():
     linked_doc = con.execute("SELECT * FROM documents WHERE id=?", (uploaded_doc["id"],)).fetchone()
     ok(linked_doc["status"] == "matched", "receipt document marked as matched")
     ok(linked_doc["entry_id"] == entry_id, "receipt document linked to the correct entry_id")
+    con.close()
+
+    # 6. Test manual multiple receipt pairing
+    # Seed another staged transaction: 150.00, dated 2026-05-20
+    con = db.connect()
+    cur = con.execute(
+        "INSERT INTO staged(batch_id, date, description, amount_cents, status) VALUES(?,?,?,?,?)",
+        (st["batch_id"], "2026-05-20", "Various Purchases", 15000, "pending")
+    )
+    manual_staged_id = cur.lastrowid
+    
+    # Seed two unmatched documents: 90.00 and 60.00
+    cur1 = con.execute(
+        "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256, status) VALUES(?,?,?,?,?,?,?)",
+        ("manual1.txt", "m1.txt", "Vendor A", "2026-05-19", 9000, "sha_manual1", "unmatched")
+    )
+    m1_id = cur1.lastrowid
+    
+    cur2 = con.execute(
+        "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256, status) VALUES(?,?,?,?,?,?,?)",
+        ("manual2.txt", "m2.txt", "Vendor B", "2026-05-19", 6000, "sha_manual2", "unmatched")
+    )
+    m2_id = cur2.lastrowid
+    con.commit()
+    con.close()
+
+    # Post to /review to manually pair them (simulating checking them in the list and clicking Save Matches)
+    r4 = client.post(
+        "/review",
+        data={"save_matches": str(manual_staged_id), f"docs_{manual_staged_id}": [str(m1_id), str(m2_id)]},
+        follow_redirects=False
+    )
+    ok(r4.status_code == 303, "manually saved matches successfully")
+
+    # Verify that staged_receipt_matches returns both documents for this staged row
+    con = db.connect()
+    manual_matches = app.staged_receipt_matches(con)
+    ok(manual_staged_id in manual_matches, "staged row has matches")
+    ok(len(manual_matches[manual_staged_id]) == 2, "paired with exactly 2 documents")
+    ok({d["id"] for d in manual_matches[manual_staged_id]} == {m1_id, m2_id}, "linked to correct document IDs")
+    con.close()
+
+    # Now post the transaction
+    r5 = client.post(
+        "/review",
+        data={"post_one": str(manual_staged_id), f"cat_{manual_staged_id}": str(supplies)},
+        follow_redirects=False
+    )
+    ok(r5.status_code == 303, "posted manually paired transaction")
+
+    # Verify both documents are marked as matched and linked to the correct entry_id
+    con = db.connect()
+    posted_manual_st = con.execute("SELECT * FROM staged WHERE id=?", (manual_staged_id,)).fetchone()
+    manual_entry_id = posted_manual_st["entry_id"]
+    ok(manual_entry_id is not None, "ledger entry created for manually matched row")
+
+    doc1 = con.execute("SELECT * FROM documents WHERE id=?", (m1_id,)).fetchone()
+    doc2 = con.execute("SELECT * FROM documents WHERE id=?", (m2_id,)).fetchone()
+    ok(doc1["status"] == "matched" and doc1["entry_id"] == manual_entry_id, "first manual receipt linked")
+    ok(doc2["status"] == "matched" and doc2["entry_id"] == manual_entry_id, "second manual receipt linked")
     con.close()
 
 test_auto_cat()
