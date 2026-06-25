@@ -1058,11 +1058,11 @@ def staged_receipt_matches(con):
     manual_matches = defaultdict(list)
     manually_used_doc_ids = set()
     for r in con.execute(
-        "SELECT d.*, l.staged_id FROM documents d "
+        "SELECT d.*, l.staged_id AS link_staged_id FROM documents d "
         "JOIN document_staged_links l ON l.document_id=d.id "
         "WHERE d.status='unmatched'"
     ).fetchall():
-        manual_matches[r["staged_id"]].append(r)
+        manual_matches[r["link_staged_id"]].append(r)
         manually_used_doc_ids.add(r["id"])
 
     # 2. Fetch the remaining unmatched documents (excluding manual matches)
@@ -1379,6 +1379,38 @@ async def save_staged_matches(request: Request):
         con.execute("DELETE FROM document_staged_links WHERE document_id=?", (doc_id,))
         for sid in staged_ids:
             con.execute("INSERT OR IGNORE INTO document_staged_links(document_id, staged_id) VALUES(?, ?)", (doc_id, sid))
+        
+        # Try to run AI categorization first on the newly matched staged transactions
+        try:
+            _categorize_from_receipts(con)
+        except Exception:
+            pass
+        
+        # Auto-post all matched pending staged transactions
+        for sid in staged_ids:
+            st = con.execute("SELECT * FROM staged WHERE id=? AND status='pending'", (sid,)).fetchone()
+            if not st:
+                continue
+            
+            category_id = st["category_id"]
+            if not category_id:
+                category_id = importer.apply_rules(con, st["description"])
+            if not category_id:
+                hist = importer.history_map(con)
+                h = hist.get(importer.payee_key(st["description"]))
+                cats = {a["name"]: a["id"] for a in con.execute(
+                    "SELECT id, name FROM accounts WHERE type IN ('expense','income') AND active=1"
+                ).fetchall()}
+                if h in cats.values():
+                    category_id = h
+            if not category_id:
+                uncat_row = con.execute("SELECT id FROM accounts WHERE name='Uncategorized Expense'").fetchone()
+                if uncat_row:
+                    category_id = uncat_row["id"]
+            
+            if category_id:
+                _post_staged(con, sid, category_id)
+        
         con.commit()
         return RedirectResponse("/receipts", status_code=303)
     finally:

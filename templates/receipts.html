@@ -108,7 +108,7 @@
             <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
           </form>
           {% endfor %}
-        {% else %}
+        {% elif not it.matched_staged_ids %}
           <p class="warn">No matching transaction found yet - import the statement that contains this purchase,
              or check the amount/date above.</p>
         {% endif %}

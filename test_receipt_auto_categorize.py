@@ -191,4 +191,68 @@ def test_auto_cat():
 
 test_auto_cat()
 shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
-print("\nRECEIPT AUTO CATEGORIZE TESTS DONE")
+
+def test_receipt_side_save_staged_matches_autopost():
+    # Setup fresh temporary database
+    os.environ["SHOPBOOKS_DATA_DIR"] = os.path.join(os.path.dirname(__file__), ".test_auto_post_data")
+    shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
+    db.init()
+    
+    con = db.connect()
+    checking = con.execute("SELECT id FROM accounts WHERE name='Business Checking'").fetchone()["id"]
+    supplies = con.execute("SELECT id FROM accounts WHERE name='Materials & Supplies'").fetchone()["id"]
+    
+    # Seed batch and staged pending transaction (no category_id, description "Office Depot")
+    con.execute("INSERT OR IGNORE INTO batches(id,filename,account_id,imported_at) VALUES(1,'test.pdf',?,?)",
+                (checking, '2026-01-01'))
+    cur = con.execute(
+        "INSERT INTO staged(batch_id, date, description, amount_cents, status) VALUES(?,?,?,?,?)",
+        (1, "2026-05-15", "Office Depot Test Transaction", 4500, "pending")
+    )
+    staged_id = cur.lastrowid
+    
+    # Seed unmatched receipt doc
+    cur2 = con.execute(
+        "INSERT INTO documents(filename, path, vendor, doc_date, amount_cents, sha256, status) VALUES(?,?,?,?,?,?,?)",
+        ("manual_upload.txt", "mu.txt", "Office Depot", "2026-05-15", 4500, "sha_manual_upload", "unmatched")
+    )
+    doc_id = cur2.lastrowid
+    con.commit()
+    con.close()
+    
+    # Send POST request to /receipts/save-staged-matches
+    r = client.post(
+        "/receipts/save-staged-matches",
+        data={"doc_id": str(doc_id), f"staged_{doc_id}": [str(staged_id)]},
+        follow_redirects=False
+    )
+    ok(r.status_code == 303, "POST /receipts/save-staged-matches redirected")
+    
+    # Verify the results:
+    con = db.connect()
+    # 1. staged transaction should be posted
+    st = con.execute("SELECT * FROM staged WHERE id=?", (staged_id,)).fetchone()
+    ok(st["status"] == "posted", "Staged transaction is posted automatically")
+    ok(st["entry_id"] is not None, "Ledger entry created")
+    
+    # 2. Category should be assigned (resolved to Materials & Supplies by AI monkeypatch)
+    ok(st["category_id"] == supplies, f"Category resolved to Materials & Supplies (got {st['category_id']})")
+    
+    # 3. Document status should be matched and linked to the posted entry_id
+    doc = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    ok(doc["status"] == "matched", "Receipt document status is matched")
+    
+    # 4. Entry links should be populated
+    entry_links = con.execute("SELECT * FROM document_entry_links WHERE entry_id=?", (st["entry_id"],)).fetchall()
+    ok(len(entry_links) == 1, "Exactly 1 entry link created")
+    ok(entry_links[0]["document_id"] == doc_id, "Linked to the correct document")
+    
+    # 5. Staged links should be cleared
+    staged_links = con.execute("SELECT * FROM document_staged_links WHERE staged_id=?", (staged_id,)).fetchall()
+    ok(len(staged_links) == 0, "Pending staged links cleared")
+    
+    con.close()
+    shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
+
+test_receipt_side_save_staged_matches_autopost()
+print("\nRECEIPT AUTO CATEGORIZE AND AUTO POST TESTS DONE")
