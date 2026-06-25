@@ -15,6 +15,7 @@ import zipfile
 
 import ai
 import backup
+import chat
 import db
 import importer
 import insights
@@ -1389,6 +1390,41 @@ def insights_page(request: Request, period: str = "this-year", base: str = "last
             request, con, period=period, base=base, label=label, pnl=pnl, growth=growth,
             trend=trend, exp=exp, cash=cash, health=health, jobs=jobs[:8],
             narrative=narrative, explained=bool(explain)))
+    finally:
+        con.close()
+
+
+# ---------- assistant (Opus chatbot) ----------
+
+CHAT_HISTORY = []  # in-memory transcript for the assistant (single local user; resets on restart)
+
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page(request: Request):
+    con = db.connect()
+    try:
+        return templates.TemplateResponse(request, "chat.html", ctx(
+            request, con, history=CHAT_HISTORY, err=None))
+    finally:
+        con.close()
+
+
+@app.post("/chat", response_class=HTMLResponse)
+def chat_send(request: Request, message: str = Form(""), clear: str = Form("")):
+    con = db.connect()
+    try:
+        if clear:
+            CHAT_HISTORY.clear()
+            return RedirectResponse("/chat", status_code=303)
+        err = None
+        msg = message.strip()
+        if msg:
+            CHAT_HISTORY.append({"role": "user", "content": msg})
+            reply, err = chat.ask(con, CHAT_HISTORY)
+            if reply:
+                CHAT_HISTORY.append({"role": "assistant", "content": reply})
+        return templates.TemplateResponse(request, "chat.html", ctx(
+            request, con, history=CHAT_HISTORY, err=err))
     finally:
         con.close()
 

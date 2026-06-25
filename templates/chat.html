@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Assistant{% endblock %}
+{% block content %}
+<h1>Assistant</h1>
+<p class="muted">Ask about your numbers, how to use ShopBooks, or tax strategy. Answers about your
+finances are pulled straight from your ledger — the assistant reads the real figures, it never
+makes them up or changes anything.</p>
+
+{% if not ai_on %}
+<p class="warn">The assistant needs an Anthropic API key. Add one under
+<a href="/settings">Settings → AI</a> to turn it on. (Everything else works without it.)</p>
+{% endif %}
+
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="chatlog">
+  {% for m in history %}
+  <div class="bubble {{ m.role }}">
+    <div class="who">{{ 'You' if m.role == 'user' else 'Assistant' }}</div>
+    <div class="msg">{{ m.content }}</div>
+  </div>
+  {% else %}
+  <div class="muted" style="padding:8px 0">No messages yet. Try one of the prompts below.</div>
+  {% endfor %}
+</div>
+
+{% if not history %}
+<div class="toolbar" style="flex-wrap:wrap; gap:8px; margin:10px 0">
+  {% for s in [
+      "How is the business doing this year?",
+      "What are my biggest expenses, and what changed vs last year?",
+      "How much cash do I have, and how much do I owe on cards?",
+      "Are my books clean enough for taxes?",
+      "What deductions should a one-person shop be tracking?",
+      "How do I import a bank statement?"] %}
+  <button type="button" class="ghost small chip" onclick="askChip(this)">{{ s }}</button>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form method="post" action="/chat" class="toolbar" id="chatForm" {{ 'style=opacity:.5;pointer-events:none' if not ai_on else '' }}>
+  <input type="text" name="message" id="chatMsg" placeholder="Ask a question..." autocomplete="off"
+         style="flex:1; min-width:280px" {{ 'disabled' if not ai_on else 'autofocus' }}>
+  <button type="submit">Send</button>
+  {% if history %}
+  <button type="submit" name="clear" value="1" class="ghost small"
+          onclick="return confirm('Clear this conversation?')">Clear</button>
+  {% endif %}
+</form>
+
+<script>
+function askChip(btn){
+  var box = document.getElementById('chatMsg');
+  if (box){ box.value = btn.textContent.trim(); document.getElementById('chatForm').submit(); }
+}
+// keep the newest message in view after a reply
+window.scrollTo(0, document.body.scrollHeight);
+</script>
+
+<style>
+.chatlog{display:flex; flex-direction:column; gap:10px; margin:14px 0}
+.chatlog .bubble{max-width:760px; padding:10px 14px; border-radius:10px}
+.chatlog .bubble.user{align-self:flex-end; background:#e8eef6}
+.chatlog .bubble.assistant{align-self:flex-start; background:#f4f4f2; border:1px solid #e6e6e2}
+.chatlog .who{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#888; margin-bottom:3px}
+.chatlog .msg{white-space:pre-wrap; line-height:1.5}
+.chip{text-align:left}
+</style>
+{% endblock %}

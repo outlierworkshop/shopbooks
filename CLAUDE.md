@@ -113,6 +113,7 @@ existing example). Existing user data must always survive an upgrade.
 | `insights.py` | Read-only "book query" layer: deterministic P&L/growth/trend/cash/health figures for reports and AI tools (reuses `ledger.py`). Numbers are computed here — never by the model |
 | `importer.py` | CSV parsing, PDF text extraction, regex statement fallback, rules engine, duplicate detection, staging |
 | `ai.py` | AI: statement extraction, receipt vision, categorization. Pluggable backend (`ai_backend`: claude/ollama/hybrid); all optional, return None on any failure |
+| `chat.py` | The Assistant (`/chat`): Opus tool-use loop that answers from `insights.py`/`timetracking` as read-only tools (cents→dollars in the tool layer; model never computes). Reuses `ai._claude_client`/`_claude_ok`; AI-optional |
 | `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email |
 | `templates/`, `static/style.css` | Server-rendered UI (vanilla; no JS framework) |
 | `backup.py` | Startup snapshots, retention, cloud mirror, full-ZIP download |
@@ -135,7 +136,9 @@ posts to the books stays human-confirmed (the Review step).
 - #4 Reconciliation assurance (record statement ending balances; flag discrepancies/gaps/dupes).
 - #5 Keep receipts sorted & flag transactions missing a receipt.
 - #6 Business analysis & profitability — narrate `insights.py` results on an Insights page.
-- #7 Opus chatbot for business-health queries — give the model `insights.py` functions as tools.
+- **#7 Opus chatbot — done (`chat.py`, `/chat`).** Agentic tool-use loop on `claude-opus-4-8`; the
+  `insights.py`/`timetracking` functions are the tools. Three jobs: how-to, tax strategy, analysis on
+  real numbers. Tool layer converts cents→dollars so the model only narrates.
 
 Model choice: Opus 4.8 for chat/analysis (judgment-heavy, low volume); consider a cheaper
 model (e.g. Haiku) for high-volume line-item categorization. Backend is pluggable via `ai_backend`.
