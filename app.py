@@ -1845,7 +1845,7 @@ def reconcile_account(request: Request, account_id: int, date: str = "", balance
                 result = None
         return templates.TemplateResponse(request, "reconcile_account.html", ctx(
             request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
-            result=result, txns=txns, dups=dups, date=date, balance=balance, cats=categories(con), msg=msg))
+            result=result, txns=txns, dups=dups, date=date, balance=balance, cats=categories(con, types=('expense', 'income')), msg=msg))
     finally:
         con.close()
 
