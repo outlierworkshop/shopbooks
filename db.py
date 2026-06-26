@@ -47,7 +47,33 @@ def _default_data_dir():
 
 def data_dir():
     override = os.environ.get("SHOPBOOKS_DATA_DIR")
-    return Path(override).resolve() if override else _default_data_dir()
+    if override:
+        return Path(override).resolve()
+        
+    # Programmatic safety guard to prevent modifying real books during test execution
+    import sys
+    is_test = False
+    if "pytest" in sys.modules or "unittest" in sys.modules:
+        is_test = True
+    else:
+        # Check if the executing script's basename looks like a test runner or test file
+        if sys.argv:
+            main_script = os.path.basename(sys.argv[0]).lower()
+            if (main_script.startswith("test_") or 
+                main_script.endswith("_test.py") or 
+                main_script == "conftest.py" or 
+                "pytest" in main_script or 
+                "unittest" in main_script):
+                is_test = True
+                
+    if is_test:
+        raise RuntimeError(
+            "FATAL: Database imported in a test environment/script (detected via sys.argv/sys.modules) "
+            "but SHOPBOOKS_DATA_DIR is not set. To protect the user's real data, you must set "
+            "os.environ['SHOPBOOKS_DATA_DIR'] to a temporary directory before importing db or app."
+        )
+        
+    return _default_data_dir()
 
 
 DATA = data_dir()
