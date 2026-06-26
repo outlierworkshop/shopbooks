@@ -1869,6 +1869,74 @@ def reconcile_save(account_id: int = Form(...), statement_date: str = Form(...),
         con.close()
 
 
+@app.post("/reconcile/upload")
+async def reconcile_upload(request: Request, file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        raw = await file.read()
+        name = (file.filename or "statement").lower()
+        if not (name.endswith(".csv") or name.endswith(".pdf")):
+            raise ValueError("Upload a .pdf or .csv file.")
+
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        tmp = db.DOCS / f"temp_rec_{timestamp}_{Path(name).name}"
+        db.DOCS.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(raw)
+
+        # 1. Text extraction & Account Auto-detection:
+        if name.endswith(".pdf"):
+            text = importer.pdf_text(tmp)
+        else:
+            text = raw.decode("utf-8-sig", errors="replace")
+
+        detected_account_id = importer.detect_account_id(con, file.filename or "", text)
+        acct = con.execute("SELECT * FROM accounts WHERE id=?", (detected_account_id,)).fetchone()
+        if not acct:
+            raise ValueError("No active bank or card account detected for this statement.")
+
+        # 2. Extract date and ending balance:
+        statement_date = ""
+        statement_balance = ""
+
+        if name.endswith(".pdf") and ai.available(con):
+            metadata = ai.extract_reconcile_metadata_pdf(con, str(tmp), acct["name"])
+            if metadata:
+                statement_date = metadata.get("statement_end_date", "")
+                bal_val = metadata.get("ending_balance", 0.0)
+                if bal_val:
+                    statement_balance = f"{bal_val:.2f}"
+
+        # Fallbacks:
+        if not statement_date:
+            txns = []
+            if name.endswith(".csv"):
+                txns = importer.parse_csv(raw)
+            elif name.endswith(".pdf"):
+                txns = importer.regex_parse_statement(text)
+            
+            dates = [t["date"] for t in txns if t.get("date")]
+            if dates:
+                statement_date = max(dates)
+            else:
+                statement_date = date_cls.today().isoformat()
+
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+
+        from urllib.parse import quote
+        url = f"/reconcile/{detected_account_id}?date={quote(statement_date)}&balance={quote(statement_balance)}"
+        return RedirectResponse(url, status_code=303)
+
+    except ValueError as e:
+        return templates.TemplateResponse(request, "reconcile.html", ctx(
+            request, con, accounts=reconcile.status(con), msg=str(e)))
+    finally:
+        con.close()
+
+
 # ---------- reports ----------
 
 @app.get("/reports", response_class=HTMLResponse)

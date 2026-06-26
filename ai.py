@@ -361,3 +361,49 @@ def analyze(con, facts):
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:
         return None
+
+
+RECONCILE_METADATA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "statement_end_date": {"type": "string", "description": "the statement closing / period-end date as YYYY-MM-DD, read from the statement header; empty string if not shown"},
+        "ending_balance": {"type": "number", "description": "the statement ending balance, closing balance, or new balance as a number in dollars; 0.0 if not shown or not found"}
+    },
+    "required": ["statement_end_date", "ending_balance"],
+    "additionalProperties": False,
+}
+
+
+def extract_reconcile_metadata(con, text, account_name):
+    if not available(con):
+        return None
+    prompt = (
+        f"This is the text of a bank or credit card statement for the account '{account_name}'. "
+        "Extract the statement closing / period-end date as YYYY-MM-DD, and the ending balance, closing balance, "
+        "or new balance as a number in dollars."
+    )
+    try:
+        if _task_backend(con, "statement") == "ollama":
+            return _ollama_chat_json(con, prompt + "\n\n" + text[:150000], RECONCILE_METADATA_SCHEMA)
+        return _claude_json(con, prompt + "\n\n" + text[:150000], RECONCILE_METADATA_SCHEMA)
+    except Exception:
+        return None
+
+
+def extract_reconcile_metadata_pdf(con, pdf_path, account_name):
+    if not available(con):
+        return None
+    try:
+        data_b64 = base64.standard_b64encode(open(pdf_path, "rb").read()).decode()
+        content = [
+            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data_b64}},
+            {"type": "text", "text": f"This is a bank or credit card statement for '{account_name}'. "
+                                    "Extract the statement closing / period-end date as YYYY-MM-DD, and the ending balance, "
+                                    "closing balance, or new balance as a number in dollars."},
+        ]
+        if _task_backend(con, "statement") == "ollama":
+            text = importer.pdf_text(pdf_path)
+            return extract_reconcile_metadata(con, text, account_name)
+        return _claude_json(con, content, RECONCILE_METADATA_SCHEMA)
+    except Exception:
+        return None

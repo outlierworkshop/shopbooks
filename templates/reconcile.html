@@ -7,6 +7,19 @@
 enter the statement's closing date and ending balance, and ShopBooks shows whether your books
 agree. Do this once per statement (usually monthly).</p>
 
+<div class="card" style="margin-bottom: 24px; max-width: 560px; padding: 20px;">
+  <h2 style="margin-top: 0; margin-bottom: 12px;">Reconcile with Statement Upload</h2>
+  <form method="post" action="/reconcile/upload" enctype="multipart/form-data" class="formgrid" style="max-width: 100%; border: none; padding: 0; box-shadow: none; background: transparent;">
+    <label for="statement_file" style="font-weight: 500;">Statement file</label>
+    <input type="file" id="statement_file" name="file" accept=".pdf,.csv" required style="width: 100%;">
+    <span></span>
+    <span style="margin-top: 6px;"><button type="submit">Upload & Reconcile</button></span>
+  </form>
+  <p class="muted" style="margin-top: 10px; margin-bottom: 0;">
+    Upload your bank or credit card statement (PDF or CSV). ShopBooks will auto-detect the account and pre-fill the statement details.
+  </p>
+</div>
+
 <table class="sortable">
   <tr><th>Account</th><th class="num">Book balance</th><th>Last reconciled</th><th>Status</th><th></th></tr>
   {% for a in accounts %}
