@@ -97,7 +97,7 @@ def render_pdf(con, inv, items, total):
     pdf.set_text_color(80, 80, 80)
     for line in (inv["customer_address"] or "").splitlines():
         pdf.cell(100, 5, _latin(line), new_x="LMARGIN", new_y="NEXT")
-    if inv.get("customer_email"):
+    if inv["customer_email"]:
         pdf.cell(100, 5, _latin(inv["customer_email"]), new_x="LMARGIN", new_y="NEXT")
         
     y_bill_end = pdf.get_y()
