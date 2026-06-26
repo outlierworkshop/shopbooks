@@ -1845,7 +1845,7 @@ def reconcile_account(request: Request, account_id: int, date: str = "", balance
                 result = None
         return templates.TemplateResponse(request, "reconcile_account.html", ctx(
             request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
-            result=result, txns=txns, dups=dups, date=date, balance=balance, msg=msg))
+            result=result, txns=txns, dups=dups, date=date, balance=balance, cats=categories(con), msg=msg))
     finally:
         con.close()
 
@@ -1933,6 +1933,48 @@ async def reconcile_upload(request: Request, file: UploadFile = File(...)):
     except ValueError as e:
         return templates.TemplateResponse(request, "reconcile.html", ctx(
             request, con, accounts=reconcile.status(con), msg=str(e)))
+    finally:
+        con.close()
+
+
+@app.post("/reconcile/adjust")
+def reconcile_adjust(
+    account_id: int = Form(...),
+    statement_date: str = Form(...),
+    statement_balance: str = Form(...),
+    difference: int = Form(...),
+    offset_account_id: int = Form(...),
+    payee: str = Form(...),
+    memo: str = Form("")
+):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        sd = ledger.normalize_date(statement_date)
+        bal = ledger.parse_amount_to_cents(statement_balance)
+        
+        acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not acct:
+            raise ValueError("Target account not found.")
+            
+        acct_split_amount = -difference if acct["type"] in ("liability", "equity", "income") else difference
+        
+        ledger.post_entry(
+            con,
+            sd,
+            payee,
+            [(account_id, acct_split_amount), (offset_account_id, -acct_split_amount)],
+            memo=memo
+        )
+        
+        reconcile.record(con, account_id, sd, bal)
+        con.commit()
+        
+        note = f"Adjustment posted and reconciled successfully! Difference of ${ledger.fmt_cents(abs(difference))} written off."
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
+        
+    except ValueError as e:
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Adjustment failed: {e}"), status_code=303)
     finally:
         con.close()
 

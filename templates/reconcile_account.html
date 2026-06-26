@@ -38,6 +38,47 @@
     <input type="hidden" name="statement_balance" value="{{ result.statement_balance|money }}">
     <button type="submit">Save this reconciliation</button>
   </form>
+  {% if not result.reconciled %}
+  <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0;">
+  <form method="post" action="/reconcile/adjust">
+    <input type="hidden" name="account_id" value="{{ acct.id }}">
+    <input type="hidden" name="statement_date" value="{{ result.statement_date }}">
+    <input type="hidden" name="statement_balance" value="{{ result.statement_balance|money }}">
+    <input type="hidden" name="difference" value="{{ result.difference }}">
+
+    <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 14px; font-weight: 600;">Square up the books</h3>
+    <p class="muted" style="margin-top: 0; margin-bottom: 12px;">
+      Create a balancing journal entry for the difference of <strong>${{ result.difference|abs|money }}</strong>.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="offset_account_id" style="font-size: 13px; font-weight: 500; min-width: 120px; color: var(--muted);">Offset Category</label>
+        <select name="offset_account_id" id="offset_account_id" required style="flex-grow: 1; padding: 4px 8px;">
+          {% for c in cats %}
+          <option value="{{ c.id }}" {% if c.name == 'Uncategorized Expense' %}selected{% endif %}>
+            {{ c.label }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="adjust_payee" style="font-size: 13px; font-weight: 500; min-width: 120px; color: var(--muted);">Payee</label>
+        <input type="text" id="adjust_payee" name="payee" value="Reconciliation Adjustment" required style="flex-grow: 1; padding: 4px 8px;">
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="adjust_memo" style="font-size: 13px; font-weight: 500; min-width: 120px; color: var(--muted);">Memo</label>
+        <input type="text" id="adjust_memo" name="memo" value="Reconciliation adjustment to match statement as of {{ result.statement_date }}" style="flex-grow: 1; padding: 4px 8px;">
+      </div>
+
+      <div style="margin-top: 6px;">
+        <button type="submit" class="ghost" style="padding: 6px 14px; font-size: 13px; font-weight: 600;">Post Adjustment & Reconcile</button>
+      </div>
+    </div>
+  </form>
+  {% endif %}
 </div>
 
 {% if not result.reconciled %}
