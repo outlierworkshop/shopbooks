@@ -13,6 +13,13 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-26 — Schedule C Mapping & Estimated Quarterly Payments
+- **Schedule C Tax Mapping**: Added support for mapping income and expense accounts to standard IRS Schedule C lines directly via dropdown selectors on the Chart of Accounts page (`/accounts`).
+- **Estimated Quarterly Taxes**: Integrated quarterly estimated tax calculations, computing Self-Employment Tax (15.3% SE tax on 92.35% of net profit) and Estimated Income Tax based on a configurable rate.
+- **Tax Dashboard**: Redesigned the Taxes page (`/taxes`) to present a draft Schedule C P&L report, a warning checklist for unmapped active categories, an Estimated Quarterly Payments table showing Q1-Q4 due dates and payments, and an inline form to adjust the estimated income tax rate.
+- **Tax Package ZIP**: Added `{year}_schedule_c.csv` mapping report inside the generated tax package ZIP.
+- **Tests**: Created `test_taxes_schedule_c.py` verifying schema migrations, mapping updates, tax reports, quarterly payments, and ZIP packaging.
+
 ### 2026-06-24 — Assistant: the Opus chatbot (issue #7)
 - New `chat.py` + `/chat` page ("Assistant" in the nav): a conversational helper whose three jobs are
   (1) how to use ShopBooks, (2) general tax strategy for a sole proprietor, (3) business analysis on the
