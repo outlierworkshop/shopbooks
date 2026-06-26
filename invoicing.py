@@ -47,57 +47,135 @@ def render_pdf(con, inv, items, total):
     pdf.add_page()
     pdf.set_auto_page_break(True, margin=18)
 
-    pdf.set_font("helvetica", "B", 20)
-    pdf.set_text_color(36, 59, 47)
-    pdf.cell(0, 10, _latin(biz), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "", 10)
-    pdf.set_text_color(90, 90, 90)
-    for line in [l for l in (addr.splitlines() + [email, phone]) if l.strip()]:
-        pdf.cell(0, 5, _latin(line), new_x="LMARGIN", new_y="NEXT")
-
+    # 1. Header Section
+    logo_path = db.REPO_DIR / "static" / "logo.png"
+    has_logo = logo_path.exists()
+    
+    if has_logo:
+        # Render logo top left (w=45mm)
+        pdf.image(str(logo_path), x=12, y=12, w=45)
+        # Render business details top right (right aligned)
+        pdf.set_xy(120, 12)
+        pdf.set_font("helvetica", "B", 12)
+        pdf.set_text_color(36, 59, 47) # dark green
+        pdf.cell(0, 5, _latin(biz), align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("helvetica", "", 9)
+        pdf.set_text_color(90, 90, 90)
+        for line in [l for l in (addr.splitlines() + [email, phone]) if l.strip()]:
+            pdf.set_x(120)
+            pdf.cell(0, 4.5, _latin(line), align="R", new_x="LMARGIN", new_y="NEXT")
+    else:
+        # Fall back to text header
+        pdf.set_font("helvetica", "B", 20)
+        pdf.set_text_color(36, 59, 47)
+        pdf.cell(0, 10, _latin(biz), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("helvetica", "", 10)
+        pdf.set_text_color(90, 90, 90)
+        for line in [l for l in (addr.splitlines() + [email, phone]) if l.strip()]:
+            pdf.cell(0, 5, _latin(line), new_x="LMARGIN", new_y="NEXT")
+            
+    # Position below header
+    pdf.set_y(max(38, pdf.get_y()))
+    
+    # 2. Divider line
+    pdf.set_draw_color(227, 225, 216) # light beige line
+    pdf.set_line_width(0.5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(6)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 9, f"INVOICE {_latin(inv['number'])}", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "", 10)
-    pdf.cell(0, 5, f"Date: {inv['date']}     Due: {inv['due_date']}", new_x="LMARGIN", new_y="NEXT")
-
-    pdf.ln(4)
+    
+    # 3. Bill To and Invoice Metadata Columns
+    y_meta = pdf.get_y()
+    
+    # Left Column: Bill To
+    pdf.set_font("helvetica", "B", 9)
+    pdf.set_text_color(107, 114, 104) # var(--muted)
+    pdf.cell(100, 5, "BILL TO:", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("helvetica", "B", 10)
-    pdf.cell(0, 5, "Bill to:", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "", 10)
-    pdf.cell(0, 5, _latin(inv["customer"]), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(31, 36, 33) # var(--ink)
+    pdf.cell(100, 5.5, _latin(inv["customer"]), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("helvetica", "", 9.5)
+    pdf.set_text_color(80, 80, 80)
     for line in (inv["customer_address"] or "").splitlines():
-        pdf.cell(0, 5, _latin(line), new_x="LMARGIN", new_y="NEXT")
-
-    pdf.ln(6)
-    pdf.set_fill_color(239, 238, 232)
-    pdf.set_font("helvetica", "B", 10)
-    pdf.cell(110, 8, "Description", fill=True)
-    pdf.cell(20, 8, "Qty", fill=True, align="R")
-    pdf.cell(30, 8, "Unit", fill=True, align="R")
-    pdf.cell(30, 8, "Amount", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "", 10)
+        pdf.cell(100, 5, _latin(line), new_x="LMARGIN", new_y="NEXT")
+    if inv.get("customer_email"):
+        pdf.cell(100, 5, _latin(inv["customer_email"]), new_x="LMARGIN", new_y="NEXT")
+        
+    y_bill_end = pdf.get_y()
+    
+    # Right Column: Invoice metadata
+    pdf.set_xy(120, y_meta)
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(36, 59, 47)
+    pdf.cell(80, 6, f"INVOICE {inv['number']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("helvetica", "", 9.5)
+    pdf.set_text_color(80, 80, 80)
+    pdf.set_x(120)
+    pdf.cell(80, 5, f"Invoice Date: {inv['date']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(120)
+    pdf.cell(80, 5, f"Payment Due: {inv['due_date']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    # Position below columns
+    pdf.set_y(max(y_bill_end, pdf.get_y()) + 8)
+    
+    # 4. Itemized Table
+    # Table Header
+    pdf.set_fill_color(36, 59, 47) # dark forest green
+    pdf.set_text_color(255, 255, 255) # white text
+    pdf.set_font("helvetica", "B", 9.5)
+    pdf.cell(110, 9, "  Description", fill=True)
+    pdf.cell(20, 9, "Qty  ", fill=True, align="R")
+    pdf.cell(30, 9, "Unit Price  ", fill=True, align="R")
+    pdf.cell(30, 9, "Amount  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    # Table Rows
+    pdf.set_text_color(31, 36, 33)
+    pdf.set_font("helvetica", "", 9.5)
+    fill = False
     for it in items:
+        # Subtle alternating light background
+        pdf.set_fill_color(248, 247, 245)
         amt = round(it["qty"] * it["unit_cents"])
         qty = f"{it['qty']:g}"
-        pdf.cell(110, 7, _latin(it["description"])[:70])
-        pdf.cell(20, 7, qty, align="R")
-        pdf.cell(30, 7, f"${fmt_cents(it['unit_cents'])}", align="R")
-        pdf.cell(30, 7, f"${fmt_cents(amt)}", align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "B", 12)
-    pdf.cell(160, 10, "Total", align="R")
-    pdf.cell(30, 10, f"${fmt_cents(total)}", align="R", new_x="LMARGIN", new_y="NEXT")
-
+        pdf.cell(110, 8, f"  {_latin(it['description'])[:70]}", fill=fill)
+        pdf.cell(20, 8, f"{qty}  ", fill=fill, align="R")
+        pdf.cell(30, 8, f"${fmt_cents(it['unit_cents'])}  ", fill=fill, align="R")
+        pdf.cell(30, 8, f"${fmt_cents(amt)}  ", fill=fill, align="R", new_x="LMARGIN", new_y="NEXT")
+        fill = not fill
+        
+    # Table Bottom Line
+    pdf.ln(2)
+    pdf.set_draw_color(227, 225, 216)
+    pdf.set_line_width(0.5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    
+    # 5. Total Section
+    pdf.ln(2)
+    pdf.set_font("helvetica", "B", 10.5)
+    pdf.set_text_color(80, 80, 80)
+    pdf.cell(150, 10, "Total Due:  ", align="R")
+    pdf.set_font("helvetica", "B", 14)
+    pdf.set_text_color(36, 59, 47)
+    pdf.cell(40, 10, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    # 6. Notes & Terms
+    pdf.set_text_color(31, 36, 33)
     if inv["memo"]:
-        pdf.ln(2)
-        pdf.set_font("helvetica", "", 10)
+        pdf.ln(4)
+        pdf.set_font("helvetica", "B", 9)
+        pdf.set_text_color(107, 114, 104)
+        pdf.cell(0, 5, "NOTES", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("helvetica", "", 9.5)
+        pdf.set_text_color(80, 80, 80)
         pdf.multi_cell(0, 5, _latin(inv["memo"]))
+        
     if terms:
         pdf.ln(4)
+        pdf.set_font("helvetica", "B", 9)
+        pdf.set_text_color(107, 114, 104)
+        pdf.cell(0, 5, "TERMS & CONDITIONS", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("helvetica", "I", 9)
         pdf.set_text_color(110, 110, 110)
-        pdf.multi_cell(0, 5, _latin(terms))
+        pdf.multi_cell(0, 4.5, _latin(terms))
 
     return bytes(pdf.output())
 
