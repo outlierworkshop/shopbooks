@@ -19,34 +19,377 @@
     <div class="muted">{{ '%.1f'|format(miles) }} mi × ${{ '%.2f'|format(rate) }}</div></div>
 </div>
 
-<h2>Pre-flight checklist</h2>
-<table style="max-width:760px">
-  <tr>
-    <td>{% if pending == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
-    <td>Imported transactions reviewed</td>
-    <td>{% if pending %}<a href="/review">{{ pending }} still pending</a>{% else %}all posted{% endif %}</td>
-  </tr>
-  <tr>
-    <td>{% if uncat == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
-    <td>Nothing left in Uncategorized Expense</td>
-    <td>{% if uncat %}{{ uncat }} entries to re-categorize{% else %}clean{% endif %}</td>
-  </tr>
-  <tr>
-    <td>{% if receipts_unmatched == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
-    <td>Receipts matched</td>
-    <td>{{ receipts_matched }} matched{% if receipts_unmatched %}, <a href="/receipts">{{ receipts_unmatched }} unmatched</a>{% endif %}</td>
-  </tr>
-  <tr>
-    <td>{% if missing_receipts == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
-    <td>Expenses with a receipt</td>
-    <td>{% if missing_receipts %}<a href="/receipts/missing?period={{ year }}">{{ missing_receipts }} expense(s) missing a receipt</a>{% else %}every expense documented{% endif %}</td>
-  </tr>
-</table>
+<style>
+  .tax-dashboard {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+  }
+  .tax-main {
+    flex: 2;
+    min-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .tax-sidebar {
+    flex: 1;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .tax-section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04), 0 2px 4px -1px rgba(0,0,0,0.02);
+  }
+  .tax-section h2 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+  }
+  .tax-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  .tax-table th, .tax-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .tax-table th {
+    background: rgba(0, 0, 0, 0.02);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+  }
+  .section-hdr {
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.03);
+    color: var(--ink);
+  }
+  .line-itm {
+    font-weight: 600;
+    background: rgba(47, 111, 79, 0.01);
+  }
+  .sub-itm td {
+    font-size: 12px;
+    color: var(--muted);
+    padding-left: 20px;
+  }
+  .tot-row {
+    font-weight: 700;
+    border-top: 2px solid var(--line);
+    background: rgba(0, 0, 0, 0.02);
+  }
+  .net-row {
+    font-weight: 700;
+    font-size: 15px;
+    border-top: 2px double var(--ink);
+    border-bottom: 2px double var(--ink);
+    background: rgba(47, 111, 79, 0.05);
+  }
+  .sidebar-box {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04), 0 2px 4px -1px rgba(0,0,0,0.02);
+  }
+  .sidebar-box h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--muted);
+  }
+  .warning-box {
+    background: #fdf3e4;
+    border: 1px solid #f6d19e;
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 4px solid var(--warn);
+  }
+  .warn-title {
+    font-weight: 700;
+    color: var(--warn);
+    margin: 0 0 6px 0;
+  }
+  .success-box {
+    background: #ebf2ee;
+    border: 1px solid #bfe0cd;
+    color: var(--good);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+    border-left: 4px solid var(--good);
+  }
+  .unmapped-list {
+    margin: 8px 0;
+    padding-left: 15px;
+  }
+  .unmapped-list li {
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .unmapped-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .unmapped-link:hover {
+    text-decoration: underline;
+  }
+  .settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .form-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  .form-row label {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .highlight-cell {
+    background: rgba(47, 111, 79, 0.03);
+  }
+  .highlight-total {
+    background: var(--accent);
+    color: var(--accent-ink) !important;
+    font-weight: 700;
+  }
+</style>
 
-<h2>What's in the ZIP</h2>
-<p class="muted">
-{{ year }}_profit_and_loss.csv · {{ year }}_balance_sheet.csv · {{ year }}_transactions.csv
-(every line, with receipt filenames) · {{ year }}_mileage.csv · receipts/ (all receipt images for the year).
-Email the whole thing to your tax advisor and you're done.
-</p>
+<div class="tax-dashboard">
+  <!-- Main Left Column -->
+  <div class="tax-main">
+    
+    <!-- Schedule C Report -->
+    <div class="tax-section">
+      <h2>Schedule C Profit & Loss (Draft)</h2>
+      <table class="tax-table">
+        <thead>
+          <tr>
+            <th>Category / IRS Line</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Income -->
+          <tr class="section-hdr">
+            <td colspan="2">Part I: Income</td>
+          </tr>
+          {% for item in schedule_c.income %}
+          <tr class="line-itm">
+            <td>{{ item.line }}</td>
+            <td class="num font-semibold">${{ item.amount|money }}</td>
+          </tr>
+          {% for acct in item.accounts %}
+          <tr class="sub-itm">
+            <td>↳ {{ acct.name }}</td>
+            <td class="num">${{ acct.amount|money }}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="2" class="muted" style="font-style:italic;">No mapped income reported.</td>
+          </tr>
+          {% endfor %}
+          <tr class="tot-row">
+            <td>Total Income</td>
+            <td class="num">${{ schedule_c.total_income|money }}</td>
+          </tr>
+
+          <!-- Expenses -->
+          <tr class="section-hdr">
+            <td colspan="2">Part II: Expenses</td>
+          </tr>
+          {% for item in schedule_c.expenses %}
+          <tr class="line-itm">
+            <td>{{ item.line }}</td>
+            <td class="num font-semibold">${{ item.amount|money }}</td>
+          </tr>
+          {% for acct in item.accounts %}
+          <tr class="sub-itm">
+            <td>↳ {{ acct.name }}</td>
+            <td class="num">${{ acct.amount|money }}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="2" class="muted" style="font-style:italic;">No mapped expenses reported.</td>
+          </tr>
+          {% endfor %}
+          <tr class="tot-row">
+            <td>Total Expenses</td>
+            <td class="num">${{ schedule_c.total_expenses|money }}</td>
+          </tr>
+
+          <!-- Net -->
+          <tr class="net-row">
+            <td>Net Schedule C Profit / (Loss)</td>
+            <td class="num {{ 'neg' if schedule_c.net < 0 else 'pos' }}">${{ schedule_c.net|money }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Estimated Quarterly Payments -->
+    <div class="tax-section">
+      <h2>Estimated Quarterly Payments (Form 1040-ES)</h2>
+      <p class="muted" style="margin-top:-6px; margin-bottom:12px;">
+        Calculated using a 15.3% Self-Employment (SE) tax rate on 92.35% of net profit, plus a {{ estimated_income_tax_rate }}% estimated income tax rate.
+      </p>
+      <table class="tax-table">
+        <thead>
+          <tr>
+            <th>Quarter</th>
+            <th>Period</th>
+            <th>Due Date</th>
+            <th class="num">Net Profit</th>
+            <th class="num">SE Tax</th>
+            <th class="num">Income Tax</th>
+            <th class="num">Estimated Payment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for q in estimated_taxes.quarters %}
+          <tr>
+            <td><strong>{{ q.quarter }}</strong></td>
+            <td>{{ q.period }}</td>
+            <td>{{ q.due_date }}</td>
+            <td class="num">${{ q.net_profit|money }}</td>
+            <td class="num">${{ q.se_tax|money }}</td>
+            <td class="num">${{ q.income_tax|money }}</td>
+            <td class="num highlight-cell"><strong>${{ q.total_due|money }}</strong></td>
+          </tr>
+          {% endfor %}
+          <tr class="tot-row">
+            <td colspan="3">Total for Year</td>
+            <td class="num">${{ estimated_taxes.total_net_profit|money }}</td>
+            <td class="num">${{ estimated_taxes.total_se_tax|money }}</td>
+            <td class="num">${{ estimated_taxes.total_income_tax|money }}</td>
+            <td class="num highlight-total" style="text-align:right;">${{ estimated_taxes.total_due|money }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Sidebar Right Column -->
+  <div class="tax-sidebar">
+
+    <!-- Unmapped categories -->
+    <div class="sidebar-box">
+      <h3>Unmapped Tax Categories</h3>
+      {% if schedule_c.unmapped %}
+      <div class="warning-box">
+        <p class="warn-title">⚠️ {{ schedule_c.unmapped|length }} category(ies) unmapped</p>
+        <p class="muted" style="font-size:12px; margin-bottom:8px;">
+          These active categories have no Schedule C line mapping and won't show in the tax report:
+        </p>
+        <ul class="unmapped-list">
+          {% for acct in schedule_c.unmapped %}
+          <li>
+            <a href="/accounts" class="unmapped-link">{{ acct.name }}</a>
+            <span class="muted font-semibold">(${{ acct.balance|money }})</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <p style="margin-top:12px; margin-bottom:0;">
+          <a href="/accounts" class="btn small" style="text-align:center; display:block;">Map accounts now</a>
+        </p>
+      </div>
+      {% else %}
+      <div class="success-box">
+        <span class="pos">✓</span> All active income and expense categories are mapped to Schedule C lines.
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Pre-flight Checklist -->
+    <div class="sidebar-box">
+      <h3>Pre-flight checklist</h3>
+      <table style="width:100%; border:none; box-shadow:none; background:transparent;">
+        <tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:6px 0; width:20px;">{% if pending == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+          <td style="padding:6px 0; font-size:13px; border-bottom:none;">Reviewed transactions</td>
+          <td style="padding:6px 0; text-align:right; font-size:13px; border-bottom:none;">{% if pending %}<a href="/review">{{ pending }} pending</a>{% else %}all posted{% endif %}</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:6px 0;">{% if uncat == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+          <td style="padding:6px 0; font-size:13px; border-bottom:none;">Uncategorized Expense</td>
+          <td style="padding:6px 0; text-align:right; font-size:13px; border-bottom:none;">{% if uncat %}{{ uncat }} entries{% else %}clean{% endif %}</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:6px 0;">{% if receipts_unmatched == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+          <td style="padding:6px 0; font-size:13px; border-bottom:none;">Receipts matched</td>
+          <td style="padding:6px 0; text-align:right; font-size:13px; border-bottom:none;">{% if receipts_unmatched %}<a href="/receipts">{{ receipts_unmatched }} unmatched</a>{% else %}all matched{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;">{% if missing_receipts == 0 %}<span class="pos">✓</span>{% else %}<span class="warn">!</span>{% endif %}</td>
+          <td style="padding:6px 0; font-size:13px; border-bottom:none;">Missing receipts list</td>
+          <td style="padding:6px 0; text-align:right; font-size:13px; border-bottom:none;">{% if missing_receipts %}<a href="/receipts/missing?period={{ year }}">{{ missing_receipts }} missing</a>{% else %}documented{% endif %}</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Settings Box -->
+    <div class="sidebar-box">
+      <h3>Tax settings</h3>
+      <form method="post" action="/taxes/settings" class="settings-form">
+        <div class="form-row">
+          <label for="estimated_income_tax_rate">Est. Income Tax Rate</label>
+          <div>
+            <input type="number" id="estimated_income_tax_rate" name="estimated_income_tax_rate" 
+                   value="{{ estimated_income_tax_rate }}" step="1" min="0" max="100" style="width:70px; text-align:right;">
+            <span style="font-weight:600; margin-left:2px;">%</span>
+          </div>
+        </div>
+        <button type="submit" class="small" style="width:100%;">Save Tax Settings</button>
+      </form>
+      <span class="muted" style="display:block; margin-top:8px; font-size:11px;">
+        Federal & State income tax rate (excluding self-employment tax). Default: 15%.
+      </span>
+    </div>
+
+    <!-- ZIP Box -->
+    <div class="sidebar-box">
+      <h3>What's in the ZIP</h3>
+      <p class="muted" style="font-size:12px; margin:0; line-height:1.4;">
+        <strong>{{ year }}_profit_and_loss.csv</strong><br>
+        <strong>{{ year }}_balance_sheet.csv</strong><br>
+        <strong>{{ year }}_schedule_c.csv</strong><br>
+        <strong>{{ year }}_transactions.csv</strong> (with receipt filenames)<br>
+        <strong>{{ year }}_mileage.csv</strong><br>
+        <strong>receipts/</strong> (all receipt files for the year)<br><br>
+        Send this package directly to your tax preparer.
+      </p>
+    </div>
+
+  </div>
+</div>
 {% endblock %}

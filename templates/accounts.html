@@ -38,7 +38,7 @@ parent with a subtotal. Two levels max. Account names must be unique, so use dis
   {% elif hidden_count %}<a class="muted" href="/accounts?show_hidden=1">show {{ hidden_count }} hidden account(s)</a>{% endif %}
 </div>
 <table class="sortable">
-  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th></th><th></th></tr>
+  <tr><th>Account</th><th>Type</th><th>Kind</th><th class="num">Balance</th><th>Parent</th><th>Tax Mapping (Schedule C)</th><th></th><th></th></tr>
   {% for a in accounts %}
   <tr {{ 'style=opacity:0.5' if not a.active else '' }}>
     <td>
@@ -62,6 +62,20 @@ parent with a subtotal. Two levels max. Account names must be unique, so use dis
           {% if p.id != a.id and p.type == a.type %}
           <option value="{{ p.id }}" {{ 'selected' if a.parent_id == p.id else '' }}>{{ p.name }}</option>
           {% endif %}
+          {% endfor %}
+        </select>
+      </form>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+    <td>
+      {% if a.type in ('income', 'expense') and a.active %}
+      <form class="inline" method="post" action="/accounts/schedule_c">
+        <input type="hidden" name="account_id" value="{{ a.id }}">
+        <input type="hidden" name="show_hidden" value="{{ '1' if show_hidden else '' }}">
+        <select name="schedule_c_line" onchange="this.form.submit()">
+          <option value="">— unmapped —</option>
+          {% for line in schedule_c_lines %}
+          <option value="{{ line }}" {{ 'selected' if a.schedule_c_line == line else '' }}>{{ line }}</option>
           {% endfor %}
         </select>
       </form>

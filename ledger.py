@@ -168,7 +168,8 @@ def accounts_with_balances(con, kinds=None, include_inactive=False):
         return {"id": a["id"], "name": a["name"], "type": a["type"], "kind": a["kind"],
                 "parent_id": a["parent_id"], "parent_name": names.get(a["parent_id"]),
                 "active": a["active"], "has_history": has_history,
-                "is_parent": is_parent, "balance": display_balance(a["type"], raw_balance(con, a["id"]))}
+                "is_parent": is_parent, "balance": display_balance(a["type"], raw_balance(con, a["id"])),
+                "schedule_c_line": a["schedule_c_line"]}
 
     tops = sorted((r for r in rows if not r["parent_id"]), key=lambda r: (r["type"], r["name"]))
     out = []

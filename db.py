@@ -141,7 +141,8 @@ CREATE TABLE IF NOT EXISTS accounts(
   parent_id INTEGER REFERENCES accounts(id),  -- NULL = top-level; else a sub-account (2 levels max)
   type TEXT NOT NULL CHECK(type IN ('asset','liability','equity','income','expense')),
   kind TEXT NOT NULL DEFAULT 'category',   -- 'bank','card','category'
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  schedule_c_line TEXT
 );
 CREATE TABLE IF NOT EXISTS entries(
   id INTEGER PRIMARY KEY,
@@ -352,6 +353,7 @@ DEFAULT_SETTINGS = {
     "email_subject": "Invoice {number} from {business}",
     "email_body": ("Hi {customer},\n\nAttached is invoice {number} for ${total}, "
                    "due {due_date}.\n\nThank you!\n{business}"),
+    "estimated_income_tax_rate": "15",
 }
 
 
@@ -403,6 +405,8 @@ def _column_migrations(con):
     acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
     if "parent_id" not in acct:
         con.execute("ALTER TABLE accounts ADD COLUMN parent_id INTEGER REFERENCES accounts(id)")
+    if "schedule_c_line" not in acct:
+        con.execute("ALTER TABLE accounts ADD COLUMN schedule_c_line TEXT")
     ent = {r["name"] for r in con.execute("PRAGMA table_info(entries)").fetchall()}
     if "job_id" not in ent:
         con.execute("ALTER TABLE entries ADD COLUMN job_id INTEGER REFERENCES jobs(id)")

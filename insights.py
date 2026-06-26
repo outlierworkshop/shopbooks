@@ -220,3 +220,143 @@ def missing_receipts(con, start, end, min_cents=0):
         "ORDER BY e.date DESC, e.id DESC", (start, end, max(int(min_cents), 1))).fetchall()
     return [{"entry_id": r["id"], "date": r["date"], "payee": r["payee"],
              "amount": r["amount"], "category": r["category"], "account": r["source_account"]} for r in rows]
+
+
+def schedule_c_report(con, start, end):
+    """Group active income and expense account balances by schedule_c_line.
+    Returns mapped line totals and details of any active unmapped categories.
+    """
+    rows = con.execute(
+        "SELECT id, name, type, schedule_c_line FROM accounts "
+        "WHERE active=1 AND type IN ('income', 'expense')"
+    ).fetchall()
+
+    unmapped = []
+    line_totals = {}  # {line_name: {"amount": cents, "type": type, "accounts": [...]}}
+    
+    total_income = 0
+    total_expenses = 0
+    
+    for r in rows:
+        # Get balance for the range
+        raw = con.execute(
+            "SELECT COALESCE(SUM(s.amount_cents),0) t FROM splits s "
+            "JOIN entries e ON e.id=s.entry_id "
+            "WHERE s.account_id=? AND e.date BETWEEN ? AND ?",
+            (r["id"], start, end)
+        ).fetchone()["t"]
+        
+        # Display balance normalisation (flip sign for income)
+        bal = -raw if r["type"] == "income" else raw
+        
+        line = r["schedule_c_line"]
+        if not line:
+            unmapped.append({
+                "id": r["id"],
+                "name": r["name"],
+                "type": r["type"],
+                "balance": bal
+            })
+        else:
+            if line not in line_totals:
+                line_totals[line] = {
+                    "amount": 0,
+                    "type": r["type"],
+                    "accounts": []
+                }
+            line_totals[line]["amount"] += bal
+            line_totals[line]["accounts"].append({
+                "name": r["name"],
+                "amount": bal
+            })
+            
+            if r["type"] == "income":
+                total_income += bal
+            else:
+                total_expenses += bal
+
+    # Format the sections
+    income_lines = []
+    expense_lines = []
+    for line, info in line_totals.items():
+        if info["amount"] != 0 or any(a["amount"] != 0 for a in info["accounts"]):
+            item = {
+                "line": line,
+                "amount": info["amount"],
+                "accounts": sorted(info["accounts"], key=lambda x: x["amount"], reverse=True)
+            }
+            if info["type"] == "income":
+                income_lines.append(item)
+            else:
+                expense_lines.append(item)
+
+    income_lines.sort(key=lambda x: x["line"])
+    expense_lines.sort(key=lambda x: x["line"])
+
+    return {
+        "start": start,
+        "end": end,
+        "income": income_lines,
+        "expenses": expense_lines,
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "net": total_income - total_expenses,
+        "unmapped": sorted(unmapped, key=lambda x: x["name"])
+    }
+
+
+def estimated_taxes(con, year, est_income_tax_rate):
+    """Calculates quarterly estimated taxes for the business for a given year.
+    Quarters follow the IRS estimated payment dates:
+      - Q1: Jan 1 - Mar 31
+      - Q2: Apr 1 - May 31
+      - Q3: Jun 1 - Aug 31
+      - Q4: Sep 1 - Dec 31
+    """
+    quarters = [
+        {"quarter": "Q1", "period": "Jan 1 – Mar 31", "start": f"{year}-01-01", "end": f"{year}-03-31", "due_date": f"{year}-04-15"},
+        {"quarter": "Q2", "period": "Apr 1 – May 31", "start": f"{year}-04-01", "end": f"{year}-05-31", "due_date": f"{year}-06-15"},
+        {"quarter": "Q3", "period": "Jun 1 – Aug 31", "start": f"{year}-06-01", "end": f"{year}-08-31", "due_date": f"{year}-09-15"},
+        {"quarter": "Q4", "period": "Sep 1 – Dec 31", "start": f"{year}-09-01", "end": f"{year}-12-31", "due_date": f"{year+1}-01-15"},
+    ]
+    
+    rows = []
+    total_net = 0
+    total_se = 0
+    total_inc = 0
+    total_due_sum = 0
+    
+    for q in quarters:
+        p = ledger.pnl(con, q["start"], q["end"])
+        net = p["net"]
+        
+        # Self-Employment Tax: net_profit * 92.35% * 15.3%
+        se = max(0, round(net * 0.9235 * 0.153))
+        # Income Tax: net_profit * estimated_income_tax_rate
+        inc = max(0, round(net * (est_income_tax_rate / 100.0)))
+        due = se + inc
+        
+        rows.append({
+            "quarter": q["quarter"],
+            "period": q["period"],
+            "net_profit": net,
+            "se_tax": se,
+            "income_tax": inc,
+            "total_due": due,
+            "due_date": q["due_date"]
+        })
+        
+        total_net += net
+        total_se += se
+        total_inc += inc
+        total_due_sum += due
+        
+    return {
+        "year": year,
+        "rate": est_income_tax_rate,
+        "quarters": rows,
+        "total_net_profit": total_net,
+        "total_se_tax": total_se,
+        "total_income_tax": total_inc,
+        "total_due": total_due_sum
+    }

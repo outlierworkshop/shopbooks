@@ -2611,11 +2611,43 @@ def taxes_page(request: Request, year: int = 0):
             "WHERE d.status='matched' AND e.date BETWEEN ? AND ?", (start, end)).fetchone()["c"]
         receipts_unmatched = con.execute("SELECT COUNT(*) c FROM documents WHERE status='unmatched'").fetchone()["c"]
         missing_receipts = len(insights.missing_receipts(con, start, end))
+
+        # Get estimated income tax rate
+        est_rate_str = db.get_setting(con, "estimated_income_tax_rate", "15")
+        try:
+            est_rate = float(est_rate_str)
+        except ValueError:
+            est_rate = 15.0
+
+        # Calculate tax details
+        sch_c = insights.schedule_c_report(con, start, end)
+        est_tx = insights.estimated_taxes(con, year, est_rate)
+
         return templates.TemplateResponse(request, "taxes.html", ctx(
             request, con, year=year, pnl=p, miles=miles, rate=rate,
             mileage_deduction=round(miles * rate * 100), uncat=uncat, pending=pending,
             receipts_matched=receipts_matched, receipts_unmatched=receipts_unmatched,
-            missing_receipts=missing_receipts))
+            missing_receipts=missing_receipts,
+            schedule_c=sch_c, estimated_taxes=est_tx,
+            estimated_income_tax_rate=est_rate_str))
+    finally:
+        con.close()
+
+
+@app.post("/taxes/settings")
+def taxes_save_settings(estimated_income_tax_rate: str = Form(...)):
+    con = db.connect()
+    try:
+        try:
+            rate = float(estimated_income_tax_rate.strip())
+            if rate < 0 or rate > 100:
+                raise ValueError()
+        except ValueError:
+            from urllib.parse import quote
+            return RedirectResponse("/taxes?err=" + quote("Tax rate must be a number between 0 and 100."), status_code=303)
+        db.set_setting(con, "estimated_income_tax_rate", str(rate))
+        con.commit()
+        return RedirectResponse("/taxes", status_code=303)
     finally:
         con.close()
 
@@ -2634,6 +2666,7 @@ def tax_package(year: int):
 
         p = ledger.pnl(con, start, end)
         bs = ledger.balance_sheet(con, end)
+        sch_c = insights.schedule_c_report(con, start, end)
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             def pnl_rows(w):
@@ -2644,6 +2677,28 @@ def tax_package(year: int):
                 w.writerow(["Total Expenses", f"{p['total_expenses']/100:.2f}"]); w.writerow([])
                 w.writerow(["Net Profit", f"{p['net']/100:.2f}"])
             z.writestr(f"{year}_profit_and_loss.csv", make_csv(pnl_rows))
+
+            def schedule_c_rows(w):
+                w.writerow(["IRS Schedule C Mapping Report", f"{start} to {end}"]); w.writerow([])
+                w.writerow(["INCOME"])
+                for item in sch_c["income"]:
+                    w.writerow([item["line"], f"{item['amount']/100:.2f}"])
+                    for acct in item["accounts"]:
+                        w.writerow([f"  {acct['name']}", f"{acct['amount']/100:.2f}"])
+                w.writerow(["Total Schedule C Income", f"{sch_c['total_income']/100:.2f}"]); w.writerow([])
+                w.writerow(["EXPENSES"])
+                for item in sch_c["expenses"]:
+                    w.writerow([item["line"], f"{item['amount']/100:.2f}"])
+                    for acct in item["accounts"]:
+                        w.writerow([f"  {acct['name']}", f"{acct['amount']/100:.2f}"])
+                w.writerow(["Total Schedule C Expenses", f"{sch_c['total_expenses']/100:.2f}"]); w.writerow([])
+                w.writerow(["Net Schedule C Profit/Loss", f"{sch_c['net']/100:.2f}"])
+                if sch_c["unmapped"]:
+                    w.writerow([])
+                    w.writerow(["UNMAPPED CATEGORIES (WARNING)"])
+                    for acct in sch_c["unmapped"]:
+                        w.writerow([acct["name"], f"{acct['balance']/100:.2f}"])
+            z.writestr(f"{year}_schedule_c.csv", make_csv(schedule_c_rows))
 
             def bs_rows(w):
                 w.writerow(["Balance Sheet", f"as of {end}"]); w.writerow([])
@@ -2711,6 +2766,35 @@ def _set_parent(con, account_id, parent_id):
     con.execute("UPDATE accounts SET parent_id=? WHERE id=?", (parent_id, account_id))
 
 
+SCHEDULE_C_LINES = [
+    "Gross receipts or sales (Line 1)",
+    "Other income (Line 6)",
+    "Advertising (Line 8)",
+    "Car and truck expenses (Line 9)",
+    "Commissions and fees (Line 10)",
+    "Contract labor (Line 11)",
+    "Depletion (Line 12)",
+    "Depreciation and section 179 expense (Line 13)",
+    "Employee benefit programs (Line 14)",
+    "Insurance (other than health) (Line 15)",
+    "Interest: Mortgage (Line 16a)",
+    "Interest: Other (Line 16b)",
+    "Legal and professional services (Line 17)",
+    "Office expense (Line 18)",
+    "Pension and profit-sharing plans (Line 19)",
+    "Rent or lease: Vehicles, machinery, and equipment (Line 20a)",
+    "Rent or lease: Other business property (Line 20b)",
+    "Repairs and maintenance (Line 21)",
+    "Supplies (not included in Part III) (Line 22)",
+    "Taxes and licenses (Line 23)",
+    "Travel and meals: Travel (Line 24a)",
+    "Travel and meals: Deductible meals (Line 24b)",
+    "Utilities (Line 25)",
+    "Wages (less employment credits) (Line 26)",
+    "Other expenses (Line 27a)",
+]
+
+
 @app.get("/accounts", response_class=HTMLResponse)
 def accounts_page(request: Request, err: str = "", show_hidden: str = ""):
     con = db.connect()
@@ -2720,9 +2804,26 @@ def accounts_page(request: Request, err: str = "", show_hidden: str = ""):
         hidden_count = con.execute("SELECT COUNT(*) c FROM accounts WHERE active=0").fetchone()["c"]
         return templates.TemplateResponse(request, "accounts.html", ctx(
             request, con, accounts=accounts, parents=parents, err=err,
-            show_hidden=bool(show_hidden), hidden_count=hidden_count))
+            show_hidden=bool(show_hidden), hidden_count=hidden_count,
+            schedule_c_lines=SCHEDULE_C_LINES))
     finally:
         con.close()
+
+
+@app.post("/accounts/schedule_c")
+def accounts_set_schedule_c(account_id: int = Form(...), schedule_c_line: str = Form(""), show_hidden: str = Form("")):
+    con = db.connect()
+    try:
+        suffix = "?show_hidden=1" if show_hidden else ""
+        val = schedule_c_line.strip()
+        if not val or val not in SCHEDULE_C_LINES:
+            val = None
+        con.execute("UPDATE accounts SET schedule_c_line=? WHERE id=?", (val, account_id))
+        con.commit()
+        return RedirectResponse("/accounts" + suffix, status_code=303)
+    finally:
+        con.close()
+
 
 
 @app.post("/accounts/active")
@@ -2999,7 +3100,7 @@ async def settings_save(request: Request):
         plain = ("mileage_rate", "default_hourly_rate", "ai_backend", "ai_model", "categorize_model",
                  "ollama_url", "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
                  "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
-                 "email_subject", "email_body")
+                 "email_subject", "email_body", "estimated_income_tax_rate")
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())
