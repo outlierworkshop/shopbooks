@@ -234,6 +234,8 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
         import json
         txns_json = json.dumps(txns)
         
+        import_warning = importer.is_duplicate_statement(con, target_account_id, txns, file.filename)
+        
         return templates.TemplateResponse(request, "import_confirm.html", ctx(
             request, con,
             filename=file.filename,
@@ -243,6 +245,7 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
             detected_account_id=detected_account_id,
             sources=sources,
             txns_json=txns_json,
+            import_warning=import_warning,
             note=note
         ))
         

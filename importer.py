@@ -461,3 +461,47 @@ def detect_account_id(con, filename, file_content_text):
         best_acct_id = accounts[0]["id"]
 
     return best_acct_id
+
+
+def is_duplicate_statement(con, account_id, txns, filename):
+    """Check if a statement has already been imported based on filename or transaction content."""
+    if filename:
+        dup_batch = con.execute("SELECT 1 FROM batches WHERE filename=? AND account_id=?", (filename, account_id)).fetchone()
+        if dup_batch:
+            return f"A statement with the filename '{filename}' has already been imported for this account."
+
+    if not txns:
+        return None
+
+    matched_count = 0
+    for t in txns:
+        t_date = t["date"]
+        t_amount = t["amount_cents"]
+
+        staged_match = con.execute(
+            "SELECT 1 FROM staged st JOIN batches b ON b.id=st.batch_id "
+            "WHERE b.account_id=? AND st.amount_cents=? AND abs(julianday(st.date)-julianday(?))<=2 LIMIT 1",
+            (account_id, t_amount, t_date)
+        ).fetchone()
+        if staged_match:
+            matched_count += 1
+            continue
+
+        posted_match = con.execute(
+            "SELECT 1 FROM splits s JOIN entries e ON e.id=s.entry_id "
+            "WHERE s.account_id=? AND s.amount_cents=? AND abs(julianday(e.date)-julianday(?))<=2 LIMIT 1",
+            (account_id, -t_amount, t_date)
+        ).fetchone()
+        if posted_match:
+            matched_count += 1
+
+    n = len(txns)
+    if n >= 3:
+        is_dup = (matched_count / n) >= 0.80
+    else:
+        is_dup = matched_count == n
+
+    if is_dup:
+        return f"This statement appears to have been already imported: {matched_count} of {n} transactions already exist in your books for this account."
+
+    return None
