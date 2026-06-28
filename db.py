@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS entries(
   payee TEXT NOT NULL DEFAULT '',
   memo TEXT NOT NULL DEFAULT '',
   job_id INTEGER REFERENCES jobs(id),  -- optional: tags this transaction to a job (for job costing)
+  customer_id INTEGER REFERENCES customers(id),  -- optional: links this transaction to a customer
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS splits(
@@ -440,6 +441,35 @@ def _column_migrations(con):
     ent = {r["name"] for r in con.execute("PRAGMA table_info(entries)").fetchall()}
     if "job_id" not in ent:
         con.execute("ALTER TABLE entries ADD COLUMN job_id INTEGER REFERENCES jobs(id)")
+    if "customer_id" not in ent:
+        con.execute("ALTER TABLE entries ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
+        # Backfill from invoice_entry_links
+        con.execute("""
+        UPDATE entries
+        SET customer_id = (
+            SELECT i.customer_id FROM invoices i
+            JOIN invoice_entry_links iel ON iel.invoice_id=i.id
+            WHERE iel.entry_id=entries.id
+            LIMIT 1
+        )
+        WHERE customer_id IS NULL AND id IN (SELECT entry_id FROM invoice_entry_links)
+        """)
+        # Backfill from paid_entry_id
+        con.execute("""
+        UPDATE entries
+        SET customer_id = (
+            SELECT customer_id FROM invoices WHERE paid_entry_id=entries.id LIMIT 1
+        )
+        WHERE customer_id IS NULL AND id IN (SELECT paid_entry_id FROM invoices WHERE paid_entry_id IS NOT NULL)
+        """)
+        # Backfill from matched_entry_id
+        con.execute("""
+        UPDATE entries
+        SET customer_id = (
+            SELECT customer_id FROM invoices WHERE matched_entry_id=entries.id LIMIT 1
+        )
+        WHERE customer_id IS NULL AND id IN (SELECT matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL)
+        """)
     invc = {r["name"] for r in con.execute("PRAGMA table_info(invoices)").fetchall()}
     if "matched_entry_id" not in invc:
         con.execute("ALTER TABLE invoices ADD COLUMN matched_entry_id INTEGER REFERENCES entries(id)")

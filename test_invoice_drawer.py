@@ -68,10 +68,10 @@ def test_invoice_multi_payment_matching():
     con.commit()
     con.close()
     
-    # Verify the remaining links are recomputed, paid_date shifts to dep1's date, status remains paid
+    # Verify the remaining links are recomputed, paid_date shifts to dep1's date, status becomes partially_paid
     con = db.connect()
     inv = con.execute("SELECT * FROM invoices WHERE id=?", (inv_id,)).fetchone()
-    ok(inv["status"] == "paid", "Invoice status remains paid")
+    ok(inv["status"] == "partially_paid", "Invoice status becomes partially_paid")
     ok(inv["paid_date"] == "2026-03-10", "Paid date updated to dep1's date (2026-03-10)")
     ok(inv["matched_entry_id"] == dep1, "matched_entry_id is still dep1")
     

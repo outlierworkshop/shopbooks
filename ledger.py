@@ -75,20 +75,26 @@ def normalize_date(text):
     raise ValueError(f"unrecognized date: {text!r}")
 
 
-def post_entry(con, date, payee, splits, memo="", job_id=None):
+def post_entry(con, date, payee, splits, memo="", job_id=None, customer_id=None):
     """splits: list of (account_id, amount_cents). Must sum to zero.
-    job_id optionally tags the whole transaction to a job (for job costing)."""
+    job_id optionally tags the whole transaction to a job (for job costing).
+    customer_id optionally links the transaction to a customer."""
     assert_unlocked(con, date)
     if sum(c for _, c in splits) != 0:
         raise ValueError("splits do not balance")
-    cur = con.execute("INSERT INTO entries(date,payee,memo,job_id) VALUES(?,?,?,?)",
-                      (date, payee, memo, job_id or None))
+    cur = con.execute("INSERT INTO entries(date,payee,memo,job_id,customer_id) VALUES(?,?,?,?,?)",
+                      (date, payee, memo, job_id or None, customer_id or None))
     entry_id = cur.lastrowid
     for account_id, cents in splits:
         if cents != 0:
             con.execute("INSERT INTO splits(entry_id,account_id,amount_cents) VALUES(?,?,?)",
                         (entry_id, account_id, cents))
     return entry_id
+
+
+def set_entry_customer(con, entry_id, customer_id):
+    """Tag (or, with customer_id=None, untag) an existing transaction to a customer."""
+    con.execute("UPDATE entries SET customer_id=? WHERE id=?", (customer_id or None, entry_id))
 
 
 def set_entry_job(con, entry_id, job_id):
@@ -134,28 +140,42 @@ def delete_entry(con, entry_id):
     linked_invoices = con.execute(
         "SELECT DISTINCT invoice_id FROM invoice_entry_links WHERE entry_id=?", (entry_id,)
     ).fetchall()
+    paid_invoices = [r["id"] for r in con.execute("SELECT id FROM invoices WHERE paid_entry_id=?", (entry_id,)).fetchall()]
 
     con.execute("UPDATE staged SET status='pending', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
-    con.execute("UPDATE invoices SET status='sent', paid_date=NULL, paid_entry_id=NULL WHERE paid_entry_id=?",
-                (entry_id,))
-    con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE matched_entry_id=?",
-                (entry_id,))
-    
+    con.execute("UPDATE invoices SET paid_entry_id=NULL WHERE paid_entry_id=?", (entry_id,))
+    con.execute("UPDATE invoices SET matched_entry_id=NULL WHERE matched_entry_id=?", (entry_id,))
     con.execute("DELETE FROM invoice_entry_links WHERE entry_id=?", (entry_id,))
     
-    # Re-evaluate status and legacy matched_entry_id for those linked invoices
-    for r in linked_invoices:
-        inv_id = r["invoice_id"]
+    # Re-evaluate all affected invoices
+    affected_invoices = set([r["invoice_id"] for r in linked_invoices] + paid_invoices)
+    for inv_id in affected_invoices:
         rem = con.execute(
             "SELECT e.id, e.date FROM entries e "
             "JOIN invoice_entry_links iel ON iel.entry_id=e.id "
             "WHERE iel.invoice_id=? ORDER BY e.date DESC", (inv_id,)
         ).fetchall()
         if rem:
+            total_payments = 0
+            for row_rem in rem:
+                eid = row_rem["id"]
+                val = con.execute(
+                    "SELECT SUM(abs(s.amount_cents)) FROM splits s "
+                    "JOIN accounts a ON a.id=s.account_id "
+                    "WHERE s.entry_id=? AND a.type='income'", (eid,)
+                ).fetchone()[0]
+                if val:
+                    total_payments += val
+            
+            inv_total = con.execute(
+                "SELECT SUM(qty * unit_cents) FROM invoice_items WHERE invoice_id=?", (inv_id,)
+            ).fetchone()[0] or 0
+            
+            status = 'paid' if total_payments >= inv_total else 'partially_paid'
             con.execute(
-                "UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
-                (rem[0]["date"], rem[0]["id"], inv_id)
+                "UPDATE invoices SET status=?, paid_date=?, matched_entry_id=? WHERE id=?",
+                (status, rem[0]["date"], rem[0]["id"], inv_id)
             )
         else:
             con.execute(
@@ -166,16 +186,16 @@ def delete_entry(con, entry_id):
     con.execute("DELETE FROM entries WHERE id=?", (entry_id,))
 
 
-def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, register_account_id, new_register_account_id=None):
-    """Update date, payee, memo, and job on entries table.
+def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, register_account_id, new_register_account_id=None, customer_id=None):
+    """Update date, payee, memo, job, and customer on entries table.
     For 2-split entries, update:
       - the split that IS register_account_id to new_register_account_id (if provided)
       - the split that is NOT register_account_id to category_id (if category_id is provided)"""
     old = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
     assert_unlocked(con, (old["date"] if old else None), date)  # block editing a locked entry, or moving one into a locked period
     con.execute(
-        "UPDATE entries SET date=?, payee=?, memo=?, job_id=? WHERE id=?",
-        (date, payee, memo, job_id or None, entry_id)
+        "UPDATE entries SET date=?, payee=?, memo=?, job_id=?, customer_id=? WHERE id=?",
+        (date, payee, memo, job_id or None, customer_id or None, entry_id)
     )
     splits = con.execute("SELECT id, account_id FROM splits WHERE entry_id=?", (entry_id,)).fetchall()
     if len(splits) == 2:
@@ -279,8 +299,10 @@ def register(con, account_id):
     acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
     rows = con.execute(
         "SELECT s.id split_id, s.amount_cents, e.id entry_id, e.date, e.payee, e.memo, "
-        "e.job_id, j.name job_name "
-        "FROM splits s JOIN entries e ON e.id=s.entry_id LEFT JOIN jobs j ON j.id=e.job_id "
+        "e.job_id, j.name job_name, e.customer_id, c.name customer_name "
+        "FROM splits s JOIN entries e ON e.id=s.entry_id "
+        "LEFT JOIN jobs j ON j.id=e.job_id "
+        "LEFT JOIN customers c ON c.id=e.customer_id "
         "WHERE s.account_id=? ORDER BY e.date, e.id", (account_id,)).fetchall()
     out, running = [], 0
     for r in rows:
@@ -296,6 +318,7 @@ def register(con, account_id):
             "other": ", ".join(o["name"] for o in others) or "(split)",
             "doc_id": doc["id"] if doc else None,
             "job_id": r["job_id"], "job": r["job_name"],
+            "customer_id": r["customer_id"], "customer": r["customer_name"],
         })
     out.reverse()  # newest first for display
     return acct, out

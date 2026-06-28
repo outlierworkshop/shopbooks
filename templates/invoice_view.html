@@ -23,7 +23,7 @@
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/status">
     <button name="action" value="draft" type="submit" class="ghost">Back to draft</button></form>
   {% endif %}
-  <span class="muted">status: <strong>{{ inv.status }}</strong>{% if inv.paid_date %} on {{ inv.paid_date }}{% endif %}</span>
+  <span class="muted">status: <strong>{{ 'partially paid' if inv.status == 'partially_paid' else inv.status }}</strong>{% if inv.paid_date %} on {{ inv.paid_date }}{% endif %}</span>
 </div>
 
 <div class="card section" style="max-width:760px">
@@ -57,6 +57,11 @@
     <li>{{ m.date }} - {{ m.payee }} (${{ m.amount_cents|money }}) [{{ m.acct }}]</li>
     {% endfor %}
   </ul>
+  <p style="margin: 10px 0;">
+    <strong>Total Paid:</strong> ${{ payments_total|money }} &nbsp;·&nbsp; 
+    <strong>Invoice Total:</strong> ${{ total|money }} &nbsp;·&nbsp;
+    <strong>Remaining Balance:</strong> ${{ (total - payments_total)|money }}
+  </p>
   <p class="muted">No ledger entry was created — your income comes from those deposits, so this just links the
   invoice to them and marks it paid.</p>
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/unmatch">
@@ -119,7 +124,7 @@
   </div>
 </div>
 
-{% if not inv.paid_entry_id and not matched_entries %}
+{% if (total - payments_total) > 0 and not inv.paid_entry_id %}
 <div class="card section" style="max-width:760px">
   <h2 style="margin-top:0">Record payment (posts a new deposit)</h2>
   <form method="post" action="/invoices/{{ inv.id }}/pay" class="toolbar">
@@ -128,11 +133,12 @@
     <select name="income_id">
       {% for a in income %}<option value="{{ a.id }}" {{ 'selected' if 'ACH' in a.name else '' }}>{{ a.name }}</option>{% endfor %}
     </select>
-    <button type="submit">Record ${{ total|money }} received</button>
+    <button type="submit">Record ${{ (total - payments_total)|money }} received</button>
   </form>
   <p class="muted">Use this only if the deposit is <em>not</em> already on your books — it posts a new entry.
   If the deposit was imported from a statement, use "Match" above instead so you don't double-count.</p>
 </div>
+{% endif %}
 {% endif %}
 
 <div class="card section" style="max-width:760px">

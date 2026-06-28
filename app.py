@@ -697,9 +697,11 @@ def register_view(request: Request, account_id: int, err: str = ""):
     try:
         acct, rows = ledger.register(con, account_id)
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "register.html", ctx(
             request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con), 
-            cats=categories(con), bank_cards=ledger.accounts_with_balances(con, kinds=('bank', 'card')), err=err))
+            customers=customers, cats=categories(con),
+            bank_cards=ledger.accounts_with_balances(con, kinds=('bank', 'card')), err=err))
     finally:
         con.close()
 
@@ -712,6 +714,7 @@ def entry_edit(entry_id: int,
                account_id: str = Form(None),
                category_id: str = Form(None),
                job_id: str = Form(""),
+               customer_id: str = Form(""),
                register_account_id: int = Form(None),
                back: str = Form("/")):
     con = db.connect()
@@ -720,8 +723,9 @@ def entry_edit(entry_id: int,
         cat_id = int(category_id) if category_id and category_id.strip() else None
         new_reg_acct_id = int(account_id) if account_id and account_id.strip() else None
         job_val = int(job_id) if job_id and job_id.strip() else None
+        cust_val = int(customer_id) if customer_id and customer_id.strip() else None
         
-        ledger.update_entry_fields(con, entry_id, payee, memo, cat_id, job_val, norm_date, register_account_id, new_reg_acct_id)
+        ledger.update_entry_fields(con, entry_id, payee, memo, cat_id, job_val, norm_date, register_account_id, new_reg_acct_id, customer_id=cust_val)
         con.commit()
         return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
     except ValueError as e:
@@ -786,6 +790,17 @@ def entry_set_job(entry_id: int, job_id: str = Form(""), back: str = Form("/")):
     con = db.connect()
     try:
         ledger.set_entry_job(con, entry_id, int(job_id) if job_id.strip() else None)
+        con.commit()
+        return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/entry/{entry_id}/customer")
+def entry_set_customer(entry_id: int, customer_id: str = Form(""), back: str = Form("/")):
+    con = db.connect()
+    try:
+        ledger.set_entry_customer(con, entry_id, int(customer_id) if customer_id.strip() else None)
         con.commit()
         return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
     finally:
@@ -2315,8 +2330,9 @@ def _invoice_rows(con):
     out = []
     for r in rows:
         total = invoicing.invoice_total(con, r["id"])
-        overdue = r["status"] == "sent" and r["due_date"] < today
-        out.append({**dict(r), "total": total, "overdue": overdue})
+        pay_total = invoicing.invoice_payments_total(con, r["id"])
+        overdue = r["status"] in ("sent", "partially_paid") and r["due_date"] < today
+        out.append({**dict(r), "total": total, "payments_total": pay_total, "overdue": overdue})
     return out
 
 
@@ -2324,7 +2340,21 @@ def _invoice_rows(con):
 def invoices_page(request: Request, msg: str = "", err: str = ""):
     con = db.connect()
     try:
-        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        customers_raw = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        customers = []
+        for c in customers_raw:
+            # Query all open/partially paid invoices for this customer
+            invs = con.execute(
+                "SELECT id FROM invoices WHERE customer_id=? AND kind='invoice' AND status IN ('sent', 'partially_paid')",
+                (c["id"],)
+            ).fetchall()
+            outstanding = 0
+            for r in invs:
+                total = invoicing.invoice_total(con, r["id"])
+                pay_total = invoicing.invoice_payments_total(con, r["id"])
+                outstanding += max(0, total - pay_total)
+            customers.append({**dict(c), "outstanding": outstanding})
+            
         return templates.TemplateResponse(request, "invoices.html", ctx(
             request, con, invoices=_invoice_rows(con), customers=customers, msg=msg, err=err,
             aging=invoicing.ar_aging(con), email_on=invoicing.email_configured(con)))
@@ -2439,15 +2469,52 @@ def invoice_deposit_candidates(con, inv, total):
         "ORDER BY e.date LIMIT 8", (-total, inv["date"], inv["date"])).fetchall()
 
 
+def _update_entry_customers_for_invoice(con, invoice_id):
+    # Find the customer_id for this invoice
+    inv = con.execute("SELECT customer_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not inv:
+        return
+    cust_id = inv["customer_id"]
+    
+    # Find all entries currently linked to this invoice
+    eids = [r["entry_id"] for r in con.execute("SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchall()]
+    row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if row:
+        if row["paid_entry_id"]:
+            eids.append(row["paid_entry_id"])
+        if row["matched_entry_id"]:
+            eids.append(row["matched_entry_id"])
+            
+    for eid in set(eids):
+        con.execute("UPDATE entries SET customer_id=? WHERE id=?", (cust_id, eid))
+
+
+def _cleanup_entry_customers(con):
+    # Set customer_id to NULL for any entries that are no longer linked to any invoices
+    con.execute("""
+    UPDATE entries SET customer_id = NULL
+    WHERE customer_id IS NOT NULL
+      AND id NOT IN (SELECT entry_id FROM invoice_entry_links)
+      AND id NOT IN (SELECT paid_entry_id FROM invoices WHERE paid_entry_id IS NOT NULL)
+      AND id NOT IN (SELECT matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL)
+    """)
+
+
 def _match_invoice_to_entry(con, invoice_id, entry_id):
     """Link an invoice to an existing deposit entry (records-only: no ledger posting)."""
     e = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
     if not e:
         return False
-    con.execute("UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
-                (e["date"], entry_id, invoice_id))
     con.execute("INSERT OR IGNORE INTO invoice_entry_links(invoice_id, entry_id) VALUES(?, ?)",
                 (invoice_id, entry_id))
+                
+    _, _, total = invoicing.get_invoice(con, invoice_id)
+    payments_total = invoicing.invoice_payments_total(con, invoice_id)
+    status = 'paid' if payments_total >= total else 'partially_paid'
+    
+    con.execute("UPDATE invoices SET status=?, paid_date=?, matched_entry_id=? WHERE id=?",
+                (status, e["date"], entry_id, invoice_id))
+    _update_entry_customers_for_invoice(con, invoice_id)
     return True
 
 
@@ -2514,10 +2581,13 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             # sent invoices, and QBO-imported 'paid' ones not yet linked to a deposit
             candidates = invoice_deposit_candidates(con, inv, total)
             
+        payments_total = invoicing.invoice_payments_total(con, invoice_id)
+            
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
             candidates=candidates, matched=matched, matched_entries=matched_entries,
             matched_entry_ids=matched_entry_ids, available_deposits=available_deposits,
+            payments_total=payments_total,
             msg=msg, err=err, email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
@@ -2546,6 +2616,7 @@ def invoice_unmatch(invoice_id: int):
         con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
                     (invoice_id,))
         con.execute("DELETE FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,))
+        _cleanup_entry_customers(con)
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
     finally:
@@ -2570,15 +2641,21 @@ async def invoice_save_matches(invoice_id: int, request: Request):
                     dates.append(e["date"])
             latest_date = max(dates) if dates else date_cls.today().isoformat()
             
+            _, _, total = invoicing.get_invoice(con, invoice_id)
+            payments_total = invoicing.invoice_payments_total(con, invoice_id)
+            status = 'paid' if payments_total >= total else 'partially_paid'
+            
             con.execute(
-                "UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
-                (latest_date, entry_ids[0], invoice_id)
+                "UPDATE invoices SET status=?, paid_date=?, matched_entry_id=? WHERE id=?",
+                (status, latest_date, entry_ids[0], invoice_id)
             )
+            _update_entry_customers_for_invoice(con, invoice_id)
         else:
             con.execute(
                 "UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
                 (invoice_id,)
             )
+        _cleanup_entry_customers(con)
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
     finally:
@@ -2677,12 +2754,20 @@ def invoice_pay(invoice_id: int, paid_date: str = Form(...), bank_id: int = Form
         inv, items, total = invoicing.get_invoice(con, invoice_id)
         if not inv or inv["status"] == "paid" or total <= 0:
             return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+            
+        payments_total = invoicing.invoice_payments_total(con, invoice_id)
+        outstanding = max(0, total - payments_total)
+        if outstanding <= 0:
+            return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+
         d = ledger.normalize_date(paid_date)
         entry_id = ledger.post_entry(con, d, f"Invoice {inv['number']} - {inv['customer']}",
-                                     [(bank_id, total), (income_id, -total)],
-                                     memo=f"invoice #{inv['number']}")
+                                     [(bank_id, outstanding), (income_id, -outstanding)],
+                                     memo=f"invoice #{inv['number']}",
+                                     customer_id=inv["customer_id"])
         con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
                     (d, entry_id, invoice_id))
+        _update_entry_customers_for_invoice(con, invoice_id)
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
     finally:
@@ -2696,8 +2781,38 @@ def invoice_unpay(invoice_id: int):
         inv = con.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
         if inv and inv["paid_entry_id"]:
             ledger.delete_entry(con, inv["paid_entry_id"])
-        con.execute("UPDATE invoices SET status='sent', paid_date=NULL, paid_entry_id=NULL WHERE id=?",
-                    (invoice_id,))
+        con.execute("UPDATE invoices SET paid_entry_id=NULL WHERE id=?", (invoice_id,))
+        
+        # Re-evaluate status based on remaining matches in invoice_entry_links
+        rem = con.execute(
+            "SELECT e.id, e.date FROM entries e "
+            "JOIN invoice_entry_links iel ON iel.entry_id=e.id "
+            "WHERE iel.invoice_id=? ORDER BY e.date DESC", (invoice_id,)
+        ).fetchall()
+        if rem:
+            total_payments = 0
+            for row_rem in rem:
+                eid = row_rem["id"]
+                val = con.execute(
+                    "SELECT SUM(abs(s.amount_cents)) FROM splits s "
+                    "JOIN accounts a ON a.id=s.account_id "
+                    "WHERE s.entry_id=? AND a.type='income'", (eid,)
+                ).fetchone()[0]
+                if val:
+                    total_payments += val
+            
+            _, _, total = invoicing.get_invoice(con, invoice_id)
+            status = 'paid' if total_payments >= total else 'partially_paid'
+            con.execute(
+                "UPDATE invoices SET status=?, paid_date=?, matched_entry_id=? WHERE id=?",
+                (status, rem[0]["date"], rem[0]["id"], invoice_id)
+            )
+        else:
+            con.execute(
+                "UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
+                (invoice_id,)
+            )
+        _cleanup_entry_customers(con)
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
     finally:
@@ -2786,7 +2901,7 @@ def _reminder_send(con, inv_id, skip_days=0, today=None):
     from datetime import datetime
     today = today or date_cls.today().isoformat()
     inv, items, total = invoicing.get_invoice(con, inv_id)
-    if not inv or inv["kind"] != "invoice" or inv["status"] != "sent" or total <= 0:
+    if not inv or inv["kind"] != "invoice" or inv["status"] not in ("sent", "partially_paid") or total <= 0:
         return "skipped"
     if skip_days and inv["last_reminder_date"]:
         last = datetime.strptime(inv["last_reminder_date"], "%Y-%m-%d")

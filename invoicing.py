@@ -15,6 +15,36 @@ def invoice_total(con, invoice_id):
     return row["t"]
 
 
+def invoice_payments_total(con, invoice_id):
+    """Calculate the total matched payments for an invoice (integer cents)."""
+    row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not row:
+        return 0
+    if row["paid_entry_id"]:
+        val = con.execute(
+            "SELECT SUM(abs(s.amount_cents)) FROM splits s "
+            "JOIN accounts a ON a.id=s.account_id "
+            "WHERE s.entry_id=? AND a.type='income'", (row["paid_entry_id"],)
+        ).fetchone()[0]
+        return val or 0
+    
+    val = con.execute(
+        "SELECT SUM(abs(s.amount_cents)) FROM splits s "
+        "JOIN accounts a ON a.id=s.account_id "
+        "JOIN invoice_entry_links iel ON iel.entry_id=s.entry_id "
+        "WHERE iel.invoice_id=? AND a.type='income'", (invoice_id,)
+    ).fetchone()[0]
+    
+    if not val and row["matched_entry_id"]:
+        val = con.execute(
+            "SELECT SUM(abs(s.amount_cents)) FROM splits s "
+            "JOIN accounts a ON a.id=s.account_id "
+            "WHERE s.entry_id=? AND a.type='income'", (row["matched_entry_id"],)
+        ).fetchone()[0]
+        
+    return val or 0
+
+
 def get_invoice(con, invoice_id):
     inv = con.execute(
         "SELECT i.*, c.name customer, c.email customer_email, c.address customer_address "
@@ -165,12 +195,36 @@ def render_pdf(con, inv, items, total):
     
     # 5. Total Section
     pdf.ln(2)
-    pdf.set_font("helvetica", "B", 10.5)
-    pdf.set_text_color(80, 80, 80)
-    pdf.cell(150, 10, ("Estimated Total:  " if is_est else "Total Due:  "), align="R")
-    pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(36, 59, 47)
-    pdf.cell(40, 10, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+    payments_total = 0
+    if not is_est:
+        payments_total = invoice_payments_total(con, inv["id"])
+
+    if payments_total > 0:
+        pdf.set_font("helvetica", "B", 10.5)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(150, 6, "Total:  ", align="R")
+        pdf.set_font("helvetica", "", 10.5)
+        pdf.cell(40, 6, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_font("helvetica", "B", 10.5)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(150, 6, "Payments/Credits:  ", align="R")
+        pdf.set_font("helvetica", "", 10.5)
+        pdf.cell(40, 6, f"-${fmt_cents(payments_total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_font("helvetica", "B", 10.5)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(150, 8, "Remaining Balance Due:  ", align="R")
+        pdf.set_font("helvetica", "B", 13)
+        pdf.set_text_color(36, 59, 47)
+        pdf.cell(40, 8, f"${fmt_cents(max(0, total - payments_total))}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("helvetica", "B", 10.5)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(150, 10, ("Estimated Total:  " if is_est else "Total Due:  "), align="R")
+        pdf.set_font("helvetica", "B", 14)
+        pdf.set_text_color(36, 59, 47)
+        pdf.cell(40, 10, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
     
     # 6. Notes & Terms
     pdf.set_text_color(31, 36, 33)
@@ -196,7 +250,7 @@ def render_pdf(con, inv, items, total):
 
 
 def ar_aging(con, today=None):
-    """Accounts-receivable aging: every open (sent, unpaid) invoice bucketed by how overdue it is.
+    """Accounts-receivable aging: every open (sent, unpaid, or partially paid) invoice bucketed by how overdue it is.
     Deterministic — totals come straight from the line items. `current` = not yet past due."""
     from datetime import date, datetime
     today = today or date.today().isoformat()
@@ -205,19 +259,21 @@ def ar_aging(con, today=None):
         "SELECT i.id, i.number, i.date, i.due_date, i.last_reminder_date, "
         "c.name customer, c.email customer_email "
         "FROM invoices i JOIN customers c ON c.id=i.customer_id "
-        "WHERE i.kind='invoice' AND i.status='sent' ORDER BY i.due_date").fetchall()
+        "WHERE i.kind='invoice' AND i.status IN ('sent', 'partially_paid') ORDER BY i.due_date").fetchall()
     buckets = {"current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0}
     out = []
     for r in rows:
         total = invoice_total(con, r["id"])
-        if total <= 0:
+        payments_total = invoice_payments_total(con, r["id"])
+        outstanding = max(0, total - payments_total)
+        if outstanding <= 0:
             continue
         days = (td - datetime.strptime(r["due_date"], "%Y-%m-%d")).days
         b = ("current" if days <= 0 else "1-30" if days <= 30 else "31-60" if days <= 60
              else "61-90" if days <= 90 else "90+")
-        buckets[b] += total
-        out.append({**dict(r), "total": total, "days_overdue": max(days, 0),
-                    "bucket": b, "overdue": days > 0})
+        buckets[b] += outstanding
+        out.append({**dict(r), "total": total, "payments_total": payments_total, "outstanding": outstanding,
+                    "days_overdue": max(days, 0), "bucket": b, "overdue": days > 0})
     total_out = sum(buckets.values())
     return {"rows": out, "buckets": buckets, "total": total_out,
             "overdue_total": total_out - buckets["current"],
@@ -238,8 +294,11 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
     if not (user and password):
         raise RuntimeError("Email isn't set up - add SMTP details in Settings first.")
     biz = db.get_setting(con, "business_name", "My Business")
+    pay_total = invoice_payments_total(con, inv["id"])
+    outstanding = max(0, total - pay_total)
     fields = {"number": inv["number"], "business": biz, "customer": inv["customer"],
-              "total": fmt_cents(total), "due_date": inv["due_date"], "date": inv["date"]}
+              "total": fmt_cents(total), "due_date": inv["due_date"], "date": inv["date"],
+              "payments_total": fmt_cents(pay_total), "outstanding": fmt_cents(outstanding)}
     subject = (subject or db.get_setting(con, "email_subject")).format(**fields)
     body = (body or db.get_setting(con, "email_body")).format(**fields)
 

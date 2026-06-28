@@ -47,7 +47,7 @@
     <td><a href="/invoices/{{ r.id }}">{{ r.number }}</a></td>
     <td>{{ r.customer }}</td>
     <td>{{ r.due_date }}</td>
-    <td class="num">${{ r.total|money }}</td>
+    <td class="num">${{ r.outstanding|money }}{% if r.payments_total %} <span class="muted" style="font-size:11px">(${{ r.total|money }} total)</span>{% endif %}</td>
     <td>{% if r.overdue %}<span class="neg">{{ r.days_overdue }} days overdue</span>{% else %}<span class="muted">current</span>{% endif %}</td>
     <td class="muted">{{ r.last_reminder_date or '—' }}</td>
     {% if email_on %}<td>
@@ -76,6 +76,7 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
     <td class="num">${{ i.total|money }}</td>
     <td>
       {% if i.status == 'paid' %}<span class="pos">paid {{ i.paid_date }}</span>
+      {% elif i.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially paid (${{ (i.total - i.payments_total)|money }} outstanding)</span>
       {% elif i.overdue %}<span class="neg">overdue</span>
       {% elif i.status == 'void' %}<span class="muted">void</span>
       {% else %}{{ i.status }}{% endif %}
@@ -95,7 +96,7 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
   <button type="submit">Add customer</button>
 </form>
 <table class="sortable">
-  <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th></th></tr>
+  <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th class="num">Outstanding</th><th></th></tr>
   {% for c in customers %}
   <tr>
     <form method="post" action="/customers/update">
@@ -104,11 +105,12 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
     <td><input type="email" name="email" value="{{ c.email }}" style="width:200px"></td>
     <td><input type="text" name="phone" value="{{ c.phone }}" style="width:110px"></td>
     <td><input type="text" name="address" value="{{ c.address }}" style="width:240px"></td>
+    <td class="num {{ 'neg' if c.outstanding > 0 else 'muted' }}">${{ c.outstanding|money }}</td>
     <td><button class="small ghost" type="submit">Save</button></td>
     </form>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="muted">No customers yet - add one above, then create an invoice.</td></tr>
+  <tr><td colspan="6" class="muted">No customers yet - add one above, then create an invoice.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

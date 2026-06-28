@@ -5,7 +5,7 @@
 <p>Current balance: <strong class="{{ 'neg' if balance < 0 else '' }}">${{ balance|money }}</strong></p>
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
 <table class="sortable">
-  <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
+  <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th>Customer</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td>
@@ -84,6 +84,25 @@
         {% endif %}
       </select>
     </td>
+    <td>
+      <div class="view-mode">
+        <form class="inline" method="post" action="/entry/{{ r.entry_id }}/customer">
+          <input type="hidden" name="back" value="/register/{{ acct.id }}">
+          <select name="customer_id" onchange="this.form.submit()" style="max-width:150px">
+            <option value="">(no customer)</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}" {{ 'selected' if c.id == r.customer_id else '' }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      <select class="edit-mode" name="customer_id" form="edit-form-{{ r.entry_id }}" style="display: none; max-width:150px">
+        <option value="">(no customer)</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}" {{ 'selected' if c.id == r.customer_id else '' }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </td>
     <td class="num {{ 'neg' if r.amount < 0 else '' }}">${{ r.amount|money }}</td>
     <td class="num">${{ r.balance|money }}</td>
     <td>
@@ -106,7 +125,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="8" class="muted">No activity yet.</td></tr>
+  <tr><td colspan="9" class="muted">No activity yet.</td></tr>
   {% endfor %}
 </table>
 

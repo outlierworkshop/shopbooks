@@ -13,6 +13,15 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Partially Paid Invoices & Customer Payment Tracking
+- Added a `customer_id` foreign key column to the `entries` table schema, with a startup migration to automatically backfill customer IDs for all existing matched payments.
+- Support `partially_paid` invoice status when matched payment totals are less than the invoice total.
+- Updated A/R aging queries, invoices listing, and dashboard briefing to bucket and display open invoices using only their *outstanding balance* rather than the full total.
+- Updated PDF invoice rendering to print a summary showing *Total*, *Payments/Credits*, and *Remaining Balance Due* when payment history is present.
+- Updated `/invoices/{invoice_id}/pay` (Record Payment) to post a deposit for the remaining outstanding balance, and updated `/invoices/{invoice_id}/unpay` to revert the status back to `partially_paid` if other matches remain.
+- Enabled customer association directly on checking/income entries: added a Customer column in the register view (`register.html`) with inline dropdowns to link/unlink transactions to customers, a POST `/entry/{id}/customer` route, and updated `/entry/edit/{id}` to store the customer.
+- Added a new test suite `test_invoice_partially_paid.py` to cover partially paid state transitions, posted balance payments, and customer link sync. All 40 test suites pass.
+
 ### 2026-06-28 — Multi-payment matching for Invoices
 - New `invoice_entry_links` table + database migration automatically backfilling from legacy `matched_entry_id` column.
 - Added a collapsible, roll-out pairing drawer under the invoice details view (`invoice_view.html`) showing a checkbox list of available deposits on books to match with the invoice.
