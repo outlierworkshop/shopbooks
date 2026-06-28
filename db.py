@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS splits(
   id INTEGER PRIMARY KEY,
   entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
   account_id INTEGER NOT NULL REFERENCES accounts(id),
-  amount_cents INTEGER NOT NULL
+  amount_cents INTEGER NOT NULL,
+  reconciled_id INTEGER REFERENCES reconciliations(id)  -- set when this account-leg is cleared in a reconciliation (Phase 2)
 );
 CREATE INDEX IF NOT EXISTS idx_splits_account ON splits(account_id);
 CREATE INDEX IF NOT EXISTS idx_splits_entry ON splits(entry_id);
@@ -417,6 +418,9 @@ def _column_migrations(con):
     stg = {r["name"] for r in con.execute("PRAGMA table_info(staged)").fetchall()}
     if "memo" not in stg:
         con.execute("ALTER TABLE staged ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+    spl = {r["name"] for r in con.execute("PRAGMA table_info(splits)").fetchall()}
+    if "reconciled_id" not in spl:
+        con.execute("ALTER TABLE splits ADD COLUMN reconciled_id INTEGER REFERENCES reconciliations(id)")
 
 
 def init():

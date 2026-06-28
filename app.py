@@ -1840,7 +1840,8 @@ def reconcile_account(request: Request, account_id: int, date: str = "", balance
         if not acct or acct["kind"] not in ("bank", "card"):
             return RedirectResponse("/reconcile", status_code=303)
         last = reconcile.last_reconciliation(con, account_id)
-        result = txns = dups = None
+        result = txns = dups = unreconciled = None
+        cleared_begin = reconcile.cleared_balance(con, account_id)
         if date.strip() and balance.strip():  # preview a reconciliation (no save)
             try:
                 sd = ledger.normalize_date(date)
@@ -1849,11 +1850,13 @@ def reconcile_account(request: Request, account_id: int, date: str = "", balance
                 after = last["statement_date"] if last else None
                 txns = reconcile.period_transactions(con, account_id, after, sd)
                 dups = reconcile.likely_duplicates(con, account_id, after, sd)
+                unreconciled = reconcile.unreconciled_transactions(con, account_id, sd)
             except ValueError:
                 result = None
         return templates.TemplateResponse(request, "reconcile_account.html", ctx(
             request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
-            result=result, txns=txns, dups=dups, date=date, balance=balance, cats=categories(con), msg=msg))
+            result=result, txns=txns, dups=dups, unreconciled=unreconciled, cleared_begin=cleared_begin,
+            date=date, balance=balance, cats=categories(con), msg=msg))
     finally:
         con.close()
 
@@ -1873,6 +1876,29 @@ def reconcile_save(account_id: int = Form(...), statement_date: str = Form(...),
         return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
     except ValueError as e:
         return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Couldn't read that: {e}"), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/reconcile/finish")
+def reconcile_finish(account_id: int = Form(...), statement_date: str = Form(...),
+                     statement_balance: str = Form(...), cleared: list[str] = Form(default=[])):
+    """Phase 2: mark the ticked transactions cleared against the statement and record the checkpoint."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        sd = ledger.normalize_date(statement_date)
+        bal = ledger.parse_amount_to_cents(statement_balance)
+        r = reconcile.finish(con, account_id, sd, bal, cleared)
+        con.commit()
+        if r["reconciled"]:
+            note = f"Reconciled — {r['cleared_count']} transaction(s) cleared and locked to the statement."
+        else:
+            note = (f"Saved with {r['cleared_count']} cleared, still off by "
+                    f"${ledger.fmt_cents(abs(r['difference']))}. Tick the rest or square up the difference.")
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
+    except ValueError as e:
+        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Couldn't finish: {e}"), status_code=303)
     finally:
         con.close()
 
