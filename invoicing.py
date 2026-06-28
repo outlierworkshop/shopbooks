@@ -31,6 +31,20 @@ def next_number(con):
     return f"INV-{n}"
 
 
+def next_estimate_number(con):
+    n = int(db.get_setting(con, "next_estimate_number", "1001"))
+    db.set_setting(con, "next_estimate_number", str(n + 1))
+    return f"EST-{n}"
+
+
+def _kind(inv):
+    """Document kind of an invoices row ('invoice' or 'estimate'), tolerant of rows without it."""
+    try:
+        return inv["kind"] or "invoice"
+    except (KeyError, IndexError):
+        return "invoice"
+
+
 def _latin(s):
     return str(s or "").encode("latin-1", "replace").decode("latin-1")
 
@@ -104,15 +118,16 @@ def render_pdf(con, inv, items, total):
     
     # Right Column: Invoice metadata
     pdf.set_xy(120, y_meta)
+    is_est = _kind(inv) == "estimate"
     pdf.set_font("helvetica", "B", 12)
     pdf.set_text_color(36, 59, 47)
-    pdf.cell(80, 6, f"INVOICE {inv['number']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 6, f"{'ESTIMATE' if is_est else 'INVOICE'} {inv['number']}", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("helvetica", "", 9.5)
     pdf.set_text_color(80, 80, 80)
     pdf.set_x(120)
-    pdf.cell(80, 5, f"Invoice Date: {inv['date']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 5, f"{'Estimate' if is_est else 'Invoice'} Date: {inv['date']}", align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.set_x(120)
-    pdf.cell(80, 5, f"Payment Due: {inv['due_date']}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 5, f"{'Valid Until' if is_est else 'Payment Due'}: {inv['due_date']}", align="R", new_x="LMARGIN", new_y="NEXT")
     
     # Position below columns
     pdf.set_y(max(y_bill_end, pdf.get_y()) + 8)
@@ -152,7 +167,7 @@ def render_pdf(con, inv, items, total):
     pdf.ln(2)
     pdf.set_font("helvetica", "B", 10.5)
     pdf.set_text_color(80, 80, 80)
-    pdf.cell(150, 10, "Total Due:  ", align="R")
+    pdf.cell(150, 10, ("Estimated Total:  " if is_est else "Total Due:  "), align="R")
     pdf.set_font("helvetica", "B", 14)
     pdf.set_text_color(36, 59, 47)
     pdf.cell(40, 10, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")

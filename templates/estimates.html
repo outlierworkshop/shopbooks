@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Estimates{% endblock %}
+{% block content %}
+<h1>Estimates</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted">Quote a job, send it, and turn an accepted quote into an invoice in one click. Estimates
+never touch your books — they're just proposals until converted.</p>
+
+<div class="toolbar">
+  {% if customers %}<a class="btn" href="/estimates/new">+ New estimate</a>
+  {% else %}<span class="muted">Add a customer on the <a href="/invoices">Invoices</a> page first.</span>{% endif %}
+</div>
+
+<table class="sortable">
+  <tr><th>#</th><th>Customer</th><th>Date</th><th>Valid until</th><th class="num">Total</th><th>Status</th></tr>
+  {% for e in estimates %}
+  <tr>
+    <td><a href="/estimates/{{ e.id }}">{{ e.number }}</a></td>
+    <td>{{ e.customer }}</td>
+    <td>{{ e.date }}</td>
+    <td>{{ e.due_date }}</td>
+    <td class="num">${{ e.total|money }}</td>
+    <td>
+      {% if e.status == 'accepted' and e.converted_invoice_id %}<span class="pos">accepted → <a href="/invoices/{{ e.converted_invoice_id }}">invoiced</a></span>
+      {% elif e.status == 'accepted' %}<span class="pos">accepted</span>
+      {% elif e.status == 'declined' %}<span class="muted">declined</span>
+      {% else %}{{ e.status }}{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No estimates yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
