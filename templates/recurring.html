@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Recurring{% endblock %}
+{% block content %}
+<h1>Recurring transactions</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted">Set up the predictable bills and income you see every month (rent, subscriptions,
+loan payments). When one comes due, post it in a click — nothing is posted automatically, so your
+books stay confirmed. These also feed the cash-flow forecast.</p>
+
+{% set due = items|selectattr('due')|list %}
+{% if due %}
+<div class="card section" style="max-width:820px">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px">
+    <h2 style="margin:0">Due now ({{ due|length }})</h2>
+    <form method="post" action="/recurring/post-all"
+          onsubmit="return confirm('Post all {{ due|length }} due item(s) to the ledger?')">
+      <button type="submit">Post all due</button></form>
+  </div>
+  <table>
+    <tr><th>Due</th><th>Name</th><th class="num">Amount</th><th>From</th><th>Category</th><th></th></tr>
+    {% for r in due %}
+    <tr>
+      <td>{{ r.next_date }}{% if r.days_overdue %} <span class="neg">({{ r.days_overdue }}d late)</span>{% endif %}</td>
+      <td>{{ r.name }}</td>
+      <td class="num {{ 'pos' if r.flow == 'income' else '' }}">{{ '+' if r.flow == 'income' else '−' }}${{ r.amount_cents|money }}</td>
+      <td class="muted">{{ r.account_name }}</td>
+      <td class="muted">{{ r.category_name }}</td>
+      <td>
+        <form class="inline" method="post" action="/recurring/{{ r.id }}/post">
+          <button class="small" type="submit">Post</button></form>
+        <form class="inline" method="post" action="/recurring/{{ r.id }}/skip"
+              onsubmit="return confirm('Skip this one without posting?')">
+          <button class="small ghost" type="submit">Skip</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<h2>All recurring items</h2>
+<table class="sortable">
+  <tr><th>Name</th><th class="num">Amount</th><th>From</th><th>Category</th><th>Every</th><th>Next</th><th>Status</th><th></th></tr>
+  {% for r in items %}
+  <tr {% if not r.active %}class="muted"{% endif %}>
+    <td>{{ r.name }}{% if r.memo %}<br><span class="muted small">{{ r.memo }}</span>{% endif %}</td>
+    <td class="num {{ 'pos' if r.flow == 'income' else '' }}">{{ '+' if r.flow == 'income' else '−' }}${{ r.amount_cents|money }}</td>
+    <td class="muted">{{ r.account_name }}</td>
+    <td class="muted">{{ r.category_name }}</td>
+    <td>{{ r.frequency }}</td>
+    <td>{{ r.next_date }}</td>
+    <td>{% if not r.active %}<span class="muted">paused</span>
+        {% elif r.due %}<span class="neg">due</span>
+        {% else %}<span class="pos">scheduled</span>{% endif %}</td>
+    <td>
+      <form class="inline" method="post" action="/recurring/{{ r.id }}/toggle">
+        <button class="small ghost" type="submit">{{ 'Resume' if not r.active else 'Pause' }}</button></form>
+      <form class="inline" method="post" action="/recurring/{{ r.id }}/delete"
+            onsubmit="return confirm('Delete this recurring item? (Posted transactions stay.)')">
+        <button class="small danger" type="submit">Delete</button></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">No recurring items yet — add one below.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Add a recurring item</h2>
+{% if not banks or not cats %}
+<p class="note">You need at least one bank/card account and an expense or income category first.</p>
+{% else %}
+<form method="post" action="/recurring">
+  <div class="formgrid" style="max-width:720px">
+    <label>Name</label><input type="text" name="name" placeholder="Shop rent" required>
+    <label>Amount ($)</label><input type="text" name="amount" placeholder="0.00" required>
+    <label>Direction</label>
+    <select name="flow"><option value="expense">Expense (money out)</option><option value="income">Income (money in)</option></select>
+    <label>Paid from / into</label>
+    <select name="account_id" required>{% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
+    <label>Category</label>
+    <select name="category_id" required>{% for c in cats %}<option value="{{ c.id }}">{{ c.label }}</option>{% endfor %}</select>
+    <label>Frequency</label>
+    <select name="frequency">
+      <option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="yearly">Yearly</option>
+    </select>
+    <label>Next due date</label><input type="date" name="next_date" value="{{ today }}" required>
+    <label>Memo (optional)</label><input type="text" name="memo" style="width:100%">
+  </div>
+  <div class="toolbar"><button type="submit">Add recurring item</button></div>
+</form>
+{% endif %}
+{% endblock %}

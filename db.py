@@ -277,6 +277,21 @@ CREATE TABLE IF NOT EXISTS reconciliations(
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_recon_account ON reconciliations(account_id);
+
+CREATE TABLE IF NOT EXISTS recurring(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,                        -- payee / what it's for (e.g. 'Shop rent')
+  amount_cents INTEGER NOT NULL,             -- always positive; `flow` sets the direction
+  flow TEXT NOT NULL DEFAULT 'expense',      -- 'expense' (money out) | 'income' (money in)
+  account_id INTEGER NOT NULL REFERENCES accounts(id),   -- bank/card it's paid from / deposited to
+  category_id INTEGER NOT NULL REFERENCES accounts(id),  -- the expense/income category
+  frequency TEXT NOT NULL DEFAULT 'monthly', -- 'weekly' | 'monthly' | 'yearly'
+  next_date TEXT NOT NULL,                   -- next date this is due to post (YYYY-MM-DD)
+  memo TEXT DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
+  last_posted_date TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 SEED_ACCOUNTS = [
