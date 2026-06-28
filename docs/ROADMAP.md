@@ -13,6 +13,13 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Multi-payment matching for Invoices
+- New `invoice_entry_links` table + database migration automatically backfilling from legacy `matched_entry_id` column.
+- Added a collapsible, roll-out pairing drawer under the invoice details view (`invoice_view.html`) showing a checkbox list of available deposits on books to match with the invoice.
+- Updated `app.post("/invoices/{invoice_id}/save-matches")` to record multi-deposit associations, update the invoice's paid status, and set the paid date to the latest matched deposit's date.
+- Updated `ledger.delete_entry` to re-evaluate remaining matches and dynamically update the invoice status and paid date when any linked deposit is deleted.
+- Created `test_invoice_drawer.py` covering multi-payment matching, date recomputation on deletion, and unmatching flows. All 39 test suites pass.
+
 ### 2026-06-28 — Recurring transactions / predicted monthly bills (#39)
 - New `recurring` table + `recurring.py`: templates for predictable bills/income (rent, subscriptions,
   loan payments). Frequencies weekly/monthly/yearly; month/year steps clamp to the month's last day.

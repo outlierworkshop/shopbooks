@@ -2446,6 +2446,8 @@ def _match_invoice_to_entry(con, invoice_id, entry_id):
         return False
     con.execute("UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
                 (e["date"], entry_id, invoice_id))
+    con.execute("INSERT OR IGNORE INTO invoice_entry_links(invoice_id, entry_id) VALUES(?, ?)",
+                (invoice_id, entry_id))
     return True
 
 
@@ -2460,15 +2462,62 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             return RedirectResponse(f"/estimates/{invoice_id}", status_code=303)
         banks = con.execute("SELECT * FROM accounts WHERE kind='bank' AND active=1").fetchall()
         income = con.execute("SELECT * FROM accounts WHERE type='income' AND active=1 ORDER BY name").fetchall()
-        candidates = matched = None
-        if inv["matched_entry_id"]:
-            matched = con.execute("SELECT id, date, payee FROM entries WHERE id=?", (inv["matched_entry_id"],)).fetchone()
-        elif not inv["paid_entry_id"] and inv["status"] != "void":
+        
+        # Get all matched entries for this invoice via invoice_entry_links
+        matched_entries = con.execute(
+            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+            "FROM entries e "
+            "JOIN splits s ON s.entry_id=e.id "
+            "JOIN accounts a ON a.id=s.account_id "
+            "JOIN invoice_entry_links iel ON iel.entry_id=e.id "
+            "WHERE iel.invoice_id=? AND a.type='income'", (invoice_id,)
+        ).fetchall()
+        
+        # Support fallback legacy matched_entry_id
+        if not matched_entries and inv["matched_entry_id"]:
+            row = con.execute(
+                "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+                "FROM entries e "
+                "JOIN splits s ON s.entry_id=e.id "
+                "JOIN accounts a ON a.id=s.account_id "
+                "WHERE e.id=? AND a.type='income'", (inv["matched_entry_id"],)
+            ).fetchone()
+            if row:
+                matched_entries = [row]
+                
+        matched_entry_ids = {m["id"] for m in matched_entries}
+        
+        # Query available deposits
+        available_deposits = con.execute(
+            "SELECT DISTINCT e.id, e.date, e.payee, abs(s.amount_cents) amount_cents, a.name acct "
+            "FROM entries e "
+            "JOIN splits s ON s.entry_id=e.id "
+            "JOIN accounts a ON a.id=s.account_id "
+            "WHERE a.type='income' AND s.amount_cents < 0 "
+            "AND e.id NOT IN (SELECT entry_id FROM invoice_entry_links WHERE invoice_id != ?) "
+            "AND e.id NOT IN (SELECT matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL AND id != ?) "
+            "AND e.id NOT IN (SELECT paid_entry_id FROM invoices WHERE paid_entry_id IS NOT NULL AND id != ?) "
+            "ORDER BY e.date DESC, e.id DESC "
+            "LIMIT 100", (invoice_id, invoice_id, invoice_id)
+        ).fetchall()
+        available_deposits = list(available_deposits)
+        
+        # Ensure currently matched entries are always in the list even if old
+        for m in matched_entries:
+            if not any(a["id"] == m["id"] for a in available_deposits):
+                available_deposits.append(m)
+        available_deposits.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
+
+        candidates = None
+        matched = matched_entries[0] if matched_entries else None
+        if not inv["paid_entry_id"] and inv["status"] != "void" and not matched_entries:
             # sent invoices, and QBO-imported 'paid' ones not yet linked to a deposit
             candidates = invoice_deposit_candidates(con, inv, total)
+            
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
-            candidates=candidates, matched=matched,
+            candidates=candidates, matched=matched, matched_entries=matched_entries,
+            matched_entry_ids=matched_entry_ids, available_deposits=available_deposits,
             msg=msg, err=err, email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
@@ -2496,6 +2545,40 @@ def invoice_unmatch(invoice_id: int):
         # only clears the link + paid status; never deletes the deposit entry
         con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
                     (invoice_id,))
+        con.execute("DELETE FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,))
+        con.commit()
+        return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/save-matches")
+async def invoice_save_matches(invoice_id: int, request: Request):
+    form = await request.form()
+    entry_ids = [int(x) for x in form.getlist("entry_ids")]
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,))
+        for eid in entry_ids:
+            con.execute("INSERT OR IGNORE INTO invoice_entry_links(invoice_id, entry_id) VALUES(?, ?)", (invoice_id, eid))
+        
+        if entry_ids:
+            dates = []
+            for eid in entry_ids:
+                e = con.execute("SELECT date FROM entries WHERE id=?", (eid,)).fetchone()
+                if e:
+                    dates.append(e["date"])
+            latest_date = max(dates) if dates else date_cls.today().isoformat()
+            
+            con.execute(
+                "UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
+                (latest_date, entry_ids[0], invoice_id)
+            )
+        else:
+            con.execute(
+                "UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
+                (invoice_id,)
+            )
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
     finally:

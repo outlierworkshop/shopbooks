@@ -49,16 +49,23 @@
   {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
 </div>
 
-{% if inv.matched_entry_id and matched %}
+{% if matched_entries %}
 <div class="card section" style="max-width:760px">
-  <p class="pos">✓ Matched to a deposit already on your books: {{ matched.date }} - {{ matched.payee }}</p>
-  <p class="muted">No ledger entry was created — your income comes from that deposit, so this just links the
-  invoice to it and marks it paid.</p>
+  <p class="pos">✓ Matched to deposits already on your books:</p>
+  <ul style="margin: 0 0 10px 20px; padding: 0; list-style-type: disc;">
+    {% for m in matched_entries %}
+    <li>{{ m.date }} - {{ m.payee }} (${{ m.amount_cents|money }}) [{{ m.acct }}]</li>
+    {% endfor %}
+  </ul>
+  <p class="muted">No ledger entry was created — your income comes from those deposits, so this just links the
+  invoice to them and marks it paid.</p>
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/unmatch">
-    <button type="submit" class="ghost">Unmatch</button></form>
-  <span class="muted"> (only unlinks the invoice — never deletes the deposit)</span>
+    <button type="submit" class="ghost">Unmatch All</button></form>
+  <span class="muted"> (only unlinks the invoice — never deletes the deposits)</span>
 </div>
-{% elif inv.paid_entry_id %}
+{% endif %}
+
+{% if inv.paid_entry_id %}
 <div class="card section" style="max-width:760px">
   <p class="pos">Paid — a deposit entry was posted to your books for this invoice.</p>
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/unpay"
@@ -67,24 +74,52 @@
 </div>
 {% elif inv.status != 'void' %}
 
-{% if candidates %}
 <div class="card section" style="max-width:760px">
-  <h2 style="margin-top:0">Match to a deposit already on your books</h2>
-  <p class="muted">Links this invoice to the deposit that paid it — marks it paid and attaches it
-  <strong>without posting a new entry</strong> (your income already comes from that deposit).</p>
+  <h2 style="margin-top:0">Match to deposits already on your books</h2>
+  <p class="muted">Links this invoice to the deposits that paid it — marks it paid and attaches it
+  <strong>without posting a new entry</strong> (your income already comes from those deposits).</p>
+  
+  {% if candidates and not matched_entries %}
+  <p class="muted">Possible matches:</p>
   {% for c in candidates %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/match">
     <input type="hidden" name="entry_id" value="{{ c.id }}">
     <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
   </form>
   {% endfor %}
-</div>
-{% elif inv.status != 'paid' %}
-<p class="muted">No matching deposit on your books yet — import the bank/Square statement with this payment
-and it'll show here to match. (Amounts must match; Square deposits are net of fees, so match those by hand.)</p>
-{% endif %}
+  {% endif %}
 
-{% if inv.status != 'paid' %}
+  <div style="margin-top: 10px; margin-bottom: 10px;">
+    <a href="#" onclick="togglePairPayments(); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Payments</a>
+    
+    <!-- Inline Payments Pairing Drawer -->
+    <div id="pair-payments-drawer" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair deposits on your books with this invoice:</div>
+      <form method="post" action="/invoices/{{ inv.id }}/save-matches">
+        <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+          {% for e in available_deposits %}
+            <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
+              <input type="checkbox" name="entry_ids" value="{{ e.id }}" 
+                     {{ 'checked' if e.id in matched_entry_ids else '' }} style="margin-right: 6px;">
+              <span style="min-width: 80px; display: inline-block;">{{ e.date }}</span>
+              <span style="min-width: 70px; display: inline-block; text-align: right; margin-right: 12px; color: black">${{ e.amount_cents|money }}</span>
+              <span style="min-width: 100px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 12px; margin-right: 12px;">{{ e.acct }}</span>
+              <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.payee }}</span>
+            </label>
+          {% else %}
+            <span class="muted" style="font-size: 12px;">No deposits available on books.</span>
+          {% endfor %}
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
+          <button type="button" class="small ghost" onclick="togglePairPayments()" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% if not inv.paid_entry_id and not matched_entries %}
 <div class="card section" style="max-width:760px">
   <h2 style="margin-top:0">Record payment (posts a new deposit)</h2>
   <form method="post" action="/invoices/{{ inv.id }}/pay" class="toolbar">
@@ -117,4 +152,12 @@ and it'll show here to match. (Amounts must match; Square deposits are net of fe
   {% endif %}
 </div>
 {% endif %}
+<script>
+function togglePairPayments() {
+  var row = document.getElementById("pair-payments-drawer");
+  if (row) {
+    row.style.display = (row.style.display === "none") ? "block" : "none";
+  }
+}
+</script>
 {% endblock %}

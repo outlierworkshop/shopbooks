@@ -129,12 +129,40 @@ def delete_entry(con, entry_id):
     row = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
     if row:
         assert_unlocked(con, row["date"])
+    
+    # Get all invoices currently matched to this entry
+    linked_invoices = con.execute(
+        "SELECT DISTINCT invoice_id FROM invoice_entry_links WHERE entry_id=?", (entry_id,)
+    ).fetchall()
+
     con.execute("UPDATE staged SET status='pending', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE invoices SET status='sent', paid_date=NULL, paid_entry_id=NULL WHERE paid_entry_id=?",
                 (entry_id,))
     con.execute("UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE matched_entry_id=?",
                 (entry_id,))
+    
+    con.execute("DELETE FROM invoice_entry_links WHERE entry_id=?", (entry_id,))
+    
+    # Re-evaluate status and legacy matched_entry_id for those linked invoices
+    for r in linked_invoices:
+        inv_id = r["invoice_id"]
+        rem = con.execute(
+            "SELECT e.id, e.date FROM entries e "
+            "JOIN invoice_entry_links iel ON iel.entry_id=e.id "
+            "WHERE iel.invoice_id=? ORDER BY e.date DESC", (inv_id,)
+        ).fetchall()
+        if rem:
+            con.execute(
+                "UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
+                (rem[0]["date"], rem[0]["id"], inv_id)
+            )
+        else:
+            con.execute(
+                "UPDATE invoices SET status='sent', paid_date=NULL, matched_entry_id=NULL WHERE id=?",
+                (inv_id,)
+            )
+
     con.execute("DELETE FROM entries WHERE id=?", (entry_id,))
 
 

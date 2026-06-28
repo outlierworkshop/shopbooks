@@ -246,6 +246,11 @@ CREATE TABLE IF NOT EXISTS invoice_items(
   qty REAL NOT NULL DEFAULT 1,
   unit_cents INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS invoice_entry_links(
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+  PRIMARY KEY (invoice_id, entry_id)
+);
 CREATE TABLE IF NOT EXISTS jobs(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -451,6 +456,18 @@ def _column_migrations(con):
         con.execute("ALTER TABLE invoices ADD COLUMN converted_invoice_id INTEGER REFERENCES invoices(id)")
     if "last_reminder_date" not in invc2:
         con.execute("ALTER TABLE invoices ADD COLUMN last_reminder_date TEXT")
+
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS invoice_entry_links(
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      PRIMARY KEY (invoice_id, entry_id)
+    )""")
+    if con.execute("SELECT COUNT(*) FROM invoice_entry_links").fetchone()[0] == 0:
+        con.execute("""
+        INSERT INTO invoice_entry_links (invoice_id, entry_id)
+        SELECT id, matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL
+        """)
 
 
 def init():
