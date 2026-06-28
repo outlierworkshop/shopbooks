@@ -212,6 +212,7 @@ def briefing(con, today=None):
     list is empty (books are tidy and nothing is chasing the owner)."""
     import invoicing   # lazy: avoids a top-level insights<->invoicing import edge
     import reconcile
+    import recurring
     today = today or date.today().isoformat()
     yr = int(today[:4])
     fmt = ledger.fmt_cents
@@ -239,6 +240,9 @@ def briefing(con, today=None):
 
     if health["pending_review"]:
         add("warn", f"{health['pending_review']} imported transaction(s) waiting in Review", "/review")
+    due_recur = recurring.due(con, today)
+    if due_recur:
+        add("info", f"{len(due_recur)} recurring bill(s) ready to post", "/recurring")
     if ar["overdue_count"]:
         add("warn", f"{ar['overdue_count']} overdue invoice(s) — ${fmt(ar['overdue_total'])} past due", "/invoices")
     if out_of_bal:
@@ -260,6 +264,64 @@ def briefing(con, today=None):
         "next_tax": ({"quarter": next_tax["quarter"], "due_date": next_tax["due_date"],
                       "amount": next_tax["total_due"], "days": days_to_tax} if next_tax else None),
         "attention": attn, "all_clear": not attn,
+    }
+
+
+def cash_forecast(con, horizon_days=90, today=None, history_months=6):
+    """Project cash over the next `horizon_days`, by calendar month: starting cash, expected invoice
+    collections in (outstanding invoices, placed on their due date — overdue ones assumed to land now),
+    and an estimated expense burn out (trailing `history_months` average). Flags the low point and any
+    month the balance would go negative. Deterministic + explainable; the Assistant narrates it.
+
+    Estimate, not a promise: expenses are a historical average (sharper once recurring bills land, #39),
+    and invoice timing assumes customers pay by the due date."""
+    import invoicing  # lazy (see briefing)
+    today = today or date.today().isoformat()
+    start = date.fromisoformat(today)
+    end = start + timedelta(days=horizon_days)
+
+    starting_cash = cash_position(con)["cash_on_hand"]
+
+    # trailing average monthly expense burn
+    hy, hm = start.year, start.month - history_months
+    while hm <= 0:
+        hm += 12
+        hy -= 1
+    hist_exp = ledger.pnl(con, f"{hy}-{hm:02d}-01", today)["total_expenses"]
+    avg_monthly_expense = round(hist_exp / max(history_months, 1))
+
+    # expected inflows from open invoices, bucketed by the month they're expected to land
+    inflow_by = {}
+    expected_inflow_total = 0
+    for r in invoicing.ar_aging(con, today)["rows"]:
+        due = date.fromisoformat(r["due_date"])
+        when = due if due >= start else start          # overdue -> assume it comes in now
+        if when <= end:
+            key = f"{when.year}-{when.month:02d}"
+            inflow_by[key] = inflow_by.get(key, 0) + r["total"]
+            expected_inflow_total += r["total"]
+
+    months = []
+    bal = starting_cash
+    low = {"label": "now", "balance": starting_cash}
+    cy, cm = start.year, start.month
+    while (cy, cm) <= (end.year, end.month):
+        key = f"{cy}-{cm:02d}"
+        inflow = inflow_by.get(key, 0)
+        bal = bal + inflow - avg_monthly_expense
+        label = date(cy, cm, 1).strftime("%b %Y")
+        months.append({"month": key, "label": label, "inflow": inflow,
+                       "outflow": avg_monthly_expense, "end_balance": bal})
+        if bal < low["balance"]:
+            low = {"label": label, "balance": bal}
+        cy, cm = (cy + 1, 1) if cm == 12 else (cy, cm + 1)
+
+    return {
+        "today": today, "horizon_days": horizon_days, "starting_cash": starting_cash,
+        "avg_monthly_expense": avg_monthly_expense, "expected_inflow_total": expected_inflow_total,
+        "months": months, "low_point": low,
+        "goes_negative": any(m["end_balance"] < 0 for m in months) or starting_cash < 0,
+        "projected_end": months[-1]["end_balance"] if months else starting_cash,
     }
 
 

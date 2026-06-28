@@ -13,6 +13,18 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Recurring transactions / predicted monthly bills (#39)
+- New `recurring` table + `recurring.py`: templates for predictable bills/income (rent, subscriptions,
+  loan payments). Frequencies weekly/monthly/yearly; month/year steps clamp to the month's last day.
+- Human-confirmed posting (nothing auto-posts): a due occurrence is one click — `post_occurrence` posts the
+  ledger entry (via `ledger.post_entry`, so the period lock is respected) and advances `next_date`; skip
+  advances without posting; pause/resume + delete. New Recurring nav page (due-now section + "Post all due"
+  + add form). The dashboard briefing (#37) now flags "N recurring bill(s) ready to post".
+- `recurring.upcoming(con, start, end)` projects future occurrences (signed) — the substrate the cash-flow
+  forecast (#38) will build on.
+- `test_recurring.py` covers the date math (incl. Jan-31→Feb-28 and leap-day clamping), due detection,
+  post/skip, income vs expense direction, the period-lock guard, and the projection. Full suite (38) green.
+
 ### 2026-06-28 — Proactive dashboard briefing: "what needs me today" (#37)
 - New `insights.briefing(con, today)`: one deterministic snapshot tying together cash on hand + card debt,
   receivables (total/overdue, reusing ar_aging), the next estimated-tax due date/amount, and a prioritized
