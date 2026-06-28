@@ -109,8 +109,23 @@ def favicon():
 
 # ---------- dashboard ----------
 
+def _briefing_facts(b):
+    """Compact figures block for the optional AI day-brief narration."""
+    m = ledger.fmt_cents
+    L = [f"Date: {b['today']}.",
+         f"Cash on hand: ${m(b['cash_on_hand'])}. Credit-card debt: ${m(b['card_debt'])}.",
+         f"Receivables: ${m(b['receivables_total'])} outstanding across {b['open_invoices']} invoice(s); "
+         f"${m(b['receivables_overdue'])} overdue ({b['overdue_count']} invoice(s))."]
+    if b["next_tax"]:
+        L.append(f"Next estimated tax: {b['next_tax']['quarter']} ~${m(b['next_tax']['amount'])} "
+                 f"due {b['next_tax']['due_date']} (in {b['next_tax']['days']} days).")
+    L.append(("Needs attention: " + "; ".join(a["text"] for a in b["attention"]) + ".")
+             if b["attention"] else "Nothing needs attention — the books are tidy.")
+    return "\n".join(L)
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, brief: str = ""):
     con = db.connect()
     try:
         accounts = ledger.accounts_with_balances(con, kinds=("bank", "card"))
@@ -121,9 +136,11 @@ def dashboard(request: Request):
             " WHERE s.entry_id=e.id) accts, "
             "(SELECT MAX(abs(amount_cents)) FROM splits WHERE entry_id=e.id) amt "
             "FROM entries e ORDER BY e.date DESC, e.id DESC LIMIT 12").fetchall()
+        brief_data = insights.briefing(con)
+        narrative = ai.analyze(con, _briefing_facts(brief_data)) if (brief and ai.available(con)) else None
         return templates.TemplateResponse(request, "dashboard.html", ctx(
             request, con, accounts=accounts, pnl=p, recent=recent, year=year,
-            aging=invoicing.ar_aging(con)))
+            aging=invoicing.ar_aging(con), brief=brief_data, narrative=narrative, briefed=bool(brief)))
     finally:
         con.close()
 
