@@ -18,24 +18,56 @@
 <nav>
   <span class="brand">📒 ShopBooks</span>
   <a href="/">Dashboard</a>
-  <a href="/import">Import</a>
-  <a href="/migrate">Migrate</a>
-  <a href="/review">Review{% if pending_count %} <span class="badge">{{ pending_count }}</span>{% endif %}</a>
-  <a href="/receipts">Receipts{% if unmatched_count %} <span class="badge">{{ unmatched_count }}</span>{% endif %}</a>
-  <a href="/entry/new">+ Entry</a>
-  <a href="/recurring">Recurring</a>
-  <a href="/estimates">Estimates</a>
-  <a href="/invoices">Invoices</a>
-  <a href="/mileage">Mileage</a>
-  <a href="/time">Time</a>
-  <a href="/reconcile">Reconcile</a>
-  <a href="/reports">Reports</a>
-  <a href="/insights">Insights</a>
-  <a href="/chat">Assistant</a>
-  <a href="/taxes">Taxes</a>
-  <a href="/accounts">Accounts</a>
-  <a href="/rules">Rules</a>
-  <a href="/settings">Settings</a>
+
+  <div class="nav-dropdown">
+    <span class="nav-dropdown-trigger">Bookkeeping ▾</span>
+    <div class="nav-dropdown-content">
+      <a href="/import">Import Statements</a>
+      <a href="/review">Review Transactions{% if pending_count %} <span class="badge">{{ pending_count }}</span>{% endif %}</a>
+      <a href="/receipts">Match Receipts{% if unmatched_count %} <span class="badge">{{ unmatched_count }}</span>{% endif %}</a>
+      <a href="/reconcile">Reconcile Accounts</a>
+      <a href="/rules">Auto-categorize Rules</a>
+    </div>
+  </div>
+
+  <div class="nav-dropdown">
+    <span class="nav-dropdown-trigger">Sales ▾</span>
+    <div class="nav-dropdown-content">
+      <a href="/invoices">Invoices</a>
+      <a href="/estimates">Estimates</a>
+      <a href="/time">Time Tracking</a>
+    </div>
+  </div>
+
+  <div class="nav-dropdown">
+    <span class="nav-dropdown-trigger">Expenses ▾</span>
+    <div class="nav-dropdown-content">
+      <a href="/recurring">Recurring Bills</a>
+      <a href="/mileage">Mileage Log</a>
+    </div>
+  </div>
+
+  <div class="nav-dropdown">
+    <span class="nav-dropdown-trigger">Reports ▾</span>
+    <div class="nav-dropdown-content">
+      <a href="/reports">Financial Reports</a>
+      <a href="/insights">Insights & Cash Flow</a>
+      <a href="/chat">AI Chat Assistant</a>
+      <a href="/taxes">Tax Planner</a>
+    </div>
+  </div>
+
+  <div class="nav-dropdown" style="margin-right: 10px;">
+    <span class="nav-dropdown-trigger">Settings ▾</span>
+    <div class="nav-dropdown-content">
+      <a href="/accounts">Chart of Accounts</a>
+      <a href="/settings">Application Settings</a>
+      <a href="/migrate">Data Migration</a>
+    </div>
+  </div>
+
+  <a href="/entry/new" class="nav-btn">+ New Entry</a>
+
   <span class="ai-pill {{ 'on' if ai_on else 'off' }}">{{ 'AI on' if ai_on else 'AI off' }}</span>
 </nav>
 <main>
