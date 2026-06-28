@@ -9,7 +9,35 @@ as a normal positive number when the account holds its natural balance.
 """
 from datetime import datetime
 
+import db
+
 CREDIT_NORMAL = ("liability", "equity", "income")
+
+
+class LockedPeriodError(ValueError):
+    """Raised when a change would touch a closed (locked) accounting period.
+    Subclasses ValueError so existing 'except ValueError' route handlers surface it."""
+
+
+def locked_through(con):
+    """The 'books closed through' date (YYYY-MM-DD), or '' if nothing is locked. Entries dated on
+    or before this are frozen. Stored as a synced setting, so a closed year stays closed on both
+    machines."""
+    return db.get_setting(con, "books_locked_through", "") or ""
+
+
+def assert_unlocked(con, *dates):
+    """Raise LockedPeriodError if any of the given dates falls in the locked period. Used as the
+    single guard on every write path (post/delete/edit), so closed periods can't be changed by
+    accident from any screen."""
+    lock = locked_through(con)
+    if not lock:
+        return
+    for d in dates:
+        if d and str(d) <= lock:
+            raise LockedPeriodError(
+                f"The books are closed through {lock}. Reopen that period on the Taxes page "
+                f"before adding, editing, or deleting a transaction dated {d}.")
 
 
 def fmt_cents(cents):
@@ -50,6 +78,7 @@ def normalize_date(text):
 def post_entry(con, date, payee, splits, memo="", job_id=None):
     """splits: list of (account_id, amount_cents). Must sum to zero.
     job_id optionally tags the whole transaction to a job (for job costing)."""
+    assert_unlocked(con, date)
     if sum(c for _, c in splits) != 0:
         raise ValueError("splits do not balance")
     cur = con.execute("INSERT INTO entries(date,payee,memo,job_id) VALUES(?,?,?,?)",
@@ -97,6 +126,9 @@ def set_entry_category(con, entry_id, new_account_id):
 
 
 def delete_entry(con, entry_id):
+    row = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    if row:
+        assert_unlocked(con, row["date"])
     con.execute("UPDATE staged SET status='pending', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE invoices SET status='sent', paid_date=NULL, paid_entry_id=NULL WHERE paid_entry_id=?",
@@ -111,6 +143,8 @@ def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, r
     For 2-split entries, update:
       - the split that IS register_account_id to new_register_account_id (if provided)
       - the split that is NOT register_account_id to category_id (if category_id is provided)"""
+    old = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    assert_unlocked(con, (old["date"] if old else None), date)  # block editing a locked entry, or moving one into a locked period
     con.execute(
         "UPDATE entries SET date=?, payee=?, memo=?, job_id=? WHERE id=?",
         (date, payee, memo, job_id or None, entry_id)
