@@ -10,8 +10,9 @@ All money is integer cents (positive = the account's natural direction, e.g.
 income and asset balances read positive). See ledger.py for the sign convention.
 """
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+import db
 import ledger
 
 
@@ -199,6 +200,66 @@ def business_snapshot(con, period="this-year", today=None):
         "monthly_trend": monthly_trend(con, start, end),
         "cash_position": cash_position(con, end),
         "health": bookkeeping_health(con, start, end),
+    }
+
+
+def briefing(con, today=None):
+    """The 'what needs me today' snapshot for the dashboard (and the Assistant): cash, receivables,
+    the next estimated-tax date, and a prioritized list of things needing attention. Deterministic —
+    every figure comes from the ledger/insights/invoicing layers; the model only narrates it.
+
+    `attention` items are dicts {level: 'warn'|'info', text, href}. `all_clear` is True when the
+    list is empty (books are tidy and nothing is chasing the owner)."""
+    import invoicing   # lazy: avoids a top-level insights<->invoicing import edge
+    import reconcile
+    today = today or date.today().isoformat()
+    yr = int(today[:4])
+    fmt = ledger.fmt_cents
+
+    cash = cash_position(con)
+    ar = invoicing.ar_aging(con, today)
+    health = bookkeeping_health(con)            # overall (not period-scoped)
+    miss = missing_receipts(con, f"{yr}-01-01", f"{yr}-12-31")
+    out_of_bal = [a for a in reconcile.status(con) if a["out_of_balance"]]
+
+    try:
+        rate = float(db.get_setting(con, "estimated_income_tax_rate", "15"))
+    except ValueError:
+        rate = 15.0
+    upcoming = [q for y in (yr, yr + 1) for q in estimated_taxes(con, y, rate)["quarters"]
+                if q["due_date"] >= today and q["total_due"] > 0]
+    upcoming.sort(key=lambda q: q["due_date"])
+    next_tax = upcoming[0] if upcoming else None
+    days_to_tax = ((datetime.strptime(next_tax["due_date"], "%Y-%m-%d")
+                    - datetime.strptime(today, "%Y-%m-%d")).days) if next_tax else None
+
+    attn = []
+    def add(level, text, href=None):
+        attn.append({"level": level, "text": text, "href": href})
+
+    if health["pending_review"]:
+        add("warn", f"{health['pending_review']} imported transaction(s) waiting in Review", "/review")
+    if ar["overdue_count"]:
+        add("warn", f"{ar['overdue_count']} overdue invoice(s) — ${fmt(ar['overdue_total'])} past due", "/invoices")
+    if out_of_bal:
+        add("warn", f"{len(out_of_bal)} account(s) out of balance at last reconcile", "/reconcile")
+    if health["unmatched_receipts"]:
+        add("info", f"{health['unmatched_receipts']} receipt(s) not matched to a transaction", "/receipts")
+    if miss:
+        add("info", f"{len(miss)} expense(s) this year missing a receipt", f"/receipts/missing?period={yr}")
+    if health["uncategorized"]:
+        add("info", f"{health['uncategorized']} entry(ies) still in Uncategorized Expense", "/insights")
+    if next_tax and days_to_tax is not None and days_to_tax <= 45:
+        add("info", f"Estimated tax {next_tax['quarter']} (~${fmt(next_tax['total_due'])}) due {next_tax['due_date']}", "/taxes")
+
+    return {
+        "today": today,
+        "cash_on_hand": cash["cash_on_hand"], "card_debt": cash["card_debt"],
+        "receivables_total": ar["total"], "receivables_overdue": ar["overdue_total"],
+        "overdue_count": ar["overdue_count"], "open_invoices": ar["open_count"],
+        "next_tax": ({"quarter": next_tax["quarter"], "due_date": next_tax["due_date"],
+                      "amount": next_tax["total_due"], "days": days_to_tax} if next_tax else None),
+        "attention": attn, "all_clear": not attn,
     }
 
 

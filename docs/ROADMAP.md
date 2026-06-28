@@ -13,6 +13,16 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Proactive dashboard briefing: "what needs me today" (#37)
+- New `insights.briefing(con, today)`: one deterministic snapshot tying together cash on hand + card debt,
+  receivables (total/overdue, reusing ar_aging), the next estimated-tax due date/amount, and a prioritized
+  `attention` list (waiting in Review, overdue invoices, accounts out of balance, unmatched/missing receipts,
+  Uncategorized Expense) — each item with a link to act on it. `all_clear` when nothing's outstanding.
+- Dashboard leads with a "Today" panel (attention list + cash/AR/next-tax summary). Optional on-demand AI
+  one-liner via "✨ Brief me" (`/?brief=1` → `ai.analyze`); AI-optional, no cost unless clicked.
+- Reusable by the Assistant too (same deterministic figures). `test_briefing.py` covers the empty all-clear
+  case and a seeded mix (cash math, AR, and each attention item with its link). Full suite (37 files) green.
+
 ### 2026-06-28 — AR aging + overdue-invoice reminders (#36)
 - New `invoicing.ar_aging(con, today)`: every open (sent, unpaid) invoice bucketed by age
   (current / 1-30 / 31-60 / 61-90 / 90+) with totals — deterministic, from the line items.
