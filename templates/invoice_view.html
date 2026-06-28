@@ -6,6 +6,7 @@
 
 <div class="toolbar">
   <a class="btn" href="/invoices/{{ inv.id }}/pdf" target="_blank">Open PDF</a>
+  <a class="btn ghost" href="/invoices/{{ inv.id }}/edit">Edit</a>
   {% if inv.status == 'draft' %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/status">
     <button name="action" value="sent" type="submit" class="ghost">Mark sent</button></form>

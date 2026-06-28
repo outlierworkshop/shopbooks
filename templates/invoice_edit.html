@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ inv.number }}{% endblock %}
+{% block content %}
+<h1>Edit {{ 'Invoice' if (inv.kind or 'invoice') == 'invoice' else 'Estimate' }} {{ inv.number }}</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post">
+  <div class="formgrid" style="max-width:720px">
+    <label>Customer</label>
+    <select name="customer_id" required>
+      {% for c in customers %}
+      <option value="{{ c.id }}" {{ 'selected' if c.id == inv.customer_id else '' }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <label>Date</label><input type="date" name="date" value="{{ inv.date }}" required>
+    <label>Due date</label><input type="date" name="due_date" value="{{ inv.due_date }}" required>
+    <label>Memo (shown on document)</label><input type="text" name="memo" value="{{ inv.memo or '' }}" style="width:100%">
+  </div>
+
+  <h2>Line items</h2>
+  <table id="items" style="max-width:720px">
+    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th><th style="width:50px"></th></tr>
+    {% for it in items %}
+    <tr>
+      <td><input type="text" name="item_desc" value="{{ it.description }}" style="width:100%" required></td>
+      <td><input type="number" name="item_qty" value="{{ it.qty }}" step="0.25" min="0" style="width:70px" required></td>
+      <td><input type="text" name="item_price" value="{{ it.unit_cents|money }}" style="width:100px" required></td>
+      <td><button type="button" class="small danger" onclick="deleteRow(this)">✕</button></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="toolbar">
+    <button type="button" class="ghost" onclick="addRow()">+ Add line</button>
+    <button type="submit">Save Changes</button>
+    <a href="{{ '/invoices/' if (inv.kind or 'invoice') == 'invoice' else '/estimates/' }}{{ inv.id }}" class="btn ghost">Cancel</a>
+  </div>
+</form>
+<script>
+function addRow() {
+  const t = document.getElementById('items');
+  const r = t.insertRow(-1);
+  r.innerHTML = '<td><input type="text" name="item_desc" style="width:100%"></td>' +
+    '<td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>' +
+    '<td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>' +
+    '<td><button type="button" class="small danger" onclick="deleteRow(this)">✕</button></td>';
+}
+function deleteRow(btn) {
+  const r = btn.parentNode.parentNode;
+  // Don't delete if it's the last row
+  if (r.parentNode.rows.length > 2) {
+    r.parentNode.removeChild(r);
+  } else {
+    alert("An invoice or estimate must have at least one line item.");
+  }
+}
+</script>
+{% endblock %}

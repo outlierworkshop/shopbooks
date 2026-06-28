@@ -6,6 +6,7 @@
 
 <div class="toolbar">
   <a class="btn" href="/estimates/{{ inv.id }}/pdf" target="_blank">Open PDF</a>
+  <a class="btn ghost" href="/estimates/{{ inv.id }}/edit">Edit</a>
   {% if inv.converted_invoice_id %}
     <a class="btn" href="/invoices/{{ inv.converted_invoice_id }}">View invoice {{ converted.number if converted }}</a>
   {% else %}

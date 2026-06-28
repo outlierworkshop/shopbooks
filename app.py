@@ -2454,6 +2454,82 @@ async def invoice_create(request: Request):
         con.close()
 
 
+@app.get("/invoices/{invoice_id}/edit", response_class=HTMLResponse)
+def invoice_edit(request: Request, invoice_id: int):
+    con = db.connect()
+    try:
+        inv, items, total = invoicing.get_invoice(con, invoice_id)
+        if not inv:
+            return RedirectResponse("/invoices", status_code=303)
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "invoice_edit.html", ctx(
+            request, con, inv=inv, items=items, customers=customers, error=None))
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/edit")
+async def invoice_update(request: Request, invoice_id: int):
+    form = await request.form()
+    con = db.connect()
+    try:
+        inv, _, _ = invoicing.get_invoice(con, invoice_id)
+        if not inv:
+            return RedirectResponse("/invoices", status_code=303)
+        customer_id = int(form["customer_id"])
+        inv_date = ledger.normalize_date(form["date"])
+        due_date = ledger.normalize_date(form["due_date"])
+        descs = form.getlist("item_desc")
+        qtys = form.getlist("item_qty")
+        prices = form.getlist("item_price")
+        items = []
+        for d, q, p in zip(descs, qtys, prices):
+            if not d.strip():
+                continue
+            items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        if not items:
+            raise ValueError("Add at least one line item.")
+        
+        con.execute(
+            "UPDATE invoices SET customer_id=?, date=?, due_date=?, memo=? WHERE id=?",
+            (customer_id, inv_date, due_date, form.get("memo", "").strip(), invoice_id))
+        con.execute("DELETE FROM invoice_items WHERE invoice_id=?", (invoice_id,))
+        for d, q, u in items:
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
+                        (invoice_id, d, q, u))
+        
+        # Re-evaluate invoice status based on new total and existing matches/posted payments
+        total_payments = invoicing.invoice_payments_total(con, invoice_id)
+        if inv["paid_entry_id"]:
+            split_cents = con.execute(
+                "SELECT SUM(amount_cents) FROM splits s JOIN accounts a ON a.id=s.account_id "
+                "WHERE s.entry_id=? AND a.type='asset'", (inv["paid_entry_id"],)
+            ).fetchone()[0] or 0
+            total_payments += abs(split_cents)
+            
+        new_total = sum(q * u for d, q, u in items)
+        
+        has_links = con.execute("SELECT 1 FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchone() or inv["paid_entry_id"]
+        if has_links:
+            status = 'paid' if total_payments >= new_total else 'partially_paid'
+            paid_date = inv["paid_date"] or date_cls.today().isoformat()
+            con.execute("UPDATE invoices SET status=?, paid_date=? WHERE id=?", (status, paid_date, invoice_id))
+        else:
+            con.execute("UPDATE invoices SET status='sent', paid_date=NULL WHERE id=?", (invoice_id,))
+            
+        _update_entry_customers_for_invoice(con, invoice_id)
+        _cleanup_entry_customers(con)
+        con.commit()
+        return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+    except (ValueError, KeyError) as e:
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        inv, items, _ = invoicing.get_invoice(con, invoice_id)
+        return templates.TemplateResponse(request, "invoice_edit.html", ctx(
+            request, con, inv=inv, items=items, customers=customers, error=str(e)))
+    finally:
+        con.close()
+
+
 def invoice_deposit_candidates(con, inv, total):
     """Existing income deposits on the books that could be this invoice's payment: an income-leg
     split equal to the invoice total, near the invoice date, not already linked to an invoice."""
@@ -2981,6 +3057,60 @@ async def estimate_create(request: Request):
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "estimate_new.html", ctx(
             request, con, customers=customers, error=str(e)))
+    finally:
+        con.close()
+
+
+@app.get("/estimates/{estimate_id}/edit", response_class=HTMLResponse)
+def estimate_edit(request: Request, estimate_id: int):
+    con = db.connect()
+    try:
+        est, items, total = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "invoice_edit.html", ctx(
+            request, con, inv=est, items=items, customers=customers, error=None))
+    finally:
+        con.close()
+
+
+@app.post("/estimates/{estimate_id}/edit")
+async def estimate_update(request: Request, estimate_id: int):
+    form = await request.form()
+    con = db.connect()
+    try:
+        est, _, _ = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        customer_id = int(form["customer_id"])
+        est_date = ledger.normalize_date(form["date"])
+        due_date = ledger.normalize_date(form["due_date"])
+        descs = form.getlist("item_desc")
+        qtys = form.getlist("item_qty")
+        prices = form.getlist("item_price")
+        items = []
+        for d, q, p in zip(descs, qtys, prices):
+            if not d.strip():
+                continue
+            items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        if not items:
+            raise ValueError("Add at least one line item.")
+        
+        con.execute(
+            "UPDATE invoices SET customer_id=?, date=?, due_date=?, memo=? WHERE id=?",
+            (customer_id, est_date, due_date, form.get("memo", "").strip(), estimate_id))
+        con.execute("DELETE FROM invoice_items WHERE invoice_id=?", (estimate_id,))
+        for d, q, u in items:
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
+                        (estimate_id, d, q, u))
+        con.commit()
+        return RedirectResponse(f"/estimates/{estimate_id}", status_code=303)
+    except (ValueError, KeyError) as e:
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        est, items, _ = invoicing.get_invoice(con, estimate_id)
+        return templates.TemplateResponse(request, "invoice_edit.html", ctx(
+            request, con, inv=est, items=items, customers=customers, error=str(e)))
     finally:
         con.close()
 
