@@ -9,6 +9,10 @@
   <a class="btn" href="/taxes/package.zip?year={{ year }}">Download {{ year }} package (ZIP)</a>
 </form>
 
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+{% if locked_through %}<p class="muted">🔒 Books closed through <strong>{{ locked_through }}</strong> — transactions on or before that date are locked.</p>{% endif %}
+
 <div class="cards">
   <div class="card"><div class="label">{{ year }} income</div><div class="big">${{ pnl.total_income|money }}</div></div>
   <div class="card"><div class="label">{{ year }} expenses</div><div class="big">${{ pnl.total_expenses|money }}</div></div>
@@ -355,6 +359,32 @@
           <td style="padding:6px 0; text-align:right; font-size:13px; border-bottom:none;">{% if missing_receipts %}<a href="/receipts/missing?period={{ year }}">{{ missing_receipts }} missing</a>{% else %}documented{% endif %}</td>
         </tr>
       </table>
+    </div>
+
+    <!-- Year-end close (period lock) -->
+    <div class="sidebar-box">
+      <h3>Year-end close</h3>
+      {% if locked_through %}
+      <div class="success-box" style="border-left-color:var(--accent); color:var(--ink); background:rgba(47,111,79,.05)">
+        🔒 Books are <strong>closed through {{ locked_through }}</strong>. Transactions on or before that
+        date can't be added, edited, or deleted until you reopen.
+      </div>
+      <form method="post" action="/taxes/reopen" style="margin-top:10px"
+            onsubmit="return confirm('Reopen the books? Transactions in the closed period become editable again.')">
+        <button type="submit" class="small ghost" style="width:100%">Reopen the books</button>
+      </form>
+      {% else %}
+      <p class="muted" style="font-size:12px; margin-top:0">Lock a finished year so filed numbers can't change by
+        accident. The lock syncs to your other computer, and you can reopen anytime.</p>
+      {% endif %}
+      <form method="post" action="/taxes/close" class="settings-form" style="margin-top:10px"
+            onsubmit="return confirm('Close (lock) the books through this date? Transactions on or before it will be frozen.')">
+        <div class="form-row">
+          <label for="through">Close through</label>
+          <input type="date" id="through" name="through" value="{{ locked_through or (year ~ '-12-31') }}">
+        </div>
+        <button type="submit" class="small" style="width:100%">{{ 'Update close date' if locked_through else 'Close the books' }}</button>
+      </form>
     </div>
 
     <!-- Settings Box -->

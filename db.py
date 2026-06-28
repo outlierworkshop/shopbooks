@@ -341,6 +341,7 @@ DEFAULT_SETTINGS = {
     "business_name": "My Business",
     "backup_dir": "",            # extra/off-machine backup folder; blank = auto-detect OneDrive
     "sync_enabled": "0",         # two-machine cloud sync (see sync.py); off by default
+    "books_locked_through": "",  # year-end close: entries on/before this date are frozen; blank = nothing locked
     "business_address": "",
     "business_email": "",
     "business_phone": "",

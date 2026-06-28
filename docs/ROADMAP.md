@@ -13,6 +13,18 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-27 — Year-end close / period lock (trustworthy books, part 1)
+- New synced setting `books_locked_through`: once set, transactions dated on or before it are frozen —
+  they can't be added, edited, or deleted. Lock a filed year so its numbers can't change by accident.
+- Enforced at the ledger chokepoint so it's airtight from every screen: `ledger.assert_unlocked()` guards
+  `post_entry`, `delete_entry`, and `update_entry_fields`. New `ledger.LockedPeriodError(ValueError)` so the
+  existing `except ValueError` route handlers surface a friendly message; added that handling to `/entry/delete`.
+- UI on the Taxes page: a "Year-end close" box (close through a date — defaults to Dec 31 of the shown year —
+  with a reopen button) plus a "Books closed through X" banner. The lock is a normal setting, so it syncs to
+  the other machine (a closed year stays closed everywhere).
+- `test_period_lock.py` covers posting/deleting/editing into a locked period, moving an entry into it, the
+  on-or-before boundary, and reopening. Part 2 (reconciliation Phase 2 — per-transaction clearing) is next.
+
 ### 2026-06-26 — Schedule C Mapping & Estimated Quarterly Payments
 - **Schedule C Tax Mapping**: Added support for mapping income and expense accounts to standard IRS Schedule C lines directly via dropdown selectors on the Chart of Accounts page (`/accounts`).
 - **Estimated Quarterly Taxes**: Integrated quarterly estimated tax calculations, computing Self-Employment Tax (15.3% SE tax on 92.35% of net profit) and Estimated Income Tax based on a configurable rate.

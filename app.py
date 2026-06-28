@@ -720,6 +720,11 @@ def entry_delete(entry_id: int, back: str = Form("/")):
         ledger.delete_entry(con, entry_id)
         con.commit()
         return RedirectResponse(back, status_code=303)
+    except ValueError as e:
+        from urllib.parse import quote
+        dest = back if back.startswith("/") else "/"
+        sep = "&" if "?" in dest else "?"
+        return RedirectResponse(f"{dest}{sep}err={quote(str(e))}", status_code=303)
     finally:
         con.close()
 
@@ -2592,7 +2597,7 @@ def invoice_email(invoice_id: int, to_addr: str = Form(...), subject: str = Form
 # ---------- tax package ----------
 
 @app.get("/taxes", response_class=HTMLResponse)
-def taxes_page(request: Request, year: int = 0):
+def taxes_page(request: Request, year: int = 0, msg: str = "", err: str = ""):
     con = db.connect()
     try:
         year = year or date_cls.today().year
@@ -2629,7 +2634,39 @@ def taxes_page(request: Request, year: int = 0):
             receipts_matched=receipts_matched, receipts_unmatched=receipts_unmatched,
             missing_receipts=missing_receipts,
             schedule_c=sch_c, estimated_taxes=est_tx,
-            estimated_income_tax_rate=est_rate_str))
+            estimated_income_tax_rate=est_rate_str,
+            locked_through=ledger.locked_through(con), msg=msg, err=err))
+    finally:
+        con.close()
+
+
+@app.post("/taxes/close")
+def taxes_close(through: str = Form(...)):
+    con = db.connect()
+    try:
+        from urllib.parse import quote
+        try:
+            d = ledger.normalize_date(through)
+        except ValueError:
+            return RedirectResponse("/taxes?err=" + quote("Enter a valid date to close the books through."),
+                                    status_code=303)
+        db.set_setting(con, "books_locked_through", d)
+        con.commit()
+        return RedirectResponse("/taxes?msg=" + quote(
+            f"Books closed through {d}. Transactions on or before that date are now locked."), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/taxes/reopen")
+def taxes_reopen():
+    con = db.connect()
+    try:
+        from urllib.parse import quote
+        db.set_setting(con, "books_locked_through", "")
+        con.commit()
+        return RedirectResponse("/taxes?msg=" + quote("Books reopened — every period is editable again."),
+                                status_code=303)
     finally:
         con.close()
 

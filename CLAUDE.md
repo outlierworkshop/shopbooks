@@ -109,7 +109,7 @@ existing example). Existing user data must always survive an upgrade.
 |---|---|
 | `app.py` | All FastAPI routes (thin; logic lives in modules) |
 | `db.py` | Connection, schema, seeds, settings helpers, `DEFAULT_SETTINGS` |
-| `ledger.py` | Double-entry core: post/delete entries, balances, registers, P&L, balance sheet |
+| `ledger.py` | Double-entry core: post/delete entries, balances, registers, P&L, balance sheet. Year-end close: `assert_unlocked` guards every write (post/delete/edit) against the `books_locked_through` date; raises `LockedPeriodError(ValueError)` |
 | `insights.py` | Read-only "book query" layer: deterministic P&L/growth/trend/cash/health figures for reports and AI tools (reuses `ledger.py`). Numbers are computed here — never by the model |
 | `importer.py` | CSV parsing, PDF text extraction, regex statement fallback, rules engine, duplicate detection, staging |
 | `ai.py` | AI: statement extraction, receipt vision, categorization. Pluggable backend (`ai_backend`: claude/ollama/hybrid); all optional, return None on any failure |
