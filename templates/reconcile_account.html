@@ -18,6 +18,75 @@
 {% if acct.kind == 'card' %}(the amount owed){% endif %}. We compare it to your books as of that date.</p>
 
 {% if result %}
+<h2>Clear transactions against the statement</h2>
+<p class="muted">Tick each transaction that appears on this statement. When the <strong>cleared balance</strong>
+equals the statement's ending balance, finish to lock them in — cleared items carry forward and aren't
+shown again.{% if cleared_begin %} Transactions cleared in earlier reconciliations are already counted in
+the beginning balance and hidden.{% endif %}</p>
+
+<form method="post" action="/reconcile/finish" id="clearForm">
+  <input type="hidden" name="account_id" value="{{ acct.id }}">
+  <input type="hidden" name="statement_date" value="{{ result.statement_date }}">
+  <input type="hidden" name="statement_balance" value="{{ result.statement_balance|money }}">
+
+  <div class="card section" id="clearBox" style="max-width:560px"
+       data-begin="{{ cleared_begin }}" data-target="{{ result.statement_balance }}">
+    <table>
+      <tr><td>Beginning (already cleared)</td><td class="num">${{ cleared_begin|money }}</td></tr>
+      <tr><td>Cleared this session</td><td class="num" id="sessSum">$0.00</td></tr>
+      <tr><td><strong>Cleared balance</strong></td><td class="num"><strong id="clearedTotal"></strong></td></tr>
+      <tr><td>Statement ending balance</td><td class="num">${{ result.statement_balance|money }}</td></tr>
+      <tr><td><strong>Difference</strong></td><td class="num"><strong id="clearDiff"></strong></td></tr>
+    </table>
+    <p id="clearStatus" class="muted" style="margin-bottom:0"></p>
+  </div>
+
+  <div class="toolbar" style="margin:10px 0">
+    <button type="button" class="ghost small" id="ckAll">Select all</button>
+    <button type="button" class="ghost small" id="ckNone">Clear all</button>
+    <button type="submit" id="finishBtn" disabled>Finish reconciliation</button>
+  </div>
+
+  <table class="sortable">
+    <tr><th style="width:32px"></th><th>Date</th><th>Payee</th><th class="num">Amount</th></tr>
+    {% for t in unreconciled %}
+    <tr>
+      <td><input type="checkbox" class="clearck" name="cleared" value="{{ t.split_id }}" data-amount="{{ t.amount }}"></td>
+      <td>{{ t.date }}</td><td>{{ t.payee }}</td>
+      <td class="num {{ 'neg' if t.amount < 0 else '' }}">${{ t.amount|money }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">Nothing left to clear up to {{ result.statement_date }}.</td></tr>
+    {% endfor %}
+  </table>
+</form>
+
+<script>
+(function(){
+  var box = document.getElementById('clearBox'); if(!box) return;
+  var begin = parseInt(box.dataset.begin || '0', 10);
+  var target = parseInt(box.dataset.target || '0', 10);
+  function fmt(c){ var s=c<0?'-':''; c=Math.abs(c); return s+'$'+Math.floor(c/100).toLocaleString()+'.'+('0'+(c%100)).slice(-2); }
+  function recompute(){
+    var sess = 0;
+    document.querySelectorAll('.clearck:checked').forEach(function(ck){ sess += parseInt(ck.dataset.amount||'0',10); });
+    var cleared = begin + sess, diff = target - cleared;
+    document.getElementById('sessSum').textContent = fmt(sess);
+    document.getElementById('clearedTotal').textContent = fmt(cleared);
+    var d = document.getElementById('clearDiff'); d.textContent = fmt(diff); d.className = (diff===0)?'pos':'neg';
+    document.getElementById('finishBtn').disabled = (diff!==0);
+    document.getElementById('clearStatus').textContent = (diff===0)
+      ? '✓ Cleared balance matches the statement — finish to lock these in.'
+      : 'Tick the transactions on the statement until the difference reaches $0.00.';
+  }
+  document.querySelectorAll('.clearck').forEach(function(ck){ ck.addEventListener('change', recompute); });
+  document.getElementById('ckAll').addEventListener('click', function(){ document.querySelectorAll('.clearck').forEach(function(c){c.checked=true;}); recompute(); });
+  document.getElementById('ckNone').addEventListener('click', function(){ document.querySelectorAll('.clearck').forEach(function(c){c.checked=false;}); recompute(); });
+  recompute();
+})();
+</script>
+
+<h2>Quick balance check <span class="muted">(against your full book balance)</span></h2>
 <div class="card section" style="max-width:520px">
   <table>
     <tr><td>Statement ending balance</td><td class="num">${{ result.statement_balance|money }}</td></tr>
@@ -94,17 +163,7 @@
   {% endfor %}
 </table>
 {% endif %}
-<h2>Transactions in this period</h2>
-<p class="muted">Since {{ last.statement_date if last else 'the beginning' }} through {{ result.statement_date }} — scan for anything missing or doubled.</p>
-<table class="sortable">
-  <tr><th>Date</th><th>Payee</th><th class="num">Amount</th></tr>
-  {% for t in txns %}
-  <tr><td>{{ t.date }}</td><td>{{ t.payee }}</td>
-      <td class="num {{ 'neg' if t.amount < 0 else '' }}">${{ t.amount|money }}</td></tr>
-  {% else %}
-  <tr><td colspan="3" class="muted">No transactions in this period.</td></tr>
-  {% endfor %}
-</table>
+{# the read-only period list is superseded by the clearing checklist above #}
 {% endif %}
 {% endif %}
 

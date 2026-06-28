@@ -13,6 +13,17 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Reconciliation Phase 2: per-transaction clearing (trustworthy books, part 2; #34)
+- New `splits.reconciled_id` (guarded migration) marks an account-leg as cleared in a reconciliation.
+- `reconcile.cleared_balance` / `unreconciled_transactions` / `finish`: tick the transactions that appear
+  on a statement; when the cleared balance equals the statement's ending balance, finish stamps those
+  splits reconciled and records the checkpoint (difference computed from the CLEARED balance, not the whole
+  book). Cleared items carry forward as the next statement's beginning balance and drop off the checklist.
+- `/reconcile/finish` route + a live checklist on the account page (running cleared total / difference,
+  select-all, Finish enabled only at $0 difference). The quick balance-check + square-up adjust stay as a
+  secondary tool. Works for assets and liabilities (display-signed). `test_reconcile_clearing.py` covers
+  carry-forward, the out-of-balance case, and a credit card. Completes "trustworthy books".
+
 ### 2026-06-27 — Year-end close / period lock (trustworthy books, part 1)
 - New synced setting `books_locked_through`: once set, transactions dated on or before it are frozen —
   they can't be added, edited, or deleted. Lock a filed year so its numbers can't change by accident.

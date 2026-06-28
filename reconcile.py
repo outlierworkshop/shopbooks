@@ -1,10 +1,13 @@
 """Reconciliation: confirm a bank/card account's books match its statement.
 
-Balance-check approach (per-transaction "cleared" checkboxes are a later phase):
-the user enters a statement's closing date and ending balance; we compute the book
-balance as of that date and show the difference. Zero = reconciled. When it's off,
-we list that period's transactions and flag likely duplicates so the gap is easy to
-find. Everything here is deterministic — the numbers come straight from the ledger.
+Two complementary tools, both deterministic (numbers come straight from the ledger):
+  - Quick balance check: enter the statement's closing date + ending balance; we compare it to
+    the book balance as of that date and show the difference (compute/record), flagging likely
+    duplicates when it's off.
+  - Per-transaction clearing (Phase 2): tick each transaction that appears on the statement; when
+    the cleared balance equals the statement's ending balance, finish() stamps those splits
+    reconciled (splits.reconciled_id) so they carry forward as the next statement's beginning
+    balance and are never re-presented.
 
 Balances are display-signed (natural reading): assets read positive, a credit card
 reads positive when you owe money — matching how the user reads a statement, so the
@@ -84,6 +87,62 @@ def likely_duplicates(con, account_id, after_date, on_or_before, window_days=5):
                      - datetime.strptime(b["date"], "%Y-%m-%d")).days) <= window_days:
                 flagged.append((a, b))
     return flagged
+
+
+# --- Phase 2: per-transaction clearing ---------------------------------------
+
+def cleared_balance(con, account_id):
+    """Display-signed balance of everything already cleared on this account — the carry-forward
+    'beginning' balance for the next statement. Independent of dates (driven by reconciled_id)."""
+    a = con.execute("SELECT type FROM accounts WHERE id=?", (account_id,)).fetchone()
+    raw = con.execute("SELECT COALESCE(SUM(amount_cents),0) s FROM splits "
+                      "WHERE account_id=? AND reconciled_id IS NOT NULL", (account_id,)).fetchone()["s"]
+    return ledger.display_balance(a["type"], raw)
+
+
+def unreconciled_transactions(con, account_id, on_or_before):
+    """Uncleared account-legs dated on/before the statement date — the checklist to tick. Each row
+    carries its split_id (what finish() stamps) and a display-signed amount. Oldest first."""
+    a = con.execute("SELECT type FROM accounts WHERE id=?", (account_id,)).fetchone()
+    rows = con.execute(
+        "SELECT s.id sid, e.id eid, e.date, e.payee, s.amount_cents FROM entries e "
+        "JOIN splits s ON s.entry_id=e.id "
+        "WHERE s.account_id=? AND s.reconciled_id IS NULL AND e.date<=? "
+        "ORDER BY e.date, e.id", (account_id, on_or_before)).fetchall()
+    return [{"split_id": r["sid"], "entry_id": r["eid"], "date": r["date"], "payee": r["payee"],
+             "amount": ledger.display_balance(a["type"], r["amount_cents"])} for r in rows]
+
+
+def finish(con, account_id, statement_date, statement_balance_cents, cleared_split_ids):
+    """Clear the given splits against a new reconciliation checkpoint, computed from the CLEARED
+    balance (already-cleared + the newly ticked) — not the whole book. Marks those splits
+    reconciled and records the checkpoint. Returns the difference and whether it came out to zero."""
+    a = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    if not a:
+        raise ValueError("account not found")
+    ids = [int(i) for i in (cleared_split_ids or [])]
+    begin_raw = con.execute("SELECT COALESCE(SUM(amount_cents),0) s FROM splits "
+                            "WHERE account_id=? AND reconciled_id IS NOT NULL", (account_id,)).fetchone()["s"]
+    add_raw = 0
+    if ids:
+        qmarks = ",".join("?" * len(ids))
+        add_raw = con.execute(
+            f"SELECT COALESCE(SUM(amount_cents),0) s FROM splits "
+            f"WHERE account_id=? AND reconciled_id IS NULL AND id IN ({qmarks})",
+            [account_id] + ids).fetchone()["s"]
+    cleared = ledger.display_balance(a["type"], begin_raw + add_raw)
+    diff = statement_balance_cents - cleared
+    cur = con.execute(
+        "INSERT INTO reconciliations(account_id,statement_date,statement_balance_cents,"
+        "book_balance_cents,difference_cents) VALUES(?,?,?,?,?)",
+        (account_id, statement_date, statement_balance_cents, cleared, diff))
+    rid = cur.lastrowid
+    if ids:
+        qmarks = ",".join("?" * len(ids))
+        con.execute(f"UPDATE splits SET reconciled_id=? WHERE account_id=? AND reconciled_id IS NULL "
+                    f"AND id IN ({qmarks})", [rid, account_id] + ids)
+    return {"reconciliation_id": rid, "reconciled": diff == 0, "difference": diff,
+            "cleared_balance": cleared, "cleared_count": len(ids)}
 
 
 def status(con):
