@@ -23,6 +23,8 @@ Used only for the billable-value figures on the Time and Jobs pages - it is not 
   <label>Invoice terms / footer</label><input type="text" name="invoice_terms" value="{{ s.invoice_terms }}">
   <label>Email subject</label><input type="text" name="email_subject" value="{{ s.email_subject }}">
   <label>Email message</label><textarea name="email_body" rows="5">{{ s.email_body }}</textarea>
+  <label>Reminder subject</label><input type="text" name="reminder_subject" value="{{ s.reminder_subject }}">
+  <label>Reminder message</label><textarea name="reminder_body" rows="5">{{ s.reminder_body }}</textarea>
 </div>
 <p class="muted">Placeholders for subject/message: {number} {business} {customer} {total} {due_date} {date}</p>
 

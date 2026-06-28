@@ -236,6 +236,7 @@ CREATE TABLE IF NOT EXISTS invoices(
   matched_entry_id INTEGER REFERENCES entries(id), -- existing deposit this invoice is linked to (we do NOT own it)
   kind TEXT NOT NULL DEFAULT 'invoice',            -- 'invoice' | 'estimate' (estimates never post/match)
   converted_invoice_id INTEGER REFERENCES invoices(id),  -- for an estimate: the invoice it became
+  last_reminder_date TEXT,                         -- when the last overdue reminder email was sent (AR follow-ups)
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS invoice_items(
@@ -358,6 +359,10 @@ DEFAULT_SETTINGS = {
     "email_subject": "Invoice {number} from {business}",
     "email_body": ("Hi {customer},\n\nAttached is invoice {number} for ${total}, "
                    "due {due_date}.\n\nThank you!\n{business}"),
+    "reminder_subject": "Reminder: invoice {number} from {business} is past due",
+    "reminder_body": ("Hi {customer},\n\nA friendly reminder that invoice {number} for ${total} "
+                      "was due {due_date} and is still open. The invoice is attached again for your "
+                      "convenience.\n\nThank you!\n{business}"),
     "estimated_income_tax_rate": "15",
 }
 
@@ -429,6 +434,8 @@ def _column_migrations(con):
         con.execute("ALTER TABLE invoices ADD COLUMN kind TEXT NOT NULL DEFAULT 'invoice'")
     if "converted_invoice_id" not in invc2:
         con.execute("ALTER TABLE invoices ADD COLUMN converted_invoice_id INTEGER REFERENCES invoices(id)")
+    if "last_reminder_date" not in invc2:
+        con.execute("ALTER TABLE invoices ADD COLUMN last_reminder_date TEXT")
 
 
 def init():
