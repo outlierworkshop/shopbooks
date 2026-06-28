@@ -13,6 +13,19 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — Estimates / quotes that convert to invoices (#35)
+- Estimates are `invoices` rows with a new `kind` column ('invoice' | 'estimate') + `converted_invoice_id`
+  (guarded migration; own EST- number sequence via `next_estimate_number`). They never post to the ledger,
+  never match deposits, and never appear in the invoice list or AR — every existing invoice/match/categorize
+  query is scoped to `kind='invoice'`.
+- New Estimates section (nav): list, create (line items, "valid until" date), view, kind-aware PDF
+  (ESTIMATE header, "Valid Until", "Estimated Total"), and email. Status flow draft → sent → accepted/declined.
+- One-click **Convert to invoice**: copies the line items into a new INV- invoice (date today, due +30d), marks
+  the estimate accepted and links it; re-converting just returns the existing invoice (no duplicate). Reuses the
+  existing invoice PDF/email machinery.
+- `test_estimates.py` (HTTP) covers create, ledger-isolation, invoice-list exclusion, the /invoices→/estimates
+  guard, conversion (items copied + linked), and idempotent re-convert. First step of the get-paid loop (#36 next).
+
 ### 2026-06-28 — Reconciliation Phase 2: per-transaction clearing (trustworthy books, part 2; #34)
 - New `splits.reconciled_id` (guarded migration) marks an account-leg as cleared in a reconciliation.
 - `reconcile.cleared_balance` / `unreconciled_transactions` / `finish`: tick the transactions that appear

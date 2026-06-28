@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}New estimate{% endblock %}
+{% block content %}
+<h1>New estimate</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if not customers %}
+<p class="note">Add a customer on the <a href="/invoices">Invoices</a> page first.</p>
+{% else %}
+<form method="post">
+  <div class="formgrid" style="max-width:720px">
+    <label>Customer</label>
+    <select name="customer_id" required>
+      {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <label>Estimate date</label><input type="date" name="date" value="{{ today }}" required>
+    <label>Valid until</label><input type="date" name="valid_until" value="{{ today }}" required>
+    <label>Memo (shown on estimate)</label><input type="text" name="memo" style="width:100%">
+  </div>
+
+  <h2>Line items</h2>
+  <table id="items" style="max-width:720px">
+    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th></tr>
+    <tr>
+      <td><input type="text" name="item_desc" style="width:100%"></td>
+      <td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>
+      <td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>
+    </tr>
+  </table>
+  <div class="toolbar">
+    <button type="button" class="ghost" onclick="addRow()">+ Add line</button>
+    <button type="submit">Create estimate</button>
+  </div>
+</form>
+<script>
+function addRow() {
+  const t = document.getElementById('items');
+  const r = t.insertRow(-1);
+  r.innerHTML = '<td><input type="text" name="item_desc" style="width:100%"></td>' +
+    '<td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>' +
+    '<td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>';
+}
+</script>
+{% endif %}
+{% endblock %}

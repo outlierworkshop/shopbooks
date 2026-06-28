@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS invoices(
   paid_date TEXT,
   paid_entry_id INTEGER REFERENCES entries(id),    -- entry WE posted via Record Payment (we own it)
   matched_entry_id INTEGER REFERENCES entries(id), -- existing deposit this invoice is linked to (we do NOT own it)
+  kind TEXT NOT NULL DEFAULT 'invoice',            -- 'invoice' | 'estimate' (estimates never post/match)
+  converted_invoice_id INTEGER REFERENCES invoices(id),  -- for an estimate: the invoice it became
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS invoice_items(
@@ -348,6 +350,7 @@ DEFAULT_SETTINGS = {
     "business_phone": "",
     "invoice_terms": "Payment due within 30 days. Thank you for your business!",
     "next_invoice_number": "1001",
+    "next_estimate_number": "1001",
     "smtp_host": "smtp.gmail.com",
     "smtp_port": "587",
     "smtp_user": "",
@@ -421,6 +424,11 @@ def _column_migrations(con):
     spl = {r["name"] for r in con.execute("PRAGMA table_info(splits)").fetchall()}
     if "reconciled_id" not in spl:
         con.execute("ALTER TABLE splits ADD COLUMN reconciled_id INTEGER REFERENCES reconciliations(id)")
+    invc2 = {r["name"] for r in con.execute("PRAGMA table_info(invoices)").fetchall()}
+    if "kind" not in invc2:
+        con.execute("ALTER TABLE invoices ADD COLUMN kind TEXT NOT NULL DEFAULT 'invoice'")
+    if "converted_invoice_id" not in invc2:
+        con.execute("ALTER TABLE invoices ADD COLUMN converted_invoice_id INTEGER REFERENCES invoices(id)")
 
 
 def init():

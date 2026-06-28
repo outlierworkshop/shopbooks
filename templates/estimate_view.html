@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ inv.number }}{% endblock %}
+{% block content %}
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="toolbar">
+  <a class="btn" href="/estimates/{{ inv.id }}/pdf" target="_blank">Open PDF</a>
+  {% if inv.converted_invoice_id %}
+    <a class="btn" href="/invoices/{{ inv.converted_invoice_id }}">View invoice {{ converted.number if converted }}</a>
+  {% else %}
+    <form class="inline" method="post" action="/estimates/{{ inv.id }}/convert"
+          onsubmit="return confirm('Create an invoice from this estimate?')">
+      <button type="submit">Convert to invoice →</button></form>
+  {% endif %}
+  {% if inv.status == 'draft' %}
+  <form class="inline" method="post" action="/estimates/{{ inv.id }}/status">
+    <button name="action" value="sent" type="submit" class="ghost">Mark sent</button></form>
+  {% elif inv.status == 'sent' %}
+  <form class="inline" method="post" action="/estimates/{{ inv.id }}/status">
+    <button name="action" value="accepted" type="submit" class="ghost">Mark accepted</button></form>
+  <form class="inline" method="post" action="/estimates/{{ inv.id }}/status">
+    <button name="action" value="declined" type="submit" class="ghost">Mark declined</button></form>
+  {% endif %}
+  {% if inv.status in ('draft', 'declined') and not inv.converted_invoice_id %}
+  <form class="inline" method="post" action="/estimates/{{ inv.id }}/status"
+        onsubmit="return confirm('Delete this estimate?')">
+    <button name="action" value="delete" type="submit" class="danger">Delete</button></form>
+  {% endif %}
+  <span class="muted">status: <strong>{{ inv.status }}</strong></span>
+</div>
+
+<div class="card section" style="max-width:760px">
+  <h1 style="margin-top:0">{{ business_name }}</h1>
+  <p class="muted">{{ biz_address }}{% if biz_email %} · {{ biz_email }}{% endif %}{% if biz_phone %} · {{ biz_phone }}{% endif %}</p>
+  <h2>ESTIMATE {{ inv.number }}</h2>
+  <p>Date: {{ inv.date }} &nbsp;·&nbsp; Valid until: {{ inv.due_date }}</p>
+  <p><strong>Prepared for:</strong> {{ inv.customer }}{% if inv.customer_address %}<br>
+     <span class="muted">{{ inv.customer_address }}</span>{% endif %}</p>
+  <table>
+    <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr>
+    {% for it in items %}
+    <tr>
+      <td>{{ it.description }}</td>
+      <td class="num">{{ '%g'|format(it.qty) }}</td>
+      <td class="num">${{ it.unit_cents|money }}</td>
+      <td class="num">${{ (it.qty * it.unit_cents)|round|int|money }}</td>
+    </tr>
+    {% endfor %}
+    <tr><td colspan="3"><strong>Estimated total</strong></td><td class="num"><strong>${{ total|money }}</strong></td></tr>
+  </table>
+  {% if inv.memo %}<p>{{ inv.memo }}</p>{% endif %}
+  {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
+</div>
+
+{% if inv.converted_invoice_id %}
+<p class="pos">✓ This estimate was converted to invoice
+  <a href="/invoices/{{ inv.converted_invoice_id }}">{{ converted.number if converted }}</a>.</p>
+{% endif %}
+
+<div class="card section" style="max-width:760px">
+  <h2 style="margin-top:0">Email estimate</h2>
+  {% if email_on %}
+  <form method="post" action="/estimates/{{ inv.id }}/email">
+    <div class="toolbar">
+      <input type="email" name="to_addr" value="{{ inv.customer_email }}" placeholder="to" required style="width:260px">
+      <input type="text" name="subject" placeholder="(default subject)" style="width:300px">
+    </div>
+    <textarea name="body" placeholder="(default message)" rows="4" style="width:100%; max-width:700px"></textarea>
+    <div class="toolbar"><button type="submit">Send with PDF attached</button></div>
+  </form>
+  {% else %}
+  <p class="muted">Set up SMTP in <a href="/settings">Settings</a> to send email. Meanwhile, download the
+  <a href="/estimates/{{ inv.id }}/pdf">PDF</a> and attach it yourself.</p>
+  {% endif %}
+</div>
+{% endblock %}

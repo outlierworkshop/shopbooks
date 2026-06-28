@@ -625,7 +625,7 @@ def _categorize_from_invoices(con):
                 "JOIN entries e ON e.id = COALESCE(i.paid_entry_id, i.matched_entry_id) "
                 "JOIN splits s ON s.entry_id = e.id "
                 "JOIN accounts a ON a.id = s.account_id "
-                "WHERE i.customer_id = ? AND a.type = 'income' "
+                "WHERE i.kind='invoice' AND i.customer_id = ? AND a.type = 'income' "
                 "GROUP BY s.account_id ORDER BY COUNT(*) DESC LIMIT 1",
                 (inv["customer_id"],)
             ).fetchone()
@@ -1353,7 +1353,7 @@ def staged_invoice_matches(con):
     from datetime import date as dt_date
     rows = con.execute(
         "SELECT id, number, customer_id, date, due_date, status, memo FROM invoices "
-        "WHERE status != 'void' AND matched_entry_id IS NULL AND paid_entry_id IS NULL"
+        "WHERE kind='invoice' AND status != 'void' AND matched_entry_id IS NULL AND paid_entry_id IS NULL"
     ).fetchall()
     if not rows:
         return {}
@@ -2291,7 +2291,7 @@ async def migrate_opening(request: Request):
 def _invoice_rows(con):
     rows = con.execute(
         "SELECT i.*, c.name customer, c.email customer_email FROM invoices i "
-        "JOIN customers c ON c.id=i.customer_id ORDER BY i.id DESC").fetchall()
+        "JOIN customers c ON c.id=i.customer_id WHERE i.kind='invoice' ORDER BY i.id DESC").fetchall()
     today = date_cls.today().isoformat()
     out = []
     for r in rows:
@@ -2437,6 +2437,8 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
         inv, items, total = invoicing.get_invoice(con, invoice_id)
         if not inv:
             return RedirectResponse("/invoices", status_code=303)
+        if inv["kind"] == "estimate":
+            return RedirectResponse(f"/estimates/{invoice_id}", status_code=303)
         banks = con.execute("SELECT * FROM accounts WHERE kind='bank' AND active=1").fetchall()
         income = con.execute("SELECT * FROM accounts WHERE type='income' AND active=1 ORDER BY name").fetchall()
         candidates = matched = None
@@ -2487,7 +2489,7 @@ def invoices_match_all():
     con = db.connect()
     try:
         matched = 0
-        rows = con.execute("SELECT id FROM invoices WHERE status != 'void' "
+        rows = con.execute("SELECT id FROM invoices WHERE kind='invoice' AND status != 'void' "
                            "AND matched_entry_id IS NULL AND paid_entry_id IS NULL").fetchall()
         for r in rows:
             inv, _, total = invoicing.get_invoice(con, r["id"])
@@ -2616,6 +2618,180 @@ def invoice_email(invoice_id: int, to_addr: str = Form(...), subject: str = Form
         con.execute("UPDATE invoices SET status='sent' WHERE id=? AND status='draft'", (invoice_id,))
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}?msg=Emailed to {to_addr}", status_code=303)
+    finally:
+        con.close()
+
+
+# ---------- estimates / quotes (issue #35) ----------
+# Estimates are invoices rows with kind='estimate': they never post to the ledger or match deposits.
+# An accepted estimate converts into a real invoice (copying its line items).
+
+def _estimate_rows(con):
+    rows = con.execute(
+        "SELECT i.*, c.name customer, c.email customer_email FROM invoices i "
+        "JOIN customers c ON c.id=i.customer_id WHERE i.kind='estimate' ORDER BY i.id DESC").fetchall()
+    return [{**dict(r), "total": invoicing.invoice_total(con, r["id"])} for r in rows]
+
+
+@app.get("/estimates", response_class=HTMLResponse)
+def estimates_page(request: Request, msg: str = "", err: str = ""):
+    con = db.connect()
+    try:
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "estimates.html", ctx(
+            request, con, estimates=_estimate_rows(con), customers=customers, msg=msg, err=err,
+            email_on=invoicing.email_configured(con)))
+    finally:
+        con.close()
+
+
+@app.get("/estimates/new", response_class=HTMLResponse)
+def estimate_new(request: Request):
+    con = db.connect()
+    try:
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "estimate_new.html", ctx(
+            request, con, customers=customers, error=None))
+    finally:
+        con.close()
+
+
+@app.post("/estimates/new")
+async def estimate_create(request: Request):
+    form = await request.form()
+    con = db.connect()
+    try:
+        customer_id = int(form["customer_id"])
+        est_date = ledger.normalize_date(form["date"])
+        valid_until = ledger.normalize_date(form["valid_until"])
+        descs, qtys, prices = form.getlist("item_desc"), form.getlist("item_qty"), form.getlist("item_price")
+        items = []
+        for d, q, p in zip(descs, qtys, prices):
+            if d.strip():
+                items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        if not items:
+            raise ValueError("Add at least one line item.")
+        number = invoicing.next_estimate_number(con)
+        cur = con.execute(
+            "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,'estimate')",
+            (number, customer_id, est_date, valid_until, form.get("memo", "").strip()))
+        est_id = cur.lastrowid
+        for d, q, u in items:
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
+                        (est_id, d, q, u))
+        con.commit()
+        return RedirectResponse(f"/estimates/{est_id}", status_code=303)
+    except (ValueError, KeyError) as e:
+        customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        return templates.TemplateResponse(request, "estimate_new.html", ctx(
+            request, con, customers=customers, error=str(e)))
+    finally:
+        con.close()
+
+
+@app.get("/estimates/{estimate_id}", response_class=HTMLResponse)
+def estimate_view(request: Request, estimate_id: int, msg: str = "", err: str = ""):
+    con = db.connect()
+    try:
+        est, items, total = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        converted = None
+        if est["converted_invoice_id"]:
+            converted = con.execute("SELECT id, number FROM invoices WHERE id=?",
+                                    (est["converted_invoice_id"],)).fetchone()
+        return templates.TemplateResponse(request, "estimate_view.html", ctx(
+            request, con, inv=est, items=items, total=total, converted=converted, msg=msg, err=err,
+            email_on=invoicing.email_configured(con),
+            biz_address=db.get_setting(con, "business_address", ""),
+            biz_email=db.get_setting(con, "business_email", ""),
+            biz_phone=db.get_setting(con, "business_phone", ""),
+            terms=db.get_setting(con, "invoice_terms", "")))
+    finally:
+        con.close()
+
+
+@app.post("/estimates/{estimate_id}/status")
+def estimate_status(estimate_id: int, action: str = Form(...)):
+    con = db.connect()
+    try:
+        if action == "delete":
+            con.execute("DELETE FROM invoices WHERE id=? AND kind='estimate'", (estimate_id,))
+            con.commit()
+            return RedirectResponse("/estimates", status_code=303)
+        if action in ("draft", "sent", "accepted", "declined"):
+            con.execute("UPDATE invoices SET status=? WHERE id=? AND kind='estimate'", (action, estimate_id))
+            con.commit()
+        return RedirectResponse(f"/estimates/{estimate_id}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.get("/estimates/{estimate_id}/pdf")
+def estimate_pdf(estimate_id: int):
+    con = db.connect()
+    try:
+        est, items, total = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        pdf = invoicing.render_pdf(con, est, items, total)
+        return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                                 headers={"Content-Disposition": f"inline; filename={est['number']}.pdf"})
+    finally:
+        con.close()
+
+
+@app.post("/estimates/{estimate_id}/email")
+def estimate_email(estimate_id: int, to_addr: str = Form(...), subject: str = Form(""), body: str = Form("")):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        est, items, total = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        biz = db.get_setting(con, "business_name", "My Business")
+        subj = subject.strip() or f"Estimate {est['number']} from {biz}"
+        msg = body.strip() or (f"Hi {est['customer']},\n\nAttached is estimate {est['number']} for "
+                               f"${ledger.fmt_cents(total)}, valid until {est['due_date']}. "
+                               "Let me know if you'd like to proceed.\n\nThank you!")
+        pdf = invoicing.render_pdf(con, est, items, total)
+        try:
+            invoicing.send_invoice_email(con, est, total, pdf, to_addr.strip(), subj, msg)
+        except Exception as e:
+            return RedirectResponse(f"/estimates/{estimate_id}?err=" + quote(f"Email failed: {e}"), status_code=303)
+        con.execute("UPDATE invoices SET status='sent' WHERE id=? AND status='draft'", (estimate_id,))
+        con.commit()
+        return RedirectResponse(f"/estimates/{estimate_id}?msg=" + quote(f"Emailed to {to_addr}"), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/estimates/{estimate_id}/convert")
+def estimate_convert(estimate_id: int):
+    from urllib.parse import quote
+    from datetime import timedelta
+    con = db.connect()
+    try:
+        est, items, total = invoicing.get_invoice(con, estimate_id)
+        if not est or est["kind"] != "estimate":
+            return RedirectResponse("/estimates", status_code=303)
+        if est["converted_invoice_id"]:  # already converted — go to the existing invoice
+            return RedirectResponse(f"/invoices/{est['converted_invoice_id']}", status_code=303)
+        today = date_cls.today()
+        number = invoicing.next_number(con)
+        cur = con.execute(
+            "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,'invoice')",
+            (number, est["customer_id"], today.isoformat(), (today + timedelta(days=30)).isoformat(),
+             est["memo"]))
+        inv_id = cur.lastrowid
+        for it in items:
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
+                        (inv_id, it["description"], it["qty"], it["unit_cents"]))
+        con.execute("UPDATE invoices SET status='accepted', converted_invoice_id=? WHERE id=?",
+                    (inv_id, estimate_id))
+        con.commit()
+        return RedirectResponse(f"/invoices/{inv_id}?msg=" + quote(
+            f"Invoice {number} created from estimate {est['number']}."), status_code=303)
     finally:
         con.close()
 
