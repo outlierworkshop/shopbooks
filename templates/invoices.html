@@ -16,7 +16,52 @@
   <form class="inline" method="post" action="/invoices/match-all">
     <button type="submit" class="ghost" title="Link each unpaid invoice to a matching deposit already on your books, without posting any entry">Match to deposits</button>
   </form>
+  {% if aging.overdue_count and email_on %}
+  <form class="inline" method="post" action="/invoices/remind-all"
+        onsubmit="return confirm('Email a reminder for each overdue invoice? (Skips any reminded in the last 7 days.)')">
+    <button type="submit" title="Email a reminder for every overdue invoice that has a customer email">Send reminders to overdue ({{ aging.overdue_count }})</button>
+  </form>
+  {% endif %}
 </div>
+
+<h2>Outstanding (accounts receivable)</h2>
+<div class="cards">
+  <div class="card"><div class="label">Total outstanding</div><div class="big">${{ aging.total|money }}</div>
+    <div class="muted">{{ aging.open_count }} open invoice(s)</div></div>
+  <div class="card"><div class="label">Overdue</div>
+    <div class="big {{ 'neg' if aging.overdue_total else 'pos' }}">${{ aging.overdue_total|money }}</div>
+    <div class="muted">{{ aging.overdue_count }} past due</div></div>
+  <div class="card"><div class="label">Current / 1–30 / 31–60 / 61–90 / 90+</div>
+    <div class="muted" style="font-size:14px; line-height:1.7">
+      ${{ aging.buckets.current|money }} · ${{ aging.buckets['1-30']|money }} ·
+      ${{ aging.buckets['31-60']|money }} · ${{ aging.buckets['61-90']|money }} ·
+      <span class="{{ 'neg' if aging.buckets['90+'] else '' }}">${{ aging.buckets['90+']|money }}</span>
+    </div></div>
+</div>
+
+{% if aging.rows %}
+<table class="sortable">
+  <tr><th>#</th><th>Customer</th><th>Due</th><th class="num">Amount</th><th>Age</th><th>Last reminded</th>{% if email_on %}<th></th>{% endif %}</tr>
+  {% for r in aging.rows %}
+  <tr>
+    <td><a href="/invoices/{{ r.id }}">{{ r.number }}</a></td>
+    <td>{{ r.customer }}</td>
+    <td>{{ r.due_date }}</td>
+    <td class="num">${{ r.total|money }}</td>
+    <td>{% if r.overdue %}<span class="neg">{{ r.days_overdue }} days overdue</span>{% else %}<span class="muted">current</span>{% endif %}</td>
+    <td class="muted">{{ r.last_reminder_date or '—' }}</td>
+    {% if email_on %}<td>
+      {% if r.customer_email %}
+      <form class="inline" method="post" action="/invoices/{{ r.id }}/remind">
+        <button class="small ghost" type="submit">Send reminder</button></form>
+      {% else %}<span class="muted small">no email</span>{% endif %}
+    </td>{% endif %}
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No open invoices — nothing outstanding. 🎉</p>
+{% endif %}
 <p class="muted">QuickBooks import: export Reports → <strong>Invoice List</strong> to CSV and upload it.
 Brings in invoice records (customer, number, date, amount, paid/open) for tracking only — it does
 <strong>not</strong> post income to your books, so it won't double-count against your deposit imports.</p>

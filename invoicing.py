@@ -195,6 +195,36 @@ def render_pdf(con, inv, items, total):
     return bytes(pdf.output())
 
 
+def ar_aging(con, today=None):
+    """Accounts-receivable aging: every open (sent, unpaid) invoice bucketed by how overdue it is.
+    Deterministic — totals come straight from the line items. `current` = not yet past due."""
+    from datetime import date, datetime
+    today = today or date.today().isoformat()
+    td = datetime.strptime(today, "%Y-%m-%d")
+    rows = con.execute(
+        "SELECT i.id, i.number, i.date, i.due_date, i.last_reminder_date, "
+        "c.name customer, c.email customer_email "
+        "FROM invoices i JOIN customers c ON c.id=i.customer_id "
+        "WHERE i.kind='invoice' AND i.status='sent' ORDER BY i.due_date").fetchall()
+    buckets = {"current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0}
+    out = []
+    for r in rows:
+        total = invoice_total(con, r["id"])
+        if total <= 0:
+            continue
+        days = (td - datetime.strptime(r["due_date"], "%Y-%m-%d")).days
+        b = ("current" if days <= 0 else "1-30" if days <= 30 else "31-60" if days <= 60
+             else "61-90" if days <= 90 else "90+")
+        buckets[b] += total
+        out.append({**dict(r), "total": total, "days_overdue": max(days, 0),
+                    "bucket": b, "overdue": days > 0})
+    total_out = sum(buckets.values())
+    return {"rows": out, "buckets": buckets, "total": total_out,
+            "overdue_total": total_out - buckets["current"],
+            "overdue_count": sum(1 for r in out if r["overdue"]),
+            "open_count": len(out)}
+
+
 def email_configured(con):
     return bool(db.get_setting(con, "smtp_user", "") and db.get_setting(con, "smtp_password", ""))
 

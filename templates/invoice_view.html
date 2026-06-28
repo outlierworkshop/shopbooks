@@ -13,6 +13,10 @@
         onsubmit="return confirm('Delete this draft invoice?')">
     <button name="action" value="delete" type="submit" class="danger">Delete</button></form>
   {% elif inv.status == 'sent' %}
+  {% if email_on and inv.customer_email %}
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/remind">
+    <button name="action" value="remind" type="submit" class="ghost">Send reminder</button></form>
+  {% endif %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/status">
     <button name="action" value="void" type="submit" class="ghost">Void</button></form>
   {% elif inv.status == 'void' %}

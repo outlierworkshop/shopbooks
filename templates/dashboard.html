@@ -16,6 +16,13 @@
     <div class="big {{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</div>
     <div class="muted">income ${{ pnl.total_income|money }} · expenses ${{ pnl.total_expenses|money }}</div>
   </div>
+  {% if aging.total %}
+  <div class="card">
+    <div class="label">Owed to you</div>
+    <div class="big">${{ aging.total|money }}</div>
+    <div class="muted">{% if aging.overdue_total %}<span class="neg">${{ aging.overdue_total|money }} overdue</span> · {% endif %}<a href="/invoices">{{ aging.open_count }} open →</a></div>
+  </div>
+  {% endif %}
 </div>
 
 {% if pending_count %}

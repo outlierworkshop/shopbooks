@@ -13,6 +13,18 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-28 — AR aging + overdue-invoice reminders (#36)
+- New `invoicing.ar_aging(con, today)`: every open (sent, unpaid) invoice bucketed by age
+  (current / 1-30 / 31-60 / 61-90 / 90+) with totals — deterministic, from the line items.
+- Invoices page: an "Outstanding (accounts receivable)" section (bucket cards + open-invoice list with
+  days-overdue and last-reminded). Dashboard: an "Owed to you" card (total + overdue) linking to Invoices.
+- Overdue reminders (opt-in, reuse SMTP): per-invoice "Send reminder" on the invoice + AR list, and a bulk
+  "Send reminders to overdue" that skips any reminded within 7 days. New `invoices.last_reminder_date`
+  (guarded migration) stamps each send; editable `reminder_subject`/`reminder_body` settings (sensible
+  defaults). Reminders only ever send when you click — there's no background daemon in a local app.
+- `test_ar_aging.py` covers the buckets/totals/exclusions and the reminder dispatch/skip/stamp logic
+  (SMTP + PDF stubbed). Full suite (36 files) green. Closes the get-paid loop (estimates #35 → invoices → AR).
+
 ### 2026-06-28 — Estimates / quotes that convert to invoices (#35)
 - Estimates are `invoices` rows with a new `kind` column ('invoice' | 'estimate') + `converted_invoice_id`
   (guarded migration; own EST- number sequence via `next_estimate_number`). They never post to the ledger,

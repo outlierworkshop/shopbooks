@@ -122,7 +122,8 @@ def dashboard(request: Request):
             "(SELECT MAX(abs(amount_cents)) FROM splits WHERE entry_id=e.id) amt "
             "FROM entries e ORDER BY e.date DESC, e.id DESC LIMIT 12").fetchall()
         return templates.TemplateResponse(request, "dashboard.html", ctx(
-            request, con, accounts=accounts, pnl=p, recent=recent, year=year))
+            request, con, accounts=accounts, pnl=p, recent=recent, year=year,
+            aging=invoicing.ar_aging(con)))
     finally:
         con.close()
 
@@ -2308,7 +2309,7 @@ def invoices_page(request: Request, msg: str = "", err: str = ""):
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "invoices.html", ctx(
             request, con, invoices=_invoice_rows(con), customers=customers, msg=msg, err=err,
-            email_on=invoicing.email_configured(con)))
+            aging=invoicing.ar_aging(con), email_on=invoicing.email_configured(con)))
     finally:
         con.close()
 
@@ -2620,6 +2621,85 @@ def invoice_email(invoice_id: int, to_addr: str = Form(...), subject: str = Form
         return RedirectResponse(f"/invoices/{invoice_id}?msg=Emailed to {to_addr}", status_code=303)
     finally:
         con.close()
+
+
+# ---------- AR reminders (issue #36) ----------
+
+@app.post("/invoices/{invoice_id}/remind")
+def invoice_remind(invoice_id: int):
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        if not invoicing.email_configured(con):
+            return RedirectResponse(f"/invoices/{invoice_id}?err=" + quote(
+                "Set up SMTP in Settings to send reminders."), status_code=303)
+        try:
+            res = _reminder_send(con, invoice_id, today=date_cls.today().isoformat())
+        except Exception as e:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=" + quote(f"Reminder failed: {e}"), status_code=303)
+        con.commit()
+        if res == "sent":
+            return RedirectResponse(f"/invoices/{invoice_id}?msg=" + quote("Reminder emailed."), status_code=303)
+        msg = ("That customer has no email address — add one on the Invoices page."
+               if res == "no_email" else "Nothing to remind — the invoice isn't open.")
+        return RedirectResponse(f"/invoices/{invoice_id}?err=" + quote(msg), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/remind-all")
+def invoices_remind_all():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        if not invoicing.email_configured(con):
+            return RedirectResponse("/invoices?err=" + quote("Set up SMTP in Settings to send reminders."),
+                                    status_code=303)
+        today = date_cls.today().isoformat()
+        overdue = [r for r in invoicing.ar_aging(con, today)["rows"] if r["overdue"]]
+        sent = no_email = skipped = failed = 0
+        for r in overdue:
+            try:
+                res = _reminder_send(con, r["id"], skip_days=7, today=today)
+            except Exception:
+                failed += 1
+                continue
+            sent += res == "sent"
+            no_email += res == "no_email"
+            skipped += res == "skipped"
+        con.commit()
+        parts = [f"{sent} reminder(s) sent"]
+        if skipped:
+            parts.append(f"{skipped} skipped (already reminded within 7 days)")
+        if no_email:
+            parts.append(f"{no_email} with no email on file")
+        if failed:
+            parts.append(f"{failed} failed to send")
+        return RedirectResponse("/invoices?msg=" + quote("; ".join(parts) + "."), status_code=303)
+    finally:
+        con.close()
+
+
+def _reminder_send(con, inv_id, skip_days=0, today=None):
+    """Send one overdue reminder. Returns 'sent' | 'no_email' | 'skipped'. Raises on SMTP error."""
+    from datetime import datetime
+    today = today or date_cls.today().isoformat()
+    inv, items, total = invoicing.get_invoice(con, inv_id)
+    if not inv or inv["kind"] != "invoice" or inv["status"] != "sent" or total <= 0:
+        return "skipped"
+    if skip_days and inv["last_reminder_date"]:
+        last = datetime.strptime(inv["last_reminder_date"], "%Y-%m-%d")
+        if (datetime.strptime(today, "%Y-%m-%d") - last).days < skip_days:
+            return "skipped"
+    to = (inv["customer_email"] or "").strip()
+    if not to:
+        return "no_email"
+    subj = db.get_setting(con, "reminder_subject", "") or None
+    body = db.get_setting(con, "reminder_body", "") or None
+    pdf = invoicing.render_pdf(con, inv, items, total)
+    invoicing.send_invoice_email(con, inv, total, pdf, to, subj, body)
+    con.execute("UPDATE invoices SET last_reminder_date=? WHERE id=?", (today, inv_id))
+    return "sent"
 
 
 # ---------- estimates / quotes (issue #35) ----------
@@ -3339,7 +3419,8 @@ async def settings_save(request: Request):
         plain = ("mileage_rate", "default_hourly_rate", "ai_backend", "ai_model", "categorize_model",
                  "ollama_url", "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
                  "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
-                 "email_subject", "email_body", "estimated_income_tax_rate")
+                 "email_subject", "email_body", "reminder_subject", "reminder_body",
+                 "estimated_income_tax_rate")
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())
