@@ -30,7 +30,7 @@
 <div class="card section" style="max-width:760px">
   <h1 style="margin-top:0">{{ business_name }}</h1>
   <p class="muted">{{ biz_address }}{% if biz_email %} · {{ biz_email }}{% endif %}{% if biz_phone %} · {{ biz_phone }}{% endif %}</p>
-  <h2>INVOICE {{ inv.number }}</h2>
+  <h2>{{ 'CREDIT MEMO' if inv.kind == 'credit_memo' else 'INVOICE' }} {{ inv.number }}</h2>
   <p>Date: {{ inv.date }} &nbsp;·&nbsp; Due: {{ inv.due_date }}</p>
   <p><strong>Bill to:</strong> {{ inv.customer }}{% if inv.customer_address %}<br>
      <span class="muted">{{ inv.customer_address }}</span>{% endif %}</p>
@@ -44,101 +44,194 @@
       <td class="num">${{ (it.qty * it.unit_cents)|round|int|money }}</td>
     </tr>
     {% endfor %}
-    <tr><td colspan="3"><strong>Total</strong></td><td class="num"><strong>${{ total|money }}</strong></td></tr>
+    <tr><td colspan="3"><strong>Total</strong></td><td class="num"><strong>${{ (0 - total)|money if total < 0 else total|money }}</strong></td></tr>
   </table>
   {% if inv.memo %}<p>{{ inv.memo }}</p>{% endif %}
   {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
 </div>
 
-{% if matched_entries %}
+<!-- Credit Applications / Applied Credits Section -->
+{% if applied_credits_list or credit_applications_list or available_credits or (inv.kind == 'credit_memo' and remaining_credit > 0) or (inv.kind == 'invoice' and outstanding_balance > 0 and available_credits) %}
 <div class="card section" style="max-width:760px">
-  <p class="pos">✓ Matched to deposits already on your books:</p>
-  <ul style="margin: 0 0 10px 20px; padding: 0; list-style-type: disc;">
-    {% for m in matched_entries %}
-    <li>{{ m.date }} - {{ m.payee }} (${{ m.amount_cents|money }}) [{{ m.acct }}]</li>
-    {% endfor %}
-  </ul>
-  <p style="margin: 10px 0;">
-    <strong>Total Paid:</strong> ${{ payments_total|money }} &nbsp;·&nbsp; 
-    <strong>Invoice Total:</strong> ${{ total|money }} &nbsp;·&nbsp;
-    <strong>Remaining Balance:</strong> ${{ (total - payments_total)|money }}
-  </p>
-  <p class="muted">No ledger entry was created — your income comes from those deposits, so this just links the
-  invoice to them and marks it paid.</p>
-  <form class="inline" method="post" action="/invoices/{{ inv.id }}/unmatch">
-    <button type="submit" class="ghost">Unmatch All</button></form>
-  <span class="muted"> (only unlinks the invoice — never deletes the deposits)</span>
+  {% if inv.kind == 'credit_memo' %}
+    <h2 style="margin-top:0">Credit Applications</h2>
+    <p>
+      <strong>Total Credit:</strong> ${{ (0 - total)|money }} &nbsp;·&nbsp;
+      <strong>Applied to Invoices:</strong> ${{ credit_applications_total|money }} &nbsp;·&nbsp;
+      <strong>Remaining Available:</strong> ${{ remaining_credit|money }}
+    </p>
+    {% if credit_applications_list %}
+      <p class="pos">Applied to the following invoices:</p>
+      <table style="width:100%; border-collapse: collapse; margin-top: 10px;">
+        <tr style="border-bottom: 1px solid #ccc; text-align: left;">
+          <th style="padding: 6px 0;">Invoice #</th>
+          <th style="padding: 6px 0;">Date</th>
+          <th style="padding: 6px 0;" class="num">Amount</th>
+          <th style="padding: 6px 0;"></th>
+        </tr>
+        {% for ca in credit_applications_list %}
+        <tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 6px 0;"><a href="/invoices/{{ ca.invoice_id }}">{{ ca.number }}</a></td>
+          <td style="padding: 6px 0;">{{ ca.date }}</td>
+          <td style="padding: 6px 0;" class="num">${{ ca.amount_cents|money }}</td>
+          <td style="padding: 6px 0; text-align: right;">
+            <form method="post" action="/credit-applications/{{ ca.id }}/delete" style="display:inline;">
+              <input type="hidden" name="back" value="/invoices/{{ inv.id }}">
+              <button class="small danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted">This credit memo has not been applied to any invoices yet.</p>
+    {% endif %}
+  {% else %}
+    <h2 style="margin-top:0">Credits & Adjustments</h2>
+    <p>
+      <strong>Invoice Total:</strong> ${{ total|money }} &nbsp;·&nbsp;
+      <strong>Payments Received:</strong> ${{ payments_total|money }} &nbsp;·&nbsp;
+      <strong>Credits Applied:</strong> ${{ applied_credits_total|money }} &nbsp;·&nbsp;
+      <strong>Remaining Balance Due:</strong> ${{ outstanding_balance|money }}
+    </p>
+    
+    {% if applied_credits_list %}
+      <p class="pos" style="margin-top: 12px; margin-bottom: 4px;">✓ Applied credits:</p>
+      <table style="width:100%; border-collapse: collapse;">
+        <tr style="border-bottom: 1px solid #ccc; text-align: left;">
+          <th style="padding: 6px 0;">Source Doc</th>
+          <th style="padding: 6px 0;">Date</th>
+          <th style="padding: 6px 0;" class="num">Amount</th>
+          <th style="padding: 6px 0;"></th>
+        </tr>
+        {% for ca in applied_credits_list %}
+        <tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 6px 0;"><a href="/invoices/{{ ca.credit_invoice_id }}">{{ ca.number }}</a></td>
+          <td style="padding: 6px 0;">{{ ca.date }}</td>
+          <td style="padding: 6px 0;" class="num">${{ ca.amount_cents|money }}</td>
+          <td style="padding: 6px 0; text-align: right;">
+            <form method="post" action="/credit-applications/{{ ca.id }}/delete" style="display:inline;">
+              <input type="hidden" name="back" value="/invoices/{{ inv.id }}">
+              <button class="small danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if available_credits %}
+      <div style="margin-top: 15px; padding: 12px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb;">
+        <h3 style="margin-top:0; font-size: 14px; color: #333;">Available Customer Credits</h3>
+        <p class="muted" style="font-size: 12px; margin-bottom: 8px;">This customer has open credit memos or overpaid invoices. Apply them to reduce this invoice's balance.</p>
+        <form method="post" action="/invoices/{{ inv.id }}/apply-credit" class="toolbar" style="margin-bottom:0;">
+          <select name="credit_invoice_id" required>
+            {% for c in available_credits %}
+              <option value="{{ c.id }}">{{ c.number }} (available: ${{ c.available_cents|money }})</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount ($)" style="width: 100px;" required>
+          <input type="date" name="apply_date" value="{{ today }}" required>
+          <button type="submit">Apply Credit</button>
+        </form>
+      </div>
+    {% endif %}
+  {% endif %}
 </div>
 {% endif %}
 
-{% if inv.paid_entry_id %}
-<div class="card section" style="max-width:760px">
-  <p class="pos">Paid — a deposit entry was posted to your books for this invoice.</p>
-  <form class="inline" method="post" action="/invoices/{{ inv.id }}/unpay"
-        onsubmit="return confirm('Remove the posted payment entry and mark unpaid?')">
-    <button type="submit" class="ghost">Undo payment</button></form>
-</div>
-{% elif inv.status != 'void' %}
-
-<div class="card section" style="max-width:760px">
-  <h2 style="margin-top:0">Match to deposits already on your books</h2>
-  <p class="muted">Links this invoice to the deposits that paid it — marks it paid and attaches it
-  <strong>without posting a new entry</strong> (your income already comes from those deposits).</p>
-  
-  {% if candidates and not matched_entries %}
-  <p class="muted">Possible matches:</p>
-  {% for c in candidates %}
-  <form class="inline" method="post" action="/invoices/{{ inv.id }}/match">
-    <input type="hidden" name="entry_id" value="{{ c.id }}">
-    <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
-  </form>
-  {% endfor %}
+{% if inv.kind == 'invoice' %}
+  {% if matched_entries %}
+  <div class="card section" style="max-width:760px">
+    <p class="pos">✓ Matched to deposits already on your books:</p>
+    <ul style="margin: 0 0 10px 20px; padding: 0; list-style-type: disc;">
+      {% for m in matched_entries %}
+      <li>{{ m.date }} - {{ m.payee }} (${{ m.amount_cents|money }}) [{{ m.acct }}]</li>
+      {% endfor %}
+    </ul>
+    <p style="margin: 10px 0;">
+      <strong>Total Paid:</strong> ${{ payments_total|money }} &nbsp;·&nbsp; 
+      <strong>Invoice Total:</strong> ${{ total|money }} &nbsp;·&nbsp;
+      <strong>Remaining Balance:</strong> ${{ outstanding_balance|money }}
+    </p>
+    <p class="muted">No ledger entry was created — your income comes from those deposits, so this just links the
+    invoice to them and marks it paid.</p>
+    <form class="inline" method="post" action="/invoices/{{ inv.id }}/unmatch">
+      <button type="submit" class="ghost">Unmatch All</button></form>
+    <span class="muted"> (only unlinks the invoice — never deletes the deposits)</span>
+  </div>
   {% endif %}
 
-  <div style="margin-top: 10px; margin-bottom: 10px;">
-    <a href="#" onclick="togglePairPayments(); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Payments</a>
+  {% if inv.paid_entry_id %}
+  <div class="card section" style="max-width:760px">
+    <p class="pos">Paid — a deposit entry was posted to your books for this invoice.</p>
+    <form class="inline" method="post" action="/invoices/{{ inv.id }}/unpay"
+          onsubmit="return confirm('Remove the posted payment entry and mark unpaid?')">
+      <button type="submit" class="ghost">Undo payment</button></form>
+  </div>
+  {% elif inv.status != 'void' %}
+
+  <div class="card section" style="max-width:760px">
+    <h2 style="margin-top:0">Match to deposits already on your books</h2>
+    <p class="muted">Links this invoice to the deposits that paid it — marks it paid and attaches it
+    <strong>without posting a new entry</strong> (your income already comes from those deposits).</p>
     
-    <!-- Inline Payments Pairing Drawer -->
-    <div id="pair-payments-drawer" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
-      <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair deposits on your books with this invoice:</div>
-      <form method="post" action="/invoices/{{ inv.id }}/save-matches">
-        <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
-          {% for e in available_deposits %}
-            <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
-              <input type="checkbox" name="entry_ids" value="{{ e.id }}" 
-                     {{ 'checked' if e.id in matched_entry_ids else '' }} style="margin-right: 6px;">
-              <span style="min-width: 80px; display: inline-block;">{{ e.date }}</span>
-              <span style="min-width: 70px; display: inline-block; text-align: right; margin-right: 12px; color: black">${{ e.amount_cents|money }}</span>
-              <span style="min-width: 100px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 12px; margin-right: 12px;">{{ e.acct }}</span>
-              <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.payee }}</span>
-            </label>
-          {% else %}
-            <span class="muted" style="font-size: 12px;">No deposits available on books.</span>
-          {% endfor %}
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
-          <button type="button" class="small ghost" onclick="togglePairPayments()" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
-        </div>
-      </form>
+    {% if candidates and not matched_entries %}
+    <p class="muted">Possible matches:</p>
+    {% for c in candidates %}
+    <form class="inline" method="post" action="/invoices/{{ inv.id }}/match">
+      <input type="hidden" name="entry_id" value="{{ c.id }}">
+      <button class="small" type="submit">Match: {{ c.date }} · {{ c.payee }} · {{ c.acct }}</button>
+    </form>
+    {% endfor %}
+    {% endif %}
+
+    <div style="margin-top: 10px; margin-bottom: 10px;">
+      <a href="#" onclick="togglePairPayments(); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Payments</a>
+      
+      <!-- Inline Payments Pairing Drawer -->
+      <div id="pair-payments-drawer" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+        <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair deposits on your books with this invoice:</div>
+        <form method="post" action="/invoices/{{ inv.id }}/save-matches">
+          <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+            {% for e in available_deposits %}
+              <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
+                <input type="checkbox" name="entry_ids" value="{{ e.id }}" 
+                       {{ 'checked' if e.id in matched_entry_ids else '' }} style="margin-right: 6px;">
+                <span style="min-width: 80px; display: inline-block;">{{ e.date }}</span>
+                <span style="min-width: 70px; display: inline-block; text-align: right; margin-right: 12px; color: black">${{ e.amount_cents|money }}</span>
+                <span style="min-width: 100px; display: inline-block; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 12px; margin-right: 12px;">{{ e.acct }}</span>
+                <span style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.payee }}</span>
+              </label>
+            {% else %}
+              <span class="muted" style="font-size: 12px;">No deposits available on books.</span>
+            {% endfor %}
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="small" style="padding: 2px 8px; font-size: 11px;">Save Matches</button>
+            <button type="button" class="small ghost" onclick="togglePairPayments()" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
-</div>
+  {% endif %}
 
-{% if (total - payments_total) > 0 and not inv.paid_entry_id %}
-<div class="card section" style="max-width:760px">
-  <h2 style="margin-top:0">Record payment (posts a new deposit)</h2>
-  <form method="post" action="/invoices/{{ inv.id }}/pay" class="toolbar">
-    <input type="date" name="paid_date" value="{{ today }}" required>
-    <select name="bank_id">{% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
-    <select name="income_id">
-      {% for a in income %}<option value="{{ a.id }}" {{ 'selected' if 'ACH' in a.name else '' }}>{{ a.name }}</option>{% endfor %}
-    </select>
-    <button type="submit">Record ${{ (total - payments_total)|money }} received</button>
-  </form>
-  <p class="muted">Use this only if the deposit is <em>not</em> already on your books — it posts a new entry.
-  If the deposit was imported from a statement, use "Match" above instead so you don't double-count.</p>
-</div>
+  {% if outstanding_balance > 0 and not inv.paid_entry_id %}
+  <div class="card section" style="max-width:760px">
+    <h2 style="margin-top:0">Record payment (posts a new deposit)</h2>
+    <form method="post" action="/invoices/{{ inv.id }}/pay" class="toolbar">
+      <input type="date" name="paid_date" value="{{ today }}" required>
+      <select name="bank_id">{% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select>
+      <select name="income_id">
+        {% for a in income %}<option value="{{ a.id }}" {{ 'selected' if 'ACH' in a.name else '' }}>{{ a.name }}</option>{% endfor %}
+      </select>
+      <button type="submit">Record ${{ outstanding_balance|money }} received</button>
+    </form>
+    <p class="muted">Use this only if the deposit is <em>not</em> already on your books — it posts a new entry.
+    If the deposit was imported from a statement, use "Match" above instead so you don't double-count.</p>
+  </div>
+  {% endif %}
 {% endif %}
 
 <div class="card section" style="max-width:760px">
@@ -157,7 +250,6 @@
   <a href="/invoices/{{ inv.id }}/pdf">PDF</a> and attach it yourself.</p>
   {% endif %}
 </div>
-{% endif %}
 <script>
 function togglePairPayments() {
   var row = document.getElementById("pair-payments-drawer");

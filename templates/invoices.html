@@ -9,6 +9,7 @@
 {% endif %}
 <div class="toolbar">
   <a class="btn" href="/invoices/new">+ New invoice</a>
+  <a class="btn ghost" href="/invoices/new?kind=credit_memo">+ New Credit Memo</a>
   <form class="inline" method="post" action="/invoices/import-qbo" enctype="multipart/form-data">
     <input type="file" name="file" accept=".csv" required>
     <button type="submit" class="ghost">Import from QuickBooks (CSV)</button>
@@ -47,8 +48,8 @@
     <td><a href="/invoices/{{ r.id }}">{{ r.number }}</a></td>
     <td>{{ r.customer }}</td>
     <td>{{ r.due_date }}</td>
-    <td class="num">${{ r.outstanding|money }}{% if r.payments_total %} <span class="muted" style="font-size:11px">(${{ r.total|money }} total)</span>{% endif %}</td>
-    <td>{% if r.overdue %}<span class="neg">{{ r.days_overdue }} days overdue</span>{% else %}<span class="muted">current</span>{% endif %}</td>
+    <td class="num">{% if r.outstanding < 0 %}-${{ (0 - r.outstanding)|money }}{% else %}${{ r.outstanding|money }}{% endif %}{% if r.payments_total %} <span class="muted" style="font-size:11px">({% if r.total < 0 %}-${{ (0 - r.total)|money }}{% else %}${{ r.total|money }}{% endif %} total)</span>{% endif %}</td>
+    <td>{% if r.outstanding < 0 %}<span class="pos">credit</span>{% elif r.overdue %}<span class="neg">{{ r.days_overdue }} days overdue</span>{% else %}<span class="muted">current</span>{% endif %}</td>
     <td class="muted">{{ r.last_reminder_date or '—' }}</td>
     {% if email_on %}<td>
       {% if r.customer_email %}
@@ -73,13 +74,20 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
     <td>{{ i.customer }}</td>
     <td>{{ i.date }}</td>
     <td>{{ i.due_date }}</td>
-    <td class="num">${{ i.total|money }}</td>
+    <td class="num">{% if i.total < 0 %}-${{ (0 - i.total)|money }}{% else %}${{ i.total|money }}{% endif %}</td>
     <td>
-      {% if i.status == 'paid' %}<span class="pos">paid {{ i.paid_date }}</span>
-      {% elif i.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially paid (${{ (i.total - i.payments_total)|money }} outstanding)</span>
-      {% elif i.overdue %}<span class="neg">overdue</span>
-      {% elif i.status == 'void' %}<span class="muted">void</span>
-      {% else %}{{ i.status }}{% endif %}
+      {% if i.kind == 'credit_memo' %}
+        {% if i.status == 'paid' %}<span class="pos">fully applied</span>
+        {% elif i.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially applied (${{ (0 - i.outstanding_balance)|money }} available)</span>
+        {% elif i.status == 'void' %}<span class="muted">void</span>
+        {% else %}<span class="muted">unapplied</span>{% endif %}
+      {% else %}
+        {% if i.status == 'paid' %}<span class="pos">paid {{ i.paid_date }}</span>
+        {% elif i.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially paid (${{ i.outstanding_balance|money }} outstanding)</span>
+        {% elif i.overdue %}<span class="neg">overdue</span>
+        {% elif i.status == 'void' %}<span class="muted">void</span>
+        {% else %}{{ i.status }}{% endif %}
+      {% endif %}
     </td>
   </tr>
   {% else %}

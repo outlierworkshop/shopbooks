@@ -298,6 +298,13 @@ CREATE TABLE IF NOT EXISTS recurring(
   last_posted_date TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS credit_applications(
+  id INTEGER PRIMARY KEY,
+  credit_invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL,
+  date TEXT NOT NULL
+);
 """
 
 SEED_ACCOUNTS = [
@@ -373,6 +380,7 @@ DEFAULT_SETTINGS = {
     "invoice_terms": "Payment due within 30 days. Thank you for your business!",
     "next_invoice_number": "1001",
     "next_estimate_number": "1001",
+    "next_credit_memo_number": "1001",
     "smtp_host": "smtp.gmail.com",
     "smtp_port": "587",
     "smtp_user": "",
@@ -498,6 +506,15 @@ def _column_migrations(con):
         INSERT INTO invoice_entry_links (invoice_id, entry_id)
         SELECT id, matched_entry_id FROM invoices WHERE matched_entry_id IS NOT NULL
         """)
+
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS credit_applications(
+      id INTEGER PRIMARY KEY,
+      credit_invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      amount_cents INTEGER NOT NULL,
+      date TEXT NOT NULL
+    )""")
 
 
 def init():

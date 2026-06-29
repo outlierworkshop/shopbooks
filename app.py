@@ -2325,14 +2325,16 @@ async def migrate_opening(request: Request):
 def _invoice_rows(con):
     rows = con.execute(
         "SELECT i.*, c.name customer, c.email customer_email FROM invoices i "
-        "JOIN customers c ON c.id=i.customer_id WHERE i.kind='invoice' ORDER BY i.id DESC").fetchall()
+        "JOIN customers c ON c.id=i.customer_id WHERE i.kind IN ('invoice', 'credit_memo') ORDER BY i.id DESC").fetchall()
     today = date_cls.today().isoformat()
     out = []
     for r in rows:
         total = invoicing.invoice_total(con, r["id"])
         pay_total = invoicing.invoice_payments_total(con, r["id"])
+        applied_credits = invoicing.invoice_applied_credits(con, r["id"]) if r["kind"] == "invoice" else invoicing.invoice_credit_sources_total(con, r["id"])
+        outstanding_balance = invoicing.invoice_outstanding_balance(con, r["id"])
         overdue = r["status"] in ("sent", "partially_paid") and r["due_date"] < today
-        out.append({**dict(r), "total": total, "payments_total": pay_total, "overdue": overdue})
+        out.append({**dict(r), "total": total, "payments_total": pay_total, "applied_credits": applied_credits, "outstanding_balance": outstanding_balance, "overdue": overdue})
     return out
 
 
@@ -2343,16 +2345,14 @@ def invoices_page(request: Request, msg: str = "", err: str = ""):
         customers_raw = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         customers = []
         for c in customers_raw:
-            # Query all open/partially paid invoices for this customer
+            # Query all open/partially paid invoices & credit memos for this customer
             invs = con.execute(
-                "SELECT id FROM invoices WHERE customer_id=? AND kind='invoice' AND status IN ('sent', 'partially_paid')",
+                "SELECT id FROM invoices WHERE customer_id=? AND kind IN ('invoice', 'credit_memo') AND status IN ('sent', 'partially_paid')",
                 (c["id"],)
             ).fetchall()
             outstanding = 0
             for r in invs:
-                total = invoicing.invoice_total(con, r["id"])
-                pay_total = invoicing.invoice_payments_total(con, r["id"])
-                outstanding += max(0, total - pay_total)
+                outstanding += invoicing.invoice_outstanding_balance(con, r["id"])
             customers.append({**dict(c), "outstanding": outstanding})
             
         return templates.TemplateResponse(request, "invoices.html", ctx(
@@ -2412,8 +2412,9 @@ def invoice_new(request: Request):
     con = db.connect()
     try:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        kind = request.query_params.get("kind", "invoice")
         return templates.TemplateResponse(request, "invoice_new.html", ctx(
-            request, con, customers=customers, error=None))
+            request, con, customers=customers, kind=kind, error=None))
     finally:
         con.close()
 
@@ -2426,6 +2427,7 @@ async def invoice_create(request: Request):
         customer_id = int(form["customer_id"])
         inv_date = ledger.normalize_date(form["date"])
         due_date = ledger.normalize_date(form["due_date"])
+        kind = form.get("kind", "invoice")
         descs = form.getlist("item_desc")
         qtys = form.getlist("item_qty")
         prices = form.getlist("item_price")
@@ -2436,10 +2438,15 @@ async def invoice_create(request: Request):
             items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
         if not items:
             raise ValueError("Add at least one line item.")
-        number = invoicing.next_number(con)
+        
+        if kind == "credit_memo":
+            number = invoicing.next_credit_memo_number(con)
+        else:
+            number = invoicing.next_number(con)
+            
         cur = con.execute(
-            "INSERT INTO invoices(number,customer_id,date,due_date,memo) VALUES(?,?,?,?,?)",
-            (number, customer_id, inv_date, due_date, form.get("memo", "").strip()))
+            "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,?)",
+            (number, customer_id, inv_date, due_date, form.get("memo", "").strip(), kind))
         inv_id = cur.lastrowid
         for d, q, u in items:
             con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
@@ -2448,8 +2455,9 @@ async def invoice_create(request: Request):
         return RedirectResponse(f"/invoices/{inv_id}", status_code=303)
     except (ValueError, KeyError) as e:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        kind = form.get("kind", "invoice")
         return templates.TemplateResponse(request, "invoice_new.html", ctx(
-            request, con, customers=customers, error=str(e)))
+            request, con, customers=customers, kind=kind, error=str(e)))
     finally:
         con.close()
 
@@ -2498,24 +2506,7 @@ async def invoice_update(request: Request, invoice_id: int):
             con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
                         (invoice_id, d, q, u))
         
-        # Re-evaluate invoice status based on new total and existing matches/posted payments
-        total_payments = invoicing.invoice_payments_total(con, invoice_id)
-        if inv["paid_entry_id"]:
-            split_cents = con.execute(
-                "SELECT SUM(amount_cents) FROM splits s JOIN accounts a ON a.id=s.account_id "
-                "WHERE s.entry_id=? AND a.type='asset'", (inv["paid_entry_id"],)
-            ).fetchone()[0] or 0
-            total_payments += abs(split_cents)
-            
-        new_total = sum(q * u for d, q, u in items)
-        
-        has_links = con.execute("SELECT 1 FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchone() or inv["paid_entry_id"]
-        if has_links:
-            status = 'paid' if total_payments >= new_total else 'partially_paid'
-            paid_date = inv["paid_date"] or date_cls.today().isoformat()
-            con.execute("UPDATE invoices SET status=?, paid_date=? WHERE id=?", (status, paid_date, invoice_id))
-        else:
-            con.execute("UPDATE invoices SET status='sent', paid_date=NULL WHERE id=?", (invoice_id,))
+        _update_document_status(con, invoice_id)
             
         _update_entry_customers_for_invoice(con, invoice_id)
         _cleanup_entry_customers(con)
@@ -2528,6 +2519,70 @@ async def invoice_update(request: Request, invoice_id: int):
             request, con, inv=inv, items=items, customers=customers, error=str(e)))
     finally:
         con.close()
+
+
+def _update_document_status(con, invoice_id):
+    inv = con.execute("SELECT kind, status, paid_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not inv or inv["status"] == "void":
+        return
+    
+    if inv["kind"] == "credit_memo":
+        total = abs(invoicing.invoice_total(con, invoice_id))
+        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (invoice_id,)).fetchone()[0]
+        if applied >= total:
+            status = "paid"
+        elif applied > 0:
+            status = "partially_paid"
+        else:
+            status = "sent"
+        con.execute("UPDATE invoices SET status=? WHERE id=?", (status, invoice_id))
+        
+    elif inv["kind"] == "invoice":
+        total = invoicing.invoice_total(con, invoice_id)
+        payments = invoicing.invoice_payments_total(con, invoice_id)
+        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE invoice_id=?", (invoice_id,)).fetchone()[0]
+        
+        total_credited = payments + applied
+        if total_credited >= total:
+            status = "paid"
+            dates = []
+            if inv["paid_entry_id"]:
+                dates.append(con.execute("SELECT date FROM entries WHERE id=?", (inv["paid_entry_id"],)).fetchone()["date"])
+            eids = [r["entry_id"] for r in con.execute("SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchall()]
+            for eid in eids:
+                dates.append(con.execute("SELECT date FROM entries WHERE id=?", (eid,)).fetchone()["date"])
+            credit_dates = con.execute("SELECT date FROM credit_applications WHERE invoice_id=?", (invoice_id,)).fetchall()
+            for cd in credit_dates:
+                dates.append(cd["date"])
+            
+            paid_date = max(dates) if dates else date_cls.today().isoformat()
+            con.execute("UPDATE invoices SET status=?, paid_date=? WHERE id=?", (status, paid_date, invoice_id))
+        elif total_credited > 0:
+            con.execute("UPDATE invoices SET status='partially_paid', paid_date=NULL WHERE id=?", (invoice_id,))
+        else:
+            con.execute("UPDATE invoices SET status='sent', paid_date=NULL WHERE id=?", (invoice_id,))
+
+
+def get_available_credits_for_customer(con, customer_id):
+    candidates = con.execute(
+        "SELECT id, number, kind, "
+        "COALESCE((SELECT SUM(qty * unit_cents) FROM invoice_items WHERE invoice_id=i.id), 0) total_cents "
+        "FROM invoices i WHERE i.customer_id=? AND i.kind IN ('invoice', 'credit_memo') AND i.status != 'void'", (customer_id,)
+    ).fetchall()
+    
+    out = []
+    for c in candidates:
+        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (c["id"],)).fetchone()[0]
+        if c["kind"] == "credit_memo":
+            avail = c["total_cents"] - applied
+            if avail > 0:
+                out.append({"id": c["id"], "number": c["number"], "kind": c["kind"], "available_cents": avail})
+        elif c["kind"] == "invoice":
+            pay_total = invoicing.invoice_payments_total(con, c["id"])
+            avail = pay_total - c["total_cents"] - applied
+            if avail > 0:
+                out.append({"id": c["id"], "number": c["number"], "kind": c["kind"], "available_cents": avail})
+    return out
 
 
 def invoice_deposit_candidates(con, inv, total):
@@ -2658,12 +2713,41 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             candidates = invoice_deposit_candidates(con, inv, total)
             
         payments_total = invoicing.invoice_payments_total(con, invoice_id)
+        
+        applied_credits_list = con.execute(
+            "SELECT ca.id, ca.amount_cents, ca.date, i.number, i.id credit_invoice_id FROM credit_applications ca "
+            "JOIN invoices i ON i.id=ca.credit_invoice_id "
+            "WHERE ca.invoice_id=?", (invoice_id,)
+        ).fetchall()
+        applied_credits_total = invoicing.invoice_applied_credits(con, invoice_id)
+
+        credit_applications_list = con.execute(
+            "SELECT ca.id, ca.amount_cents, ca.date, i.number, i.id invoice_id FROM credit_applications ca "
+            "JOIN invoices i ON i.id=ca.invoice_id "
+            "WHERE ca.credit_invoice_id=?", (invoice_id,)
+        ).fetchall()
+        credit_applications_total = invoicing.invoice_credit_sources_total(con, invoice_id)
+
+        outstanding_balance = invoicing.invoice_outstanding_balance(con, invoice_id)
+
+        available_credits = []
+        if inv["kind"] == "invoice" and outstanding_balance > 0:
+            available_credits = get_available_credits_for_customer(con, inv["customer_id"])
+
+        remaining_credit = 0
+        if inv["kind"] == "credit_memo":
+            remaining_credit = abs(outstanding_balance)
+        elif inv["kind"] == "invoice":
+            remaining_credit = max(0, payments_total - total - credit_applications_total)
             
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
             candidates=candidates, matched=matched, matched_entries=matched_entries,
             matched_entry_ids=matched_entry_ids, available_deposits=available_deposits,
-            payments_total=payments_total,
+            payments_total=payments_total, outstanding_balance=outstanding_balance,
+            applied_credits_list=applied_credits_list, applied_credits_total=applied_credits_total,
+            credit_applications_list=credit_applications_list, credit_applications_total=credit_applications_total,
+            available_credits=available_credits, remaining_credit=remaining_credit,
             msg=msg, err=err, email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
@@ -2809,15 +2893,100 @@ def invoice_status(invoice_id: int, action: str = Form(...)):
         if action == "sent":
             con.execute("UPDATE invoices SET status='sent' WHERE id=? AND status='draft'", (invoice_id,))
         elif action == "void":
+            linked = con.execute(
+                "SELECT credit_invoice_id FROM credit_applications WHERE invoice_id=? "
+                "UNION "
+                "SELECT invoice_id FROM credit_applications WHERE credit_invoice_id=?",
+                (invoice_id, invoice_id)
+            ).fetchall()
+            con.execute("DELETE FROM credit_applications WHERE invoice_id=? OR credit_invoice_id=?", (invoice_id, invoice_id))
             con.execute("UPDATE invoices SET status='void' WHERE id=? AND status!='paid'", (invoice_id,))
+            for r in linked:
+                _update_document_status(con, r[0])
         elif action == "draft":
             con.execute("UPDATE invoices SET status='draft' WHERE id=? AND status IN ('sent','void')", (invoice_id,))
         elif action == "delete":
+            linked = con.execute(
+                "SELECT credit_invoice_id FROM credit_applications WHERE invoice_id=? "
+                "UNION "
+                "SELECT invoice_id FROM credit_applications WHERE credit_invoice_id=?",
+                (invoice_id, invoice_id)
+            ).fetchall()
             con.execute("DELETE FROM invoices WHERE id=? AND status IN ('draft','void')", (invoice_id,))
+            for r in linked:
+                _update_document_status(con, r[0])
             con.commit()
             return RedirectResponse("/invoices", status_code=303)
         con.commit()
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/apply-credit")
+def invoice_apply_credit(invoice_id: int, credit_invoice_id: int = Form(...), amount: float = Form(...), apply_date: str = Form(...)):
+    con = db.connect()
+    try:
+        inv, _, total = invoicing.get_invoice(con, invoice_id)
+        if not inv or inv["kind"] != "invoice" or inv["status"] == "void":
+            return RedirectResponse(f"/invoices/{invoice_id}?err=Invalid+invoice", status_code=303)
+            
+        amount_cents = ledger.parse_amount_to_cents(str(amount))
+        if amount_cents <= 0:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=Amount+must+be+greater+than+0", status_code=303)
+            
+        d = ledger.normalize_date(apply_date)
+        
+        # Check credit source availability
+        credit_inv, _, _ = invoicing.get_invoice(con, credit_invoice_id)
+        if not credit_inv or credit_inv["customer_id"] != inv["customer_id"]:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=Invalid+credit+source", status_code=303)
+            
+        # Calculate available credit on the source
+        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (credit_invoice_id,)).fetchone()[0]
+        if credit_inv["kind"] == "credit_memo":
+            total_cents = abs(invoicing.invoice_total(con, credit_invoice_id))
+            avail = total_cents - applied
+        else: # Overpaid invoice
+            pay_total = invoicing.invoice_payments_total(con, credit_invoice_id)
+            total_cents = invoicing.invoice_total(con, credit_invoice_id)
+            avail = pay_total - total_cents - applied
+            
+        # Cap at the credit source's available balance AND the target invoice's remaining balance,
+        # so we never consume more credit than the invoice still owes.
+        target_outstanding = invoicing.invoice_outstanding_balance(con, invoice_id)
+        if target_outstanding <= 0:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=This+invoice+has+no+remaining+balance", status_code=303)
+        amount_cents = min(amount_cents, avail, target_outstanding)
+
+        if amount_cents <= 0:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=No+available+credit+on+source", status_code=303)
+            
+        con.execute(
+            "INSERT INTO credit_applications(credit_invoice_id, invoice_id, amount_cents, date) VALUES(?,?,?,?)",
+            (credit_invoice_id, invoice_id, amount_cents, d)
+        )
+        
+        # Update both document statuses
+        _update_document_status(con, invoice_id)
+        _update_document_status(con, credit_invoice_id)
+        con.commit()
+        return RedirectResponse(f"/invoices/{invoice_id}?msg=Credit+applied+successfully", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/credit-applications/{application_id}/delete")
+def credit_application_delete(application_id: int, back: str = Form(...)):
+    con = db.connect()
+    try:
+        row = con.execute("SELECT credit_invoice_id, invoice_id FROM credit_applications WHERE id=?", (application_id,)).fetchone()
+        if row:
+            con.execute("DELETE FROM credit_applications WHERE id=?", (application_id,))
+            _update_document_status(con, row["invoice_id"])
+            _update_document_status(con, row["credit_invoice_id"])
+            con.commit()
+        return RedirectResponse(back, status_code=303)
     finally:
         con.close()
 

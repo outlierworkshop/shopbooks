@@ -1,18 +1,19 @@
 {% extends "base.html" %}
-{% block title %}New invoice{% endblock %}
+{% block title %}New {{ 'credit memo' if kind == 'credit_memo' else 'invoice' }}{% endblock %}
 {% block content %}
-<h1>New invoice</h1>
+<h1>New {{ 'credit memo' if kind == 'credit_memo' else 'invoice' }}</h1>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if not customers %}
 <p class="note">Add a customer on the <a href="/invoices">Invoices</a> page first.</p>
 {% else %}
 <form method="post">
+  <input type="hidden" name="kind" value="{{ kind }}">
   <div class="formgrid" style="max-width:720px">
     <label>Customer</label>
     <select name="customer_id" required>
       {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
     </select>
-    <label>Invoice date</label><input type="date" name="date" value="{{ today }}" required>
+    <label>{{ 'Credit memo' if kind == 'credit_memo' else 'Invoice' }} date</label><input type="date" name="date" value="{{ today }}" required>
     <label>Due date</label><input type="date" name="due_date" value="{{ today }}" required>
     <label>Memo (shown on invoice)</label><input type="text" name="memo" style="width:100%">
   </div>
@@ -28,7 +29,7 @@
   </table>
   <div class="toolbar">
     <button type="button" class="ghost" onclick="addRow()">+ Add line</button>
-    <button type="submit">Create invoice</button>
+    <button type="submit">Create {{ 'credit memo' if kind == 'credit_memo' else 'invoice' }}</button>
   </div>
 </form>
 <script>
