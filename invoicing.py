@@ -105,6 +105,35 @@ def next_credit_memo_number(con):
     return f"CM-{n}"
 
 
+def available_credits_for_customer(con, customer_id):
+    """A customer's open credit SOURCES — unapplied credit memos and overpaid invoices — each with
+    its remaining (unused) amount in cents. The single home for 'what credit can I apply'."""
+    out = []
+    for c in con.execute("SELECT id, number, kind FROM invoices "
+                         "WHERE customer_id=? AND kind IN ('invoice','credit_memo') AND status!='void'",
+                         (customer_id,)).fetchall():
+        applied = con.execute("SELECT COALESCE(SUM(amount_cents),0) FROM credit_applications "
+                              "WHERE credit_invoice_id=?", (c["id"],)).fetchone()[0]
+        if c["kind"] == "credit_memo":
+            avail = abs(invoice_total(con, c["id"])) - applied
+        else:  # an overpaid invoice's excess can be used as a credit
+            avail = invoice_payments_total(con, c["id"]) - invoice_total(con, c["id"]) - applied
+        if avail > 0:
+            out.append({"id": c["id"], "number": c["number"], "kind": c["kind"], "available_cents": avail})
+    return out
+
+
+def customer_available_credit(con, customer_id):
+    """Total unused credit a customer has on file (cents)."""
+    return sum(s["available_cents"] for s in available_credits_for_customer(con, customer_id))
+
+
+def available_credit_total(con):
+    """Total unused customer credit across every customer (cents) — for the dashboard briefing."""
+    return sum(customer_available_credit(con, c["id"])
+               for c in con.execute("SELECT id FROM customers").fetchall())
+
+
 def _kind(inv):
     """Document kind of an invoices row ('invoice' or 'estimate'), tolerant of rows without it."""
     try:
