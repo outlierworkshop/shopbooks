@@ -13,6 +13,17 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-29 — Customer credits / credit memos
+- New `credit_memo` document kind (invoices row, CM- numbering) + `credit_applications` table: issue a
+  credit memo, or use an overpaid invoice's excess, and apply it against open invoices.
+- `invoicing.invoice_outstanding_balance` is now the single source of truth (total − payments − applied
+  credits; negative = available credit). Statuses re-evaluate via `_update_document_status`; AR aging and
+  the customer outstanding totals net credits; the invoice PDF labels credit memos. Apply / Remove credit
+  from the invoice view; void/delete cleans up applications and re-evaluates the linked docs.
+- Hardening: applying a credit is now capped at the **target invoice's remaining balance** (not just the
+  source's available credit), so over-applying can't silently waste credit — the unused remainder stays
+  available. `test_customer_credits.py` covers the full apply→revert→overpay→reapply flow plus the cap.
+
 ### 2026-06-28 — Partially Paid Invoices & Customer Payment Tracking
 - Added a `customer_id` foreign key column to the `entries` table schema, with a startup migration to automatically backfill customer IDs for all existing matched payments.
 - Support `partially_paid` invoice status when matched payment totals are less than the invoice total.

@@ -12,7 +12,39 @@ def invoice_total(con, invoice_id):
     row = con.execute(
         "SELECT COALESCE(SUM(CAST(round(qty*unit_cents) AS INTEGER)),0) t FROM invoice_items WHERE invoice_id=?",
         (invoice_id,)).fetchone()
-    return row["t"]
+    total = row["t"]
+    inv = con.execute("SELECT kind FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if inv and inv["kind"] == "credit_memo":
+        return -total
+    return total
+
+
+def invoice_applied_credits(con, invoice_id):
+    row = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE invoice_id=?", (invoice_id,)).fetchone()
+    return row[0]
+
+
+def invoice_credit_sources_total(con, invoice_id):
+    row = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (invoice_id,)).fetchone()
+    return row[0]
+
+
+def invoice_outstanding_balance(con, invoice_id):
+    inv = con.execute("SELECT kind, status, paid_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not inv:
+        return 0
+    if inv["status"] == "void":
+        return 0
+    if inv["kind"] == "credit_memo":
+        total = abs(invoice_total(con, invoice_id))
+        applied = invoice_credit_sources_total(con, invoice_id)
+        return -(total - applied)
+    elif inv["kind"] == "invoice":
+        total = invoice_total(con, invoice_id)
+        payments = invoice_payments_total(con, invoice_id)
+        applied = invoice_applied_credits(con, invoice_id)
+        return max(0, total - payments - applied)
+    return 0
 
 
 def invoice_payments_total(con, invoice_id):
@@ -65,6 +97,12 @@ def next_estimate_number(con):
     n = int(db.get_setting(con, "next_estimate_number", "1001"))
     db.set_setting(con, "next_estimate_number", str(n + 1))
     return f"EST-{n}"
+
+
+def next_credit_memo_number(con):
+    n = int(db.get_setting(con, "next_credit_memo_number", "1001"))
+    db.set_setting(con, "next_credit_memo_number", str(n + 1))
+    return f"CM-{n}"
 
 
 def _kind(inv):
@@ -196,35 +234,65 @@ def render_pdf(con, inv, items, total):
     # 5. Total Section
     pdf.ln(2)
     payments_total = 0
+    applied_credits = 0
+    credits_applied_from = 0
+    
+    is_credit_memo = _kind(inv) == "credit_memo"
+    
     if not is_est:
-        payments_total = invoice_payments_total(con, inv["id"])
+        if is_credit_memo:
+            credits_applied_from = invoice_credit_sources_total(con, inv["id"])
+        else:
+            payments_total = invoice_payments_total(con, inv["id"])
+            applied_credits = invoice_applied_credits(con, inv["id"])
 
-    if payments_total > 0:
+    has_deductions = payments_total > 0 or applied_credits > 0 or credits_applied_from > 0
+
+    if has_deductions:
         pdf.set_font("helvetica", "B", 10.5)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(150, 6, "Total:  ", align="R")
+        pdf.cell(150, 6, "Total Credit:  " if is_credit_memo else "Total:  ", align="R")
         pdf.set_font("helvetica", "", 10.5)
-        pdf.cell(40, 6, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(40, 6, f"${fmt_cents(abs(total))}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        if payments_total > 0:
+            pdf.set_font("helvetica", "B", 10.5)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(150, 6, "Payments Received:  ", align="R")
+            pdf.set_font("helvetica", "", 10.5)
+            pdf.cell(40, 6, f"-${fmt_cents(payments_total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        if applied_credits > 0:
+            pdf.set_font("helvetica", "B", 10.5)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(150, 6, "Credits Applied:  ", align="R")
+            pdf.set_font("helvetica", "", 10.5)
+            pdf.cell(40, 6, f"-${fmt_cents(applied_credits)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        if credits_applied_from > 0:
+            pdf.set_font("helvetica", "B", 10.5)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(150, 6, "Applied to Invoices:  ", align="R")
+            pdf.set_font("helvetica", "", 10.5)
+            pdf.cell(40, 6, f"-${fmt_cents(credits_applied_from)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("helvetica", "B", 10.5)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(150, 6, "Payments/Credits:  ", align="R")
-        pdf.set_font("helvetica", "", 10.5)
-        pdf.cell(40, 6, f"-${fmt_cents(payments_total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_font("helvetica", "B", 10.5)
-        pdf.set_text_color(80, 80, 80)
-        pdf.cell(150, 8, "Remaining Balance Due:  ", align="R")
+        pdf.cell(150, 8, "Remaining Credit:  " if is_credit_memo else "Remaining Balance Due:  ", align="R")
         pdf.set_font("helvetica", "B", 13)
         pdf.set_text_color(36, 59, 47)
-        pdf.cell(40, 8, f"${fmt_cents(max(0, total - payments_total))}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+        if is_credit_memo:
+            bal = abs(total) - credits_applied_from
+        else:
+            bal = max(0, total - payments_total - applied_credits)
+        pdf.cell(40, 8, f"${fmt_cents(bal)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.set_font("helvetica", "B", 10.5)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(150, 10, ("Estimated Total:  " if is_est else "Total Due:  "), align="R")
+        pdf.cell(150, 10, "Estimated Total:  " if is_est else "Total Credit:  " if is_credit_memo else "Total Due:  ", align="R")
         pdf.set_font("helvetica", "B", 14)
         pdf.set_text_color(36, 59, 47)
-        pdf.cell(40, 10, f"${fmt_cents(total)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(40, 10, f"${fmt_cents(abs(total))}  ", align="R", new_x="LMARGIN", new_y="NEXT")
     
     # 6. Notes & Terms
     pdf.set_text_color(31, 36, 33)
@@ -256,28 +324,35 @@ def ar_aging(con, today=None):
     today = today or date.today().isoformat()
     td = datetime.strptime(today, "%Y-%m-%d")
     rows = con.execute(
-        "SELECT i.id, i.number, i.date, i.due_date, i.last_reminder_date, "
+        "SELECT i.id, i.number, i.date, i.due_date, i.last_reminder_date, i.kind, "
         "c.name customer, c.email customer_email "
         "FROM invoices i JOIN customers c ON c.id=i.customer_id "
-        "WHERE i.kind='invoice' AND i.status IN ('sent', 'partially_paid') ORDER BY i.due_date").fetchall()
+        "WHERE i.kind IN ('invoice', 'credit_memo') AND i.status IN ('sent', 'partially_paid') ORDER BY i.due_date").fetchall()
     buckets = {"current": 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0}
     out = []
     for r in rows:
         total = invoice_total(con, r["id"])
         payments_total = invoice_payments_total(con, r["id"])
-        outstanding = max(0, total - payments_total)
-        if outstanding <= 0:
+        outstanding = invoice_outstanding_balance(con, r["id"])
+        if outstanding == 0:
             continue
-        days = (td - datetime.strptime(r["due_date"], "%Y-%m-%d")).days
-        b = ("current" if days <= 0 else "1-30" if days <= 30 else "31-60" if days <= 60
-             else "61-90" if days <= 90 else "90+")
-        buckets[b] += outstanding
+        
+        if outstanding < 0:
+            buckets["current"] += outstanding
+            days = 0
+            b = "current"
+        else:
+            days = (td - datetime.strptime(r["due_date"], "%Y-%m-%d")).days
+            b = ("current" if days <= 0 else "1-30" if days <= 30 else "31-60" if days <= 60
+                 else "61-90" if days <= 90 else "90+")
+            buckets[b] += outstanding
+            
         out.append({**dict(r), "total": total, "payments_total": payments_total, "outstanding": outstanding,
                     "days_overdue": max(days, 0), "bucket": b, "overdue": days > 0})
     total_out = sum(buckets.values())
     return {"rows": out, "buckets": buckets, "total": total_out,
-            "overdue_total": total_out - buckets["current"],
-            "overdue_count": sum(1 for r in out if r["overdue"]),
+            "overdue_total": max(0, total_out - buckets["current"]),
+            "overdue_count": sum(1 for r in out if r["overdue"] and r["outstanding"] > 0),
             "open_count": len(out)}
 
 
