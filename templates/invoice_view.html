@@ -51,7 +51,7 @@
 </div>
 
 <!-- Credit Applications / Applied Credits Section -->
-{% if applied_credits_list or credit_applications_list or available_credits or (inv.kind == 'credit_memo' and remaining_credit > 0) or (inv.kind == 'invoice' and outstanding_balance > 0 and available_credits) %}
+{% if applied_credits_list or credit_applications_list or available_credits or remaining_credit > 0 or (inv.kind == 'invoice' and outstanding_balance > 0 and available_credits) %}
 <div class="card section" style="max-width:760px">
   {% if inv.kind == 'credit_memo' %}
     <h2 style="margin-top:0">Credit Applications</h2>
@@ -85,6 +85,23 @@
       </table>
     {% else %}
       <p class="muted">This credit memo has not been applied to any invoices yet.</p>
+    {% endif %}
+
+    {% if applicable_invoices and remaining_credit > 0 %}
+      <div style="margin-top:15px; padding:12px; border:1px solid #c9c6bd; border-radius:6px; background:#fdfdfb;">
+        <h3 style="margin-top:0; font-size:14px; color:#333;">Apply this credit to an invoice</h3>
+        <p class="muted" style="font-size:12px; margin-bottom:8px;">${{ remaining_credit|money }} available — pick an open invoice for this customer:</p>
+        <form method="post" action="/credit-memos/{{ inv.id }}/apply" class="toolbar" style="margin-bottom:0;">
+          <select name="invoice_id" required>
+            {% for t in applicable_invoices %}
+              <option value="{{ t.id }}">{{ t.number }} (due {{ t.due_date }}, owes ${{ t.outstanding|money }})</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount ($)" style="width:100px;" required>
+          <input type="date" name="apply_date" value="{{ today }}" required>
+          <button type="submit">Apply Credit</button>
+        </form>
+      </div>
     {% endif %}
   {% else %}
     <h2 style="margin-top:0">Credits & Adjustments</h2>
@@ -133,6 +150,17 @@
           <input type="number" name="amount" step="0.01" min="0.01" placeholder="Amount ($)" style="width: 100px;" required>
           <input type="date" name="apply_date" value="{{ today }}" required>
           <button type="submit">Apply Credit</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if remaining_credit > 0 %}
+      <div style="margin-top:15px; padding:12px; border:1px solid #c9c6bd; border-radius:6px; background:#fdfdfb;">
+        <h3 style="margin-top:0; font-size:14px; color:#333;">Overpayment</h3>
+        <p class="muted" style="font-size:12px; margin-bottom:8px;">This invoice is overpaid by ${{ remaining_credit|money }}. Turn the excess into a credit memo you can apply to this customer's other invoices.</p>
+        <form method="post" action="/invoices/{{ inv.id }}/to-credit-memo"
+              onsubmit="return confirm('Create a ${{ remaining_credit|money }} credit memo from this overpayment?')">
+          <button type="submit">Create credit memo from overpayment</button>
         </form>
       </div>
     {% endif %}

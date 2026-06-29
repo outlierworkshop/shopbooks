@@ -219,6 +219,7 @@ def briefing(con, today=None):
 
     cash = cash_position(con)
     ar = invoicing.ar_aging(con, today)
+    credit_avail = invoicing.available_credit_total(con)
     health = bookkeeping_health(con)            # overall (not period-scoped)
     miss = missing_receipts(con, f"{yr}-01-01", f"{yr}-12-31")
     out_of_bal = [a for a in reconcile.status(con) if a["out_of_balance"]]
@@ -245,6 +246,8 @@ def briefing(con, today=None):
         add("info", f"{len(due_recur)} recurring bill(s) ready to post", "/recurring")
     if ar["overdue_count"]:
         add("warn", f"{ar['overdue_count']} overdue invoice(s) — ${fmt(ar['overdue_total'])} past due", "/invoices")
+    if credit_avail > 0:
+        add("info", f"${fmt(credit_avail)} in unused customer credit to apply", "/invoices")
     if out_of_bal:
         add("warn", f"{len(out_of_bal)} account(s) out of balance at last reconcile", "/reconcile")
     if health["unmatched_receipts"]:
@@ -261,6 +264,7 @@ def briefing(con, today=None):
         "cash_on_hand": cash["cash_on_hand"], "card_debt": cash["card_debt"],
         "receivables_total": ar["total"], "receivables_overdue": ar["overdue_total"],
         "overdue_count": ar["overdue_count"], "open_invoices": ar["open_count"],
+        "customer_credit": credit_avail,
         "next_tax": ({"quarter": next_tax["quarter"], "due_date": next_tax["due_date"],
                       "amount": next_tax["total_due"], "days": days_to_tax} if next_tax else None),
         "attention": attn, "all_clear": not attn,

@@ -190,7 +190,77 @@ def test_overapplication_is_capped():
     con.close()
 
 
+def test_apply_from_credit_memo_side():
+    """Feature #2: apply a credit memo to a chosen invoice from the CREDIT MEMO's side."""
+    con = db.connect()
+    cust = con.execute("INSERT INTO customers(name) VALUES('Memo Side')").lastrowid
+    inv = con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,kind) "
+                      "VALUES('INV-MS',?,'2026-06-01','2026-06-30','sent','invoice')", (cust,)).lastrowid
+    con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,1,5000)", (inv, "job"))
+    cm = con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,kind) "
+                     "VALUES('CM-MS',?,'2026-06-02','2026-06-02','sent','credit_memo')", (cust,)).lastrowid
+    con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,1,8000)", (cm, "credit"))
+    con.commit(); con.close()
+
+    r = client.post(f"/credit-memos/{cm}/apply",
+                    data={"invoice_id": str(inv), "amount": "50.00", "apply_date": "2026-06-10"},
+                    follow_redirects=False)
+    ok(r.status_code == 303 and r.headers["location"].startswith(f"/invoices/{cm}"),
+       "apply-from-memo redirects back to the credit memo")
+    con = db.connect()
+    ok(invoicing.invoice_outstanding_balance(con, inv) == 0, "target invoice fully covered from the memo side")
+    ok(con.execute("SELECT status FROM invoices WHERE id=?", (inv,)).fetchone()["status"] == "paid", "invoice marked paid")
+    ok(invoicing.invoice_outstanding_balance(con, cm) == -3000, "credit memo has $30 left after applying $50 of $80")
+    con.close()
+
+
+def test_overpayment_to_credit_memo():
+    """Feature #4: turn an invoice's overpayment into a standalone credit memo (no double-counting)."""
+    con = db.connect()
+    chk = con.execute("SELECT id FROM accounts WHERE name='Business Checking'").fetchone()["id"]
+    inc = con.execute("SELECT id FROM accounts WHERE name='Fabrication'").fetchone()["id"]
+    cust = con.execute("INSERT INTO customers(name) VALUES('Overpay')").lastrowid
+    inv = con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,kind) "
+                      "VALUES('INV-OP',?,'2026-07-01','2026-07-31','sent','invoice')", (cust,)).lastrowid
+    con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,1,10000)", (inv, "job"))
+    dep = ledger.post_entry(con, "2026-07-05", "Overpay dep", [(chk, 13000), (inc, -13000)])  # paid $130 on a $100 invoice
+    con.execute("INSERT INTO invoice_entry_links(invoice_id, entry_id) VALUES(?,?)", (inv, dep))
+    app._update_document_status(con, inv)
+    con.commit()
+    before = invoicing.customer_available_credit(con, cust)
+    con.close()
+    ok(before == 3000, f"the $30 overpayment is available as credit before converting (got {before})")
+
+    r = client.post(f"/invoices/{inv}/to-credit-memo", follow_redirects=False)
+    ok(r.status_code == 303 and "/invoices/" in r.headers["location"], "overpayment->credit redirects to the new memo")
+    cm_id = int(r.headers["location"].split("/invoices/")[1].split("?")[0])
+
+    con = db.connect()
+    cm = con.execute("SELECT number, kind FROM invoices WHERE id=?", (cm_id,)).fetchone()
+    ok(cm["kind"] == "credit_memo" and cm["number"].startswith("CM-"), "a CM- credit memo was created")
+    ok(abs(invoicing.invoice_total(con, cm_id)) == 3000, "the credit memo is for the $30 excess")
+    # no double-counting: total available credit for the customer is still exactly $30
+    ok(invoicing.customer_available_credit(con, cust) == 3000, "still exactly $30 available (excess moved, not duplicated)")
+    ok(con.execute("SELECT status FROM invoices WHERE id=?", (inv,)).fetchone()["status"] == "paid",
+       "the source invoice stays paid")
+    con.close()
+
+
+def test_available_credit_surfaces_in_briefing():
+    """Feature #1: unused customer credit shows up in the dashboard briefing."""
+    import insights
+    con = db.connect()
+    b = insights.briefing(con, "2026-08-01")
+    ok(b["customer_credit"] > 0, "briefing reports a nonzero customer-credit figure")
+    ok(any("customer credit" in a["text"] for a in b["attention"]),
+       "briefing surfaces an 'unused customer credit to apply' item")
+    con.close()
+
+
 if __name__ == "__main__":
     test_customer_credits_workflow()
     test_overapplication_is_capped()
+    test_apply_from_credit_memo_side()
+    test_overpayment_to_credit_memo()
+    test_available_credit_surfaces_in_briefing()
     print("\nCUSTOMER CREDITS TESTS DONE")

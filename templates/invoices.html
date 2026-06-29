@@ -104,7 +104,7 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
   <button type="submit">Add customer</button>
 </form>
 <table class="sortable">
-  <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th class="num">Outstanding</th><th></th></tr>
+  <tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th class="num">Outstanding</th><th class="num">Credit</th><th></th></tr>
   {% for c in customers %}
   <tr>
     <form method="post" action="/customers/update">
@@ -114,11 +114,12 @@ Brings in invoice records (customer, number, date, amount, paid/open) for tracki
     <td><input type="text" name="phone" value="{{ c.phone }}" style="width:110px"></td>
     <td><input type="text" name="address" value="{{ c.address }}" style="width:240px"></td>
     <td class="num {{ 'neg' if c.outstanding > 0 else 'muted' }}">${{ c.outstanding|money }}</td>
+    <td class="num {{ 'pos' if c.credit else 'muted' }}">{% if c.credit %}${{ c.credit|money }}{% else %}—{% endif %}</td>
     <td><button class="small ghost" type="submit">Save</button></td>
     </form>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">No customers yet - add one above, then create an invoice.</td></tr>
+  <tr><td colspan="7" class="muted">No customers yet - add one above, then create an invoice.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

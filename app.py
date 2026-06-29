@@ -2353,7 +2353,8 @@ def invoices_page(request: Request, msg: str = "", err: str = ""):
             outstanding = 0
             for r in invs:
                 outstanding += invoicing.invoice_outstanding_balance(con, r["id"])
-            customers.append({**dict(c), "outstanding": outstanding})
+            credit = invoicing.customer_available_credit(con, c["id"])
+            customers.append({**dict(c), "outstanding": outstanding, "credit": credit})
             
         return templates.TemplateResponse(request, "invoices.html", ctx(
             request, con, invoices=_invoice_rows(con), customers=customers, msg=msg, err=err,
@@ -2564,25 +2565,37 @@ def _update_document_status(con, invoice_id):
 
 
 def get_available_credits_for_customer(con, customer_id):
-    candidates = con.execute(
-        "SELECT id, number, kind, "
-        "COALESCE((SELECT SUM(qty * unit_cents) FROM invoice_items WHERE invoice_id=i.id), 0) total_cents "
-        "FROM invoices i WHERE i.customer_id=? AND i.kind IN ('invoice', 'credit_memo') AND i.status != 'void'", (customer_id,)
-    ).fetchall()
-    
-    out = []
-    for c in candidates:
-        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (c["id"],)).fetchone()[0]
-        if c["kind"] == "credit_memo":
-            avail = c["total_cents"] - applied
-            if avail > 0:
-                out.append({"id": c["id"], "number": c["number"], "kind": c["kind"], "available_cents": avail})
-        elif c["kind"] == "invoice":
-            pay_total = invoicing.invoice_payments_total(con, c["id"])
-            avail = pay_total - c["total_cents"] - applied
-            if avail > 0:
-                out.append({"id": c["id"], "number": c["number"], "kind": c["kind"], "available_cents": avail})
-    return out
+    return invoicing.available_credits_for_customer(con, customer_id)
+
+
+def _apply_credit_core(con, invoice_id, credit_invoice_id, amount_cents, d):
+    """Apply `amount_cents` of credit from credit_invoice_id onto invoice_id. Caps at BOTH the
+    source's available credit and the target invoice's remaining balance, so no credit is wasted.
+    Updates both documents' statuses. Returns the amount actually applied. Raises ValueError."""
+    inv, _, _ = invoicing.get_invoice(con, invoice_id)
+    if not inv or inv["kind"] != "invoice" or inv["status"] == "void":
+        raise ValueError("Invalid target invoice")
+    credit_inv, _, _ = invoicing.get_invoice(con, credit_invoice_id)
+    if not credit_inv or credit_inv["customer_id"] != inv["customer_id"]:
+        raise ValueError("The credit must belong to the same customer")
+    applied = con.execute("SELECT COALESCE(SUM(amount_cents),0) FROM credit_applications "
+                          "WHERE credit_invoice_id=?", (credit_invoice_id,)).fetchone()[0]
+    if credit_inv["kind"] == "credit_memo":
+        avail = abs(invoicing.invoice_total(con, credit_invoice_id)) - applied
+    else:
+        avail = invoicing.invoice_payments_total(con, credit_invoice_id) - \
+            invoicing.invoice_total(con, credit_invoice_id) - applied
+    target_outstanding = invoicing.invoice_outstanding_balance(con, invoice_id)
+    if target_outstanding <= 0:
+        raise ValueError("This invoice has no remaining balance")
+    amount_cents = min(amount_cents, avail, target_outstanding)
+    if amount_cents <= 0:
+        raise ValueError("No available credit on the source")
+    con.execute("INSERT INTO credit_applications(credit_invoice_id, invoice_id, amount_cents, date) VALUES(?,?,?,?)",
+                (credit_invoice_id, invoice_id, amount_cents, d))
+    _update_document_status(con, invoice_id)
+    _update_document_status(con, credit_invoice_id)
+    return amount_cents
 
 
 def invoice_deposit_candidates(con, inv, total):
@@ -2739,7 +2752,17 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             remaining_credit = abs(outstanding_balance)
         elif inv["kind"] == "invoice":
             remaining_credit = max(0, payments_total - total - credit_applications_total)
-            
+
+        # For a credit memo with credit left, the open invoices it can be applied to (feature #2)
+        applicable_invoices = []
+        if inv["kind"] == "credit_memo" and remaining_credit > 0:
+            for r in con.execute("SELECT id, number, due_date FROM invoices WHERE customer_id=? AND kind='invoice' "
+                                 "AND status IN ('sent','partially_paid')", (inv["customer_id"],)).fetchall():
+                ob = invoicing.invoice_outstanding_balance(con, r["id"])
+                if ob > 0:
+                    applicable_invoices.append({"id": r["id"], "number": r["number"],
+                                                "due_date": r["due_date"], "outstanding": ob})
+
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
             candidates=candidates, matched=matched, matched_entries=matched_entries,
@@ -2748,6 +2771,7 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             applied_credits_list=applied_credits_list, applied_credits_total=applied_credits_total,
             credit_applications_list=credit_applications_list, credit_applications_total=credit_applications_total,
             available_credits=available_credits, remaining_credit=remaining_credit,
+            applicable_invoices=applicable_invoices,
             msg=msg, err=err, email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
@@ -2925,53 +2949,73 @@ def invoice_status(invoice_id: int, action: str = Form(...)):
 
 @app.post("/invoices/{invoice_id}/apply-credit")
 def invoice_apply_credit(invoice_id: int, credit_invoice_id: int = Form(...), amount: float = Form(...), apply_date: str = Form(...)):
+    """Apply a credit source (memo or overpaid invoice) ONTO this invoice — from the invoice's side."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        try:
+            amt = ledger.parse_amount_to_cents(str(amount))
+            if amt <= 0:
+                raise ValueError("Amount must be greater than 0")
+            _apply_credit_core(con, invoice_id, credit_invoice_id, amt, ledger.normalize_date(apply_date))
+            con.commit()
+            return RedirectResponse(f"/invoices/{invoice_id}?msg=Credit+applied", status_code=303)
+        except ValueError as e:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=" + quote(str(e)), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/credit-memos/{credit_id}/apply")
+def credit_memo_apply(credit_id: int, invoice_id: int = Form(...), amount: float = Form(...), apply_date: str = Form(...)):
+    """Apply THIS credit (memo or overpaid invoice) to a chosen invoice — from the credit's side (#2)."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        try:
+            amt = ledger.parse_amount_to_cents(str(amount))
+            if amt <= 0:
+                raise ValueError("Amount must be greater than 0")
+            _apply_credit_core(con, invoice_id, credit_id, amt, ledger.normalize_date(apply_date))
+            con.commit()
+            return RedirectResponse(f"/invoices/{credit_id}?msg=Credit+applied", status_code=303)
+        except ValueError as e:
+            return RedirectResponse(f"/invoices/{credit_id}?err=" + quote(str(e)), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/invoices/{invoice_id}/to-credit-memo")
+def invoice_overpayment_to_credit(invoice_id: int):
+    """Turn an invoice's overpayment excess into a standalone credit memo in one click (#4). The
+    excess is moved out of the invoice (recorded as an application onto the new memo), so it is never
+    double-counted as available credit."""
+    from urllib.parse import quote
     con = db.connect()
     try:
         inv, _, total = invoicing.get_invoice(con, invoice_id)
-        if not inv or inv["kind"] != "invoice" or inv["status"] == "void":
-            return RedirectResponse(f"/invoices/{invoice_id}?err=Invalid+invoice", status_code=303)
-            
-        amount_cents = ledger.parse_amount_to_cents(str(amount))
-        if amount_cents <= 0:
-            return RedirectResponse(f"/invoices/{invoice_id}?err=Amount+must+be+greater+than+0", status_code=303)
-            
-        d = ledger.normalize_date(apply_date)
-        
-        # Check credit source availability
-        credit_inv, _, _ = invoicing.get_invoice(con, credit_invoice_id)
-        if not credit_inv or credit_inv["customer_id"] != inv["customer_id"]:
-            return RedirectResponse(f"/invoices/{invoice_id}?err=Invalid+credit+source", status_code=303)
-            
-        # Calculate available credit on the source
-        applied = con.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM credit_applications WHERE credit_invoice_id=?", (credit_invoice_id,)).fetchone()[0]
-        if credit_inv["kind"] == "credit_memo":
-            total_cents = abs(invoicing.invoice_total(con, credit_invoice_id))
-            avail = total_cents - applied
-        else: # Overpaid invoice
-            pay_total = invoicing.invoice_payments_total(con, credit_invoice_id)
-            total_cents = invoicing.invoice_total(con, credit_invoice_id)
-            avail = pay_total - total_cents - applied
-            
-        # Cap at the credit source's available balance AND the target invoice's remaining balance,
-        # so we never consume more credit than the invoice still owes.
-        target_outstanding = invoicing.invoice_outstanding_balance(con, invoice_id)
-        if target_outstanding <= 0:
-            return RedirectResponse(f"/invoices/{invoice_id}?err=This+invoice+has+no+remaining+balance", status_code=303)
-        amount_cents = min(amount_cents, avail, target_outstanding)
-
-        if amount_cents <= 0:
-            return RedirectResponse(f"/invoices/{invoice_id}?err=No+available+credit+on+source", status_code=303)
-            
-        con.execute(
-            "INSERT INTO credit_applications(credit_invoice_id, invoice_id, amount_cents, date) VALUES(?,?,?,?)",
-            (credit_invoice_id, invoice_id, amount_cents, d)
-        )
-        
-        # Update both document statuses
+        if not inv or inv["kind"] != "invoice":
+            return RedirectResponse("/invoices", status_code=303)
+        applied_as_source = con.execute("SELECT COALESCE(SUM(amount_cents),0) FROM credit_applications "
+                                        "WHERE credit_invoice_id=?", (invoice_id,)).fetchone()[0]
+        excess = invoicing.invoice_payments_total(con, invoice_id) - total - applied_as_source
+        if excess <= 0:
+            return RedirectResponse(f"/invoices/{invoice_id}?err=No+overpayment+to+convert", status_code=303)
+        today = date_cls.today().isoformat()
+        number = invoicing.next_credit_memo_number(con)
+        cm_id = con.execute(
+            "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,'credit_memo')",
+            (number, inv["customer_id"], today, today, f"Credit from overpayment on {inv['number']}")).lastrowid
+        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,1,?)",
+                    (cm_id, f"Overpayment credit from {inv['number']}", excess))
+        # consume the invoice's excess (source = overpaid invoice, target = the new memo)
+        con.execute("INSERT INTO credit_applications(credit_invoice_id, invoice_id, amount_cents, date) VALUES(?,?,?,?)",
+                    (invoice_id, cm_id, excess, today))
         _update_document_status(con, invoice_id)
-        _update_document_status(con, credit_invoice_id)
+        _update_document_status(con, cm_id)
         con.commit()
-        return RedirectResponse(f"/invoices/{invoice_id}?msg=Credit+applied+successfully", status_code=303)
+        return RedirectResponse(f"/invoices/{cm_id}?msg=" + quote(
+            f"Created credit memo {number} from the ${ledger.fmt_cents(excess)} overpayment."), status_code=303)
     finally:
         con.close()
 

@@ -13,6 +13,19 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-29 — Customer credits: visibility, apply-from-memo, overpayment→memo
+- Surface unused credit (#1): per-customer "Credit" column on the Invoices page, and an "$X in unused
+  customer credit to apply" item in the dashboard briefing. New `invoicing.available_credits_for_customer`
+  / `customer_available_credit` / `available_credit_total` (single home for credit-source math; app.py now
+  delegates to it).
+- Apply from the credit-memo side (#2): a credit memo with credit left shows the customer's open invoices and
+  an Apply form (`/credit-memos/{id}/apply`). Shared `_apply_credit_core` powers both directions (caps at the
+  source's available credit AND the target's balance).
+- Overpayment → credit memo (#4): an overpaid invoice offers one-click "Create credit memo from overpayment";
+  the excess is moved into a new CM (recorded as an application onto it) so it's never double-counted.
+- `test_customer_credits.py` extended: apply-from-memo, overpayment→memo (with a no-double-count assertion),
+  and the briefing surfacing. Full suite green.
+
 ### 2026-06-29 — Customer credits / credit memos
 - New `credit_memo` document kind (invoices row, CM- numbering) + `credit_applications` table: issue a
   credit memo, or use an overpaid invoice's excess, and apply it against open invoices.
