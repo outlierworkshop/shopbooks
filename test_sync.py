@@ -234,6 +234,44 @@ c.close()
 ok(got == str(PC / "docs" / "rcpt_w.jpg"),
    "a Windows-style stored path repoints to THIS machine's docs (not a C:\\... garbage path)")
 
-import shutil  # noqa: E402
+# 16. The receipt mirror must NEVER abort or alarm the books sync. A denied _sync_docs directory
+#     (macOS '[Errno 1] Operation not permitted' on a Dropbox/CloudStorage path) is swallowed; the
+#     books (DB) still sync both directions. -----------------------------------------------------
+import pathlib  # noqa: E402
+for d in (MAC, PC, CLOUD):
+    shutil.rmtree(d, ignore_errors=True)
+use(MAC)
+c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+(MAC / "docs").mkdir(parents=True, exist_ok=True)
+(MAC / "docs" / "rcpt_denied.jpg").write_bytes(b"JPEGDATA")     # a receipt to push (so push reaches _sync_docs)
+(CLOUD / sync.SYNC_DOCS).mkdir(parents=True, exist_ok=True)     # exists, but access is denied below
+
+_orig_iter, _orig_mkdir = pathlib.Path.iterdir, pathlib.Path.mkdir
+def _deny_iter(self):
+    if self.name == sync.SYNC_DOCS:
+        raise OSError(1, "Operation not permitted")
+    return _orig_iter(self)
+def _deny_mkdir(self, *a, **k):
+    if self.name == sync.SYNC_DOCS:
+        raise OSError(1, "Operation not permitted")
+    return _orig_mkdir(self, *a, **k)
+pathlib.Path.iterdir, pathlib.Path.mkdir = _deny_iter, _deny_mkdir
+try:
+    ok(sync._mirror_files(CLOUD / sync.SYNC_DOCS, PC / "docs") == 0,
+       "_mirror_files swallows a denied directory and returns 0 (never raises)")
+    set_name("Denied Docs Co")
+    r = close()                                                 # _push_docs hits the denied _sync_docs
+    ok(r["status"] == "exported", "books still export to the cloud when the docs mirror is denied")
+    ok((CLOUD / sync.SYNC_DB).exists(), "the books DB was written despite the docs-mirror denial")
+    use(PC)
+    c = db.connect(); db.set_setting(c, "sync_enabled", "1"); c.commit(); c.close()
+    r = pull()                                                  # _pull_docs hits the denied _sync_docs
+    ok(r["status"] == "fast_forward" and r.get("imported"),
+       "the other machine still imports the books when the docs mirror is denied (no 'error' status)")
+    c = db.connect(); ok(db.get_setting(c, "business_name") == "Denied Docs Co",
+                         "books synced across despite the receipt-mirror permission error"); c.close()
+finally:
+    pathlib.Path.iterdir, pathlib.Path.mkdir = _orig_iter, _orig_mkdir
+
 shutil.rmtree(ROOT, ignore_errors=True)
 print("\nSYNC TESTS DONE")

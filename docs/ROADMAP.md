@@ -13,6 +13,20 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-29 — Fix: receipt-files mirror no longer breaks/alarms the books sync
+- Symptom: a red "Cloud sync hit a problem reading the cloud copy" banner + `Sync: error ([Errno 1]
+  Operation not permitted: '…/_sync_docs')`, even though the books DB was actually in sync. Cause: macOS's
+  Dropbox/CloudStorage File Provider denying the process *directory* access to the `_sync_docs` receipt
+  mirror.
+- `sync._mirror_files` only caught per-file copy errors, so a directory-level `OSError` (mkdir/iterdir/exists)
+  escaped and was caught by `_import` / `export_on_close` as a generic sync error — and since the docs step
+  runs before the DB step, it could block new book changes from syncing.
+- Fix: wrap the directory-level ops in `_mirror_files` in `try/except OSError: return 0`, so the receipt
+  mirror is strictly best-effort — a denied/undownloaded `_sync_docs` can never abort or alarm the books
+  sync; it just retries next round. `test_sync.py` gains a case (#16) simulating the EPERM and asserting the
+  DB still exports/imports. (Getting receipts to actually mirror again still needs Full Disk Access for the
+  app — a one-time macOS Privacy setting, not a code change.)
+
 ### 2026-06-29 — Cash-flow forecast (#38)
 - `insights.cash_forecast` finished and wired up: projects month-end bank cash over a 30/60/90/180-day
   horizon from starting cash + expected invoice collections (by due month) + recurring income, minus

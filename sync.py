@@ -236,13 +236,22 @@ def _mirror_files(src_dir, dst_dir):
     """Copy files in src_dir that are missing from dst_dir. Receipts are immutable and uniquely
     named, so this is a safe additive merge by filename (each machine ends up with the union).
     Best-effort: skips dotfiles and anything unreadable (e.g. a not-yet-downloaded cloud file).
-    Returns the number copied."""
+    Returns the number copied.
+
+    The receipt mirror is NON-CRITICAL — it must never abort or alarm the books (DB) sync. Directory
+    access to the cloud `_sync_docs` folder can fail wholesale (e.g. macOS denies the process directory
+    access to a Dropbox/CloudStorage path -> '[Errno 1] Operation not permitted'); when it does we just
+    skip this round and retry on the next sync, rather than letting it raise up into export/import."""
     src_dir, dst_dir = Path(src_dir), Path(dst_dir)
-    if not src_dir.exists():
-        return 0
-    dst_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        if not src_dir.exists():
+            return 0
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        entries = list(src_dir.iterdir())
+    except OSError:
+        return 0  # cloud docs folder not accessible (perms / placeholder) — books still sync; retry later
     n = 0
-    for f in src_dir.iterdir():
+    for f in entries:
         if not f.is_file() or f.name.startswith("."):
             continue
         dest = dst_dir / f.name
