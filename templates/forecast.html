@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Cash-flow forecast{% endblock %}
+{% block content %}
+<h1>Cash-flow forecast</h1>
+<p class="muted">A projection of your bank cash over the next {{ horizon }} days: expected invoice
+collections and recurring income coming in, recurring bills and your typical spending going out.
+It's an estimate — invoice timing assumes customers pay by the due date, and non-recurring spending
+is a {{ '6' }}-month average. Numbers come straight from the ledger.</p>
+
+<form method="get" action="/forecast" class="toolbar">
+  <label class="muted">Horizon:</label>
+  <select name="horizon" onchange="this.form.submit()">
+    {% for h in [30, 60, 90, 180] %}
+    <option value="{{ h }}" {{ 'selected' if horizon == h else '' }}>{{ h }} days</option>
+    {% endfor %}
+  </select>
+  {% if ai_on and not explained %}<a class="btn ghost" href="/forecast?horizon={{ horizon }}&explain=1">✨ Explain</a>{% endif %}
+</form>
+
+{% if narrative %}<div class="card section" style="max-width:820px"><p style="white-space:pre-wrap; margin:0">{{ narrative }}</p></div>{% endif %}
+
+<div class="cards">
+  <div class="card"><div class="label">Cash now</div><div class="big">${{ f.starting_cash|money }}</div></div>
+  <div class="card"><div class="label">Projected in {{ horizon }} days</div>
+    <div class="big {{ 'neg' if f.projected_end < 0 else 'pos' }}">${{ f.projected_end|money }}</div></div>
+  <div class="card"><div class="label">Low point</div>
+    <div class="big {{ 'neg' if f.low_point.balance < 0 else '' }}">${{ f.low_point.balance|money }}</div>
+    <div class="muted">around {{ f.low_point.label }}</div></div>
+  <div class="card"><div class="label">Monthly burn (est.)</div>
+    <div class="big">${{ f.avg_monthly_expense|money }}</div>
+    <div class="muted">${{ f.recurring_monthly_expense|money }} recurring</div></div>
+</div>
+
+{% if f.goes_negative %}
+<p class="error" style="max-width:820px">⚠ Heads-up: at this rate your cash is projected to dip
+<strong>below $0</strong> around {{ f.low_point.label }}. Consider chasing overdue invoices, deferring a
+purchase, or lining up a buffer.</p>
+{% endif %}
+
+<table class="sortable" style="max-width:820px">
+  <tr><th>Month</th><th class="num">Expected in</th><th class="num">Expected out</th><th class="num">Projected balance</th></tr>
+  {% for m in f.months %}
+  <tr>
+    <td>{{ m.label }}</td>
+    <td class="num pos">{% if m.inflow %}+${{ m.inflow|money }}{% else %}—{% endif %}</td>
+    <td class="num">{% if m.outflow %}-${{ m.outflow|money }}{% else %}—{% endif %}</td>
+    <td class="num {{ 'neg' if m.end_balance < 0 else '' }}"><strong>${{ m.end_balance|money }}</strong></td>
+  </tr>
+  {% endfor %}
+</table>
+
+<p class="muted" style="max-width:820px">Coming in over the horizon: ${{ f.expected_inflow_total|money }} from
+open invoices{% if f.recurring_income_total %} + ${{ f.recurring_income_total|money }} recurring income{% endif %}.
+To sharpen this, keep <a href="/recurring">recurring bills</a> up to date and your
+<a href="/invoices">invoices</a> current.</p>
+{% endblock %}
