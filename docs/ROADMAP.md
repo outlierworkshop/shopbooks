@@ -13,6 +13,18 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-06-29 — Cash-flow forecast (#38)
+- `insights.cash_forecast` finished and wired up: projects month-end bank cash over a 30/60/90/180-day
+  horizon from starting cash + expected invoice collections (by due month) + recurring income, minus
+  recurring bills and a trailing-average "variable burn". Recurring expenses are carved out of the average
+  and placed explicitly (so a yearly bill spikes in its month) without double-counting. Flags the low point
+  and any dip below $0.
+- New `/forecast` page (Reports → Cash-Flow Forecast): summary cards, a month-by-month table, a horizon
+  selector, and an optional "✨ Explain" AI readout (AI-optional). The dashboard briefing now warns when cash
+  is projected to go negative.
+- `test_forecast.py` covers the figures, the per-month projection, recurring carve-out (no double-count),
+  the low point, and the goes-negative path. Full suite (39 files) green. Completes the proactive set.
+
 ### 2026-06-29 — Customer credits: visibility, apply-from-memo, overpayment→memo
 - Surface unused credit (#1): per-customer "Credit" column on the Invoices page, and an "$X in unused
   customer credit to apply" item in the dashboard briefing. New `invoicing.available_credits_for_customer`

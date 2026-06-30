@@ -250,6 +250,9 @@ def briefing(con, today=None):
         add("info", f"${fmt(credit_avail)} in unused customer credit to apply", "/invoices")
     if out_of_bal:
         add("warn", f"{len(out_of_bal)} account(s) out of balance at last reconcile", "/reconcile")
+    fc = cash_forecast(con, horizon_days=90, today=today)
+    if fc["goes_negative"]:
+        add("warn", f"Cash is projected to dip below $0 around {fc['low_point']['label']}", "/forecast")
     if health["unmatched_receipts"]:
         add("info", f"{health['unmatched_receipts']} receipt(s) not matched to a transaction", "/receipts")
     if miss:
@@ -280,13 +283,14 @@ def cash_forecast(con, horizon_days=90, today=None, history_months=6):
     Estimate, not a promise: expenses are a historical average (sharper once recurring bills land, #39),
     and invoice timing assumes customers pay by the due date."""
     import invoicing  # lazy (see briefing)
+    import recurring
     today = today or date.today().isoformat()
     start = date.fromisoformat(today)
     end = start + timedelta(days=horizon_days)
 
     starting_cash = cash_position(con)["cash_on_hand"]
 
-    # trailing average monthly expense burn
+    # trailing-average TOTAL expense burn from the ledger
     hy, hm = start.year, start.month - history_months
     while hm <= 0:
         hm += 12
@@ -294,10 +298,21 @@ def cash_forecast(con, horizon_days=90, today=None, history_months=6):
     hist_exp = ledger.pnl(con, f"{hy}-{hm:02d}-01", today)["total_expenses"]
     avg_monthly_expense = round(hist_exp / max(history_months, 1))
 
+    # The recurring EXPENSE templates are a known subset of that burn. Estimate their monthly cost and
+    # carve it out, so we can place the real recurring bills explicitly (sharper) without double-counting:
+    # variable_burn is the smoothed "everything else".
+    _per_month = {"weekly": 52 / 12, "monthly": 1.0, "yearly": 1 / 12}
+    recurring_monthly_expense = round(sum(
+        r["amount_cents"] * _per_month.get(r["frequency"], 1.0) for r in
+        con.execute("SELECT amount_cents, frequency FROM recurring WHERE active=1 AND flow='expense'").fetchall()))
+    variable_burn = max(0, avg_monthly_expense - recurring_monthly_expense)
+
     # expected inflows from open invoices, bucketed by the month they're expected to land
     inflow_by = {}
     expected_inflow_total = 0
     for r in invoicing.ar_aging(con, today)["rows"]:
+        if r["total"] <= 0:                            # skip net-credit rows
+            continue
         due = date.fromisoformat(r["due_date"])
         when = due if due >= start else start          # overdue -> assume it comes in now
         if when <= end:
@@ -305,24 +320,40 @@ def cash_forecast(con, horizon_days=90, today=None, history_months=6):
             inflow_by[key] = inflow_by.get(key, 0) + r["total"]
             expected_inflow_total += r["total"]
 
+    # known recurring flows in the horizon, by month (income in, expense out)
+    rec_in, rec_out = {}, {}
+    recurring_income_total = recurring_expense_total = 0
+    for occ in recurring.upcoming(con, today, end.isoformat()):
+        key = occ["date"][:7]
+        if occ["amount"] >= 0:
+            rec_in[key] = rec_in.get(key, 0) + occ["amount"]
+            recurring_income_total += occ["amount"]
+        else:
+            rec_out[key] = rec_out.get(key, 0) - occ["amount"]
+            recurring_expense_total -= occ["amount"]
+
     months = []
     bal = starting_cash
     low = {"label": "now", "balance": starting_cash}
     cy, cm = start.year, start.month
     while (cy, cm) <= (end.year, end.month):
         key = f"{cy}-{cm:02d}"
-        inflow = inflow_by.get(key, 0)
-        bal = bal + inflow - avg_monthly_expense
+        inflow = inflow_by.get(key, 0) + rec_in.get(key, 0)
+        outflow = variable_burn + rec_out.get(key, 0)
+        bal = bal + inflow - outflow
         label = date(cy, cm, 1).strftime("%b %Y")
         months.append({"month": key, "label": label, "inflow": inflow,
-                       "outflow": avg_monthly_expense, "end_balance": bal})
+                       "outflow": outflow, "end_balance": bal})
         if bal < low["balance"]:
             low = {"label": label, "balance": bal}
         cy, cm = (cy + 1, 1) if cm == 12 else (cy, cm + 1)
 
     return {
         "today": today, "horizon_days": horizon_days, "starting_cash": starting_cash,
-        "avg_monthly_expense": avg_monthly_expense, "expected_inflow_total": expected_inflow_total,
+        "avg_monthly_expense": avg_monthly_expense, "variable_burn": variable_burn,
+        "recurring_monthly_expense": recurring_monthly_expense,
+        "expected_inflow_total": expected_inflow_total,
+        "recurring_income_total": recurring_income_total, "recurring_expense_total": recurring_expense_total,
         "months": months, "low_point": low,
         "goes_negative": any(m["end_balance"] < 0 for m in months) or starting_cash < 0,
         "projected_end": months[-1]["end_balance"] if months else starting_cash,

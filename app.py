@@ -2162,6 +2162,35 @@ def insights_page(request: Request, period: str = "this-year", base: str = "last
         con.close()
 
 
+def _forecast_facts(f):
+    """Compact figures block for the optional AI forecast narration."""
+    m = ledger.fmt_cents
+    L = [f"Cash-flow forecast as of {f['today']} ({f['horizon_days']} days).",
+         f"Starting cash: ${m(f['starting_cash'])}. Projected cash at the end: ${m(f['projected_end'])}.",
+         f"Estimated monthly burn: ${m(f['avg_monthly_expense'])} "
+         f"(of which ${m(f['recurring_monthly_expense'])} is known recurring bills).",
+         f"Expected invoice collections over the horizon: ${m(f['expected_inflow_total'])}; "
+         f"recurring income: ${m(f['recurring_income_total'])}."]
+    L.append(f"Projected low point: ${m(f['low_point']['balance'])} around {f['low_point']['label']}."
+             + (" Cash is projected to go NEGATIVE." if f["goes_negative"] else ""))
+    L.append("By month: " + "; ".join(
+        f"{mo['label']} in ${m(mo['inflow'])} / out ${m(mo['outflow'])} -> ${m(mo['end_balance'])}" for mo in f["months"]))
+    return "\n".join(L)
+
+
+@app.get("/forecast", response_class=HTMLResponse)
+def forecast_page(request: Request, horizon: int = 90, explain: str = ""):
+    con = db.connect()
+    try:
+        horizon = horizon if horizon in (30, 60, 90, 180) else 90
+        f = insights.cash_forecast(con, horizon_days=horizon)
+        narrative = ai.analyze(con, _forecast_facts(f)) if (explain and ai.available(con)) else None
+        return templates.TemplateResponse(request, "forecast.html", ctx(
+            request, con, f=f, horizon=horizon, narrative=narrative, explained=bool(explain)))
+    finally:
+        con.close()
+
+
 # ---------- assistant (Opus chatbot) ----------
 
 CHAT_HISTORY = []  # in-memory transcript for the assistant (single local user; resets on restart)
