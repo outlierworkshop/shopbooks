@@ -6,10 +6,30 @@ Keep entries short — what changed and why, not how.
 
 ## Vision
 
-An "all-around office manager" for a one-person business: bookkeeping (done), invoicing +
-email (done), and eventually everything an owner touches at a desk — statements in, clean
-books and tax packages out, with AI doing the tedious parts and the human approving.
-Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI-optional,
+An "all-around office manager" for a one-person business — statements in, clean books and
+tax packages out, with AI doing the tedious parts and the human approving. **As of July 2026,
+that vision is built.** What exists today:
+
+- **Bookkeeping core** — double-entry ledger, statement import (AI or regex), human-confirmed
+  Review, receipts (upload/folder/Amazon, auto-match, missing-receipt report), rules + history +
+  AI categorization, QuickBooks migration, two-machine cloud sync.
+- **Trustworthy books** — per-transaction reconciliation clearing, statement balance checks,
+  year-end close / period lock (a filed year can't change by accident).
+- **Get-paid loop** — estimates → invoices (partial payments, multi-deposit matching, editing),
+  AR aging + overdue reminder emails, customer credits / credit memos / overpayment handling.
+- **Proactive office manager** — a "what needs me today" dashboard briefing, 30–180-day cash-flow
+  forecast, recurring bills (with auto-detection from history), Schedule C mapping, quarterly
+  estimated-tax calculation + payment tracking + due-date reminders, per-year tax package ZIP.
+- **AI layer (optional everywhere)** — the deterministic `insights.py` book-query foundation, the
+  Opus Assistant (tool-grounded chat: how-to, tax strategy, analysis on real numbers), narration
+  on Insights/briefing/forecast. Numbers always come from the ledger; the model never computes.
+- Plus invoicing/email/PDF, job costing + time tracking, mileage, reports.
+
+**Deliberately parked** (issues #41–#43): online invoice payments, mobile receipt capture, and
+bank feeds — each adds external dependencies that cut against the constraints below; revisit only
+if a real pain point emerges. Future work is now refinement driven by daily use, not a checklist.
+
+Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — local-first, AI-optional,
 boring tech, built for exactly one user.
 
 ## Changelog
