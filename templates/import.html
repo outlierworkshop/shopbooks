@@ -3,6 +3,14 @@
 {% block content %}
 <h1>Import a statement</h1>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if feeds_connected %}
+<div class="toolbar" style="margin-bottom:10px">
+  <form class="inline" method="post" action="/feeds/fetch">
+    <button type="submit">⇣ Fetch from bank feeds</button></form>
+  <span class="muted">Pulls new transactions from your connected banks into Review
+    (<a href="/settings#feeds">manage feeds</a>).</span>
+</div>
+{% endif %}
 <form method="post" enctype="multipart/form-data" class="formgrid">
   <label>Statement file</label>
   <input type="file" name="file" accept=".pdf,.csv" required>

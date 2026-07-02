@@ -25,14 +25,35 @@ that vision is built.** What exists today:
   on Insights/briefing/forecast. Numbers always come from the ledger; the model never computes.
 - Plus invoicing/email/PDF, job costing + time tracking, mileage, reports.
 
-**Deliberately parked** (issues #41–#43): online invoice payments, mobile receipt capture, and
-bank feeds — each adds external dependencies that cut against the constraints below; revisit only
-if a real pain point emerges. Future work is now refinement driven by daily use, not a checklist.
+**Deliberately parked** (issues #41–#42): online invoice payments and mobile receipt capture — each
+adds external dependencies that cut against the constraints below; revisit only if a real pain point
+emerges. (Bank feeds, #43, was un-parked and shipped 2026-07-02 once SimpleFIN proved a local-first-
+compatible path.) Future work is now refinement driven by daily use, not a checklist.
 
 Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — local-first, AI-optional,
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-02 — Bank feeds via SimpleFIN (#43, un-parked)
+- #43 was parked assuming Plaid; re-researched: SimpleFIN Bridge ($15/yr, read-only by design, plain
+  HTTPS+JSON) covers 4 of the 5 accounts — Eastern Bank (incl. a Treasury & Business connector), Chase,
+  Amex, Capital One. QuickBooks Checking isn't connectable via any aggregator (stays on statement
+  import). Teller checked too: only 2/5. Bank credentials never touch ShopBooks — the owner connects
+  banks on the bridge's site; the app claims a one-time setup token into a durable read-only access URL
+  (stored like the other secrets; revocable from the bridge dashboard).
+- New `feeds.py` + `feed_accounts`/`feed_txns` tables: one GET pulls every account (bridge allows ~24
+  req/day; manual Fetch button, no daemon); posted-only (pending mutate and would fight dedupe); signs
+  converted from the bank's balance perspective to staged money-out-positive; one `feed:` batch per
+  mapped account, staged via `importer.stage_transactions` — so rules/history/AI categorization,
+  transfer pairing, and the human-confirmed Review step all apply exactly as for a statement import.
+- Two dedupe layers: exact SimpleFIN txn ids (7-day window overlap absorbed) + a same-account
+  date+amount guard against statement-import overlap.
+- Settings → "Bank feeds (SimpleFIN)": connect (paste setup token), map feed accounts to bank/card
+  accounts, enable/disable, Fetch now, Disconnect. Import page gets a Fetch button when connected.
+- `test_feeds.py` (31 assertions, zero network — HTTP layer mocked): claim, signs both directions,
+  pending exclusion, both dedupe layers, unmapped/disabled handling, PENDING-only guarantee, routes.
+  First real fetch (owner's token) should eyeball signs in Review before posting.
+
 ### 2026-07-02 — Estimated-tax reminders & payment tracking (#40)
 - New `tax_payments` table: record each 1040-ES payment (keyed to the TAX year+quarter — Q4 paid in
   January still counts toward the prior year). Record/remove on the Taxes page ("Estimated Payments
