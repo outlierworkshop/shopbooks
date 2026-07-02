@@ -86,6 +86,60 @@ test backup so you can confirm it works.</p>
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>
 
+<h2 id="feeds">Bank feeds (SimpleFIN)</h2>
+<div class="card section" style="max-width:720px">
+  {% if not feeds_connected %}
+  <p class="muted">Pull transactions straight from your banks instead of downloading statements.
+  How it works: create an account at <a href="https://bridge.simplefin.org" target="_blank">bridge.simplefin.org</a>
+  ($15/year), connect your banks <em>there</em> (your bank logins never touch ShopBooks), then generate a
+  <strong>setup token</strong> and paste it below. Everything fetched lands in
+  <a href="/review">Review</a> exactly like a statement import — nothing posts without you.
+  <br><span class="muted">Note: QuickBooks Checking can't be connected by any provider — keep using
+  statement import for it.</span></p>
+  <form method="post" action="/feeds/claim" class="toolbar">
+    <input type="text" name="setup_token" placeholder="paste setup token" style="width:340px" required>
+    <button type="submit">Connect</button>
+  </form>
+  <p class="muted" style="font-size:12px">Setup tokens are one-use: once claimed here, ShopBooks holds a
+  read-only access key (revocable anytime from the bridge dashboard).</p>
+  {% else %}
+  <p class="pos">✓ Connected to SimpleFIN Bridge.</p>
+  {% if feed_accounts %}
+  <table>
+    <tr><th>Bank account (from the feed)</th><th>Maps to</th><th>On</th><th>Last fetched</th><th></th></tr>
+    {% for f in feed_accounts %}
+    <tr>
+      <form method="post" action="/feeds/map">
+      <td>{{ f.org_name }} — {{ f.name }}<input type="hidden" name="feed_account_id" value="{{ f.id }}"></td>
+      <td>
+        <select name="account_id">
+          <option value="">(not mapped — skipped)</option>
+          {% for b in bankcards %}
+          <option value="{{ b.id }}" {{ 'selected' if b.id == f.account_id else '' }}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </td>
+      <td><input type="checkbox" name="enabled" value="1" {{ 'checked' if f.enabled else '' }}></td>
+      <td class="muted">{{ f.last_synced or 'never' }}</td>
+      <td><button class="small ghost" type="submit">Save</button></td>
+      </form>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No accounts listed yet — hit Fetch and they'll appear for mapping.</p>
+  {% endif %}
+  <div class="toolbar" style="margin-top:8px">
+    <form class="inline" method="post" action="/feeds/fetch">
+      <button type="submit">Fetch from bank feeds</button></form>
+    <form class="inline" method="post" action="/feeds/disconnect"
+          onsubmit="return confirm('Disconnect bank feeds? (Mappings are kept; you can reconnect with a new setup token.)')">
+      <button class="ghost" type="submit">Disconnect</button></form>
+    <span class="muted">The bridge refreshes bank data about once a day.</span>
+  </div>
+  {% endif %}
+</div>
+
 <h2>Backups &amp; data</h2>
 <div class="card section" style="max-width:720px">
   <p>Your books live at:<br><code>{{ backup.data_dir }}</code></p>

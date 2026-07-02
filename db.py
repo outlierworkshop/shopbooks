@@ -284,6 +284,20 @@ CREATE TABLE IF NOT EXISTS reconciliations(
 );
 CREATE INDEX IF NOT EXISTS idx_recon_account ON reconciliations(account_id);
 
+CREATE TABLE IF NOT EXISTS feed_accounts(
+  id TEXT PRIMARY KEY,                  -- SimpleFIN account id
+  name TEXT NOT NULL,                   -- account name as the bank reports it
+  org_name TEXT DEFAULT '',             -- institution name
+  account_id INTEGER REFERENCES accounts(id),  -- mapped ShopBooks bank/card account (NULL = unmapped)
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_synced TEXT                      -- date of the last successful fetch for this account
+);
+
+CREATE TABLE IF NOT EXISTS feed_txns(
+  id TEXT PRIMARY KEY,                  -- SimpleFIN transaction id: exact re-import guard
+  staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS tax_payments(
   id INTEGER PRIMARY KEY,
   year INTEGER NOT NULL,                -- the TAX year (Q4 2026 is paid in Jan 2027 but belongs to 2026)
