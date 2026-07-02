@@ -276,6 +276,8 @@
             <th class="num">SE Tax</th>
             <th class="num">Income Tax</th>
             <th class="num">Estimated Payment</th>
+            <th class="num">Paid</th>
+            <th class="num">Remaining</th>
           </tr>
         </thead>
         <tbody>
@@ -288,6 +290,13 @@
             <td class="num">${{ q.se_tax|money }}</td>
             <td class="num">${{ q.income_tax|money }}</td>
             <td class="num highlight-cell"><strong>${{ q.total_due|money }}</strong></td>
+            <td class="num">{% if q.paid %}${{ q.paid|money }}{% else %}—{% endif %}</td>
+            <td class="num">
+              {% if q.remaining < 0 %}<span class="pos">overpaid ${{ (0 - q.remaining)|money }}</span>
+              {% elif q.remaining == 0 and q.total_due > 0 %}<span class="pos">✓ paid</span>
+              {% elif q.remaining == 0 %}—
+              {% else %}<strong>${{ q.remaining|money }}</strong>{% endif %}
+            </td>
           </tr>
           {% endfor %}
           <tr class="tot-row">
@@ -296,9 +305,55 @@
             <td class="num">${{ estimated_taxes.total_se_tax|money }}</td>
             <td class="num">${{ estimated_taxes.total_income_tax|money }}</td>
             <td class="num highlight-total" style="text-align:right;">${{ estimated_taxes.total_due|money }}</td>
+            <td class="num">${{ estimated_taxes.total_paid|money }}</td>
+            <td class="num {{ 'pos' if estimated_taxes.total_remaining <= 0 else '' }}">
+              {% if estimated_taxes.total_remaining < 0 %}overpaid ${{ (0 - estimated_taxes.total_remaining)|money }}
+              {% else %}${{ estimated_taxes.total_remaining|money }}{% endif %}
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Recorded estimated payments -->
+    <div class="tax-section">
+      <h2>Estimated Payments Made ({{ year }})</h2>
+      <form method="post" action="/taxes/payment" class="toolbar" style="margin-bottom:10px">
+        <input type="hidden" name="year" value="{{ year }}">
+        <select name="quarter">
+          {% for qn in ['Q1','Q2','Q3','Q4'] %}<option value="{{ qn }}">{{ qn }}</option>{% endfor %}
+        </select>
+        <input type="date" name="date" value="{{ today }}" required>
+        <input type="text" name="amount" placeholder="amount $" style="width:110px" required>
+        <input type="text" name="memo" placeholder="memo (e.g. IRS Direct Pay)" style="width:200px">
+        <button type="submit">Record payment</button>
+      </form>
+      {% if tax_payments %}
+      <table class="tax-table">
+        <thead><tr><th>Paid</th><th>Quarter</th><th class="num">Amount</th><th>Memo</th><th></th></tr></thead>
+        <tbody>
+          {% for tp in tax_payments %}
+          <tr>
+            <td>{{ tp.date }}</td>
+            <td>{{ tp.quarter }}</td>
+            <td class="num">${{ tp.amount_cents|money }}</td>
+            <td class="muted">{{ tp.memo }}</td>
+            <td style="text-align:right">
+              <form class="inline" method="post" action="/taxes/payment/{{ tp.id }}/delete"
+                    onsubmit="return confirm('Remove this recorded payment?')">
+                <input type="hidden" name="year" value="{{ year }}">
+                <button class="small danger" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted" style="margin:0">No payments recorded for {{ year }} yet. Record each 1040-ES payment
+      here (Q4 is usually paid the following January — it still counts toward {{ year }}). The dashboard
+      reminds you of what's still due as each date approaches.</p>
+      {% endif %}
     </div>
 
   </div>

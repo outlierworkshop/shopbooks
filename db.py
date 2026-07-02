@@ -284,6 +284,16 @@ CREATE TABLE IF NOT EXISTS reconciliations(
 );
 CREATE INDEX IF NOT EXISTS idx_recon_account ON reconciliations(account_id);
 
+CREATE TABLE IF NOT EXISTS tax_payments(
+  id INTEGER PRIMARY KEY,
+  year INTEGER NOT NULL,                -- the TAX year (Q4 2026 is paid in Jan 2027 but belongs to 2026)
+  quarter TEXT NOT NULL,                -- 'Q1'..'Q4'
+  date TEXT NOT NULL,                   -- when it was actually paid (YYYY-MM-DD)
+  amount_cents INTEGER NOT NULL,
+  memo TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS recurring(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,                        -- payee / what it's for (e.g. 'Shop rent')
