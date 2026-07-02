@@ -3612,14 +3612,53 @@ def taxes_page(request: Request, year: int = 0, msg: str = "", err: str = ""):
         sch_c = insights.schedule_c_report(con, start, end)
         est_tx = insights.estimated_taxes(con, year, est_rate)
 
+        tax_payments = con.execute(
+            "SELECT * FROM tax_payments WHERE year=? ORDER BY date DESC, id DESC", (year,)).fetchall()
         return templates.TemplateResponse(request, "taxes.html", ctx(
             request, con, year=year, pnl=p, miles=miles, rate=rate,
             mileage_deduction=round(miles * rate * 100), uncat=uncat, pending=pending,
             receipts_matched=receipts_matched, receipts_unmatched=receipts_unmatched,
             missing_receipts=missing_receipts,
-            schedule_c=sch_c, estimated_taxes=est_tx,
+            schedule_c=sch_c, estimated_taxes=est_tx, tax_payments=tax_payments,
             estimated_income_tax_rate=est_rate_str,
             locked_through=ledger.locked_through(con), msg=msg, err=err))
+    finally:
+        con.close()
+
+
+@app.post("/taxes/payment")
+def taxes_payment_add(year: int = Form(...), quarter: str = Form(...), date: str = Form(...),
+                      amount: str = Form(...), memo: str = Form("")):
+    """Record an estimated-tax payment actually made (1040-ES). Keyed to the TAX year+quarter —
+    Q4 is typically paid in January of the following calendar year."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        if quarter not in ("Q1", "Q2", "Q3", "Q4"):
+            return RedirectResponse(f"/taxes?year={year}&err=" + quote("Pick a quarter."), status_code=303)
+        try:
+            d = ledger.normalize_date(date)
+            cents = abs(ledger.parse_amount_to_cents(amount))
+            if cents == 0:
+                raise ValueError("amount is zero")
+        except ValueError as e:
+            return RedirectResponse(f"/taxes?year={year}&err=" + quote(f"Couldn't read that: {e}"), status_code=303)
+        con.execute("INSERT INTO tax_payments(year,quarter,date,amount_cents,memo) VALUES(?,?,?,?,?)",
+                    (year, quarter, d, cents, memo.strip()))
+        con.commit()
+        return RedirectResponse(f"/taxes?year={year}&msg=" + quote(
+            f"Recorded ${ledger.fmt_cents(cents)} toward {year} {quarter}."), status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/taxes/payment/{payment_id}/delete")
+def taxes_payment_delete(payment_id: int, year: int = Form(...)):
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM tax_payments WHERE id=?", (payment_id,))
+        con.commit()
+        return RedirectResponse(f"/taxes?year={year}", status_code=303)
     finally:
         con.close()
 

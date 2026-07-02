@@ -228,8 +228,9 @@ def briefing(con, today=None):
         rate = float(db.get_setting(con, "estimated_income_tax_rate", "15"))
     except ValueError:
         rate = 15.0
-    upcoming = [q for y in (yr, yr + 1) for q in estimated_taxes(con, y, rate)["quarters"]
-                if q["due_date"] >= today and q["total_due"] > 0]
+    # yr-1 catches last year's Q4 (due Jan 15 of this year); fully-paid quarters don't nag
+    upcoming = [q for y in (yr - 1, yr, yr + 1) for q in estimated_taxes(con, y, rate)["quarters"]
+                if q["due_date"] >= today and q["remaining"] > 0]
     upcoming.sort(key=lambda q: q["due_date"])
     next_tax = upcoming[0] if upcoming else None
     days_to_tax = ((datetime.strptime(next_tax["due_date"], "%Y-%m-%d")
@@ -260,7 +261,9 @@ def briefing(con, today=None):
     if health["uncategorized"]:
         add("info", f"{health['uncategorized']} entry(ies) still in Uncategorized Expense", "/insights")
     if next_tax and days_to_tax is not None and days_to_tax <= 45:
-        add("info", f"Estimated tax {next_tax['quarter']} (~${fmt(next_tax['total_due'])}) due {next_tax['due_date']}", "/taxes")
+        paid_note = f" (${fmt(next_tax['paid'])} already paid)" if next_tax["paid"] else ""
+        add("warn" if days_to_tax <= 7 else "info",
+            f"Estimated tax {next_tax['quarter']}: ${fmt(next_tax['remaining'])} still due {next_tax['due_date']}{paid_note}", "/taxes")
 
     return {
         "today": today,
@@ -269,7 +272,8 @@ def briefing(con, today=None):
         "overdue_count": ar["overdue_count"], "open_invoices": ar["open_count"],
         "customer_credit": credit_avail,
         "next_tax": ({"quarter": next_tax["quarter"], "due_date": next_tax["due_date"],
-                      "amount": next_tax["total_due"], "days": days_to_tax} if next_tax else None),
+                      "amount": next_tax["remaining"], "paid": next_tax["paid"],
+                      "days": days_to_tax} if next_tax else None),
         "attention": attn, "all_clear": not attn,
     }
 
@@ -484,16 +488,23 @@ def estimated_taxes(con, year, est_income_tax_rate):
     total_inc = 0
     total_due_sum = 0
     
+    # estimated payments actually recorded, per quarter of this TAX year
+    paid_by = {r["quarter"]: r["p"] for r in con.execute(
+        "SELECT quarter, COALESCE(SUM(amount_cents),0) p FROM tax_payments "
+        "WHERE year=? GROUP BY quarter", (year,)).fetchall()}
+    total_paid = 0
+
     for q in quarters:
         p = ledger.pnl(con, q["start"], q["end"])
         net = p["net"]
-        
+
         # Self-Employment Tax: net_profit * 92.35% * 15.3%
         se = max(0, round(net * 0.9235 * 0.153))
         # Income Tax: net_profit * estimated_income_tax_rate
         inc = max(0, round(net * (est_income_tax_rate / 100.0)))
         due = se + inc
-        
+        paid = paid_by.get(q["quarter"], 0)
+
         rows.append({
             "quarter": q["quarter"],
             "period": q["period"],
@@ -501,14 +512,17 @@ def estimated_taxes(con, year, est_income_tax_rate):
             "se_tax": se,
             "income_tax": inc,
             "total_due": due,
-            "due_date": q["due_date"]
+            "due_date": q["due_date"],
+            "paid": paid,
+            "remaining": due - paid,   # negative = overpaid
         })
-        
+
         total_net += net
         total_se += se
         total_inc += inc
         total_due_sum += due
-        
+        total_paid += paid
+
     return {
         "year": year,
         "rate": est_income_tax_rate,
@@ -516,5 +530,7 @@ def estimated_taxes(con, year, est_income_tax_rate):
         "total_net_profit": total_net,
         "total_se_tax": total_se,
         "total_income_tax": total_inc,
-        "total_due": total_due_sum
+        "total_due": total_due_sum,
+        "total_paid": total_paid,
+        "total_remaining": total_due_sum - total_paid,
     }

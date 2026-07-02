@@ -13,6 +13,19 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-02 — Estimated-tax reminders & payment tracking (#40)
+- New `tax_payments` table: record each 1040-ES payment (keyed to the TAX year+quarter — Q4 paid in
+  January still counts toward the prior year). Record/remove on the Taxes page ("Estimated Payments
+  Made" section); the quarterly table gains Paid + Remaining columns (overpayment shown explicitly).
+- `insights.estimated_taxes` now returns per-quarter `paid`/`remaining` (+ year totals) — additive, all
+  existing fields unchanged.
+- The dashboard briefing reminder now uses what's **still due** (fully-paid quarters never nag, partial
+  payments shrink the number), escalates to a warning within 7 days of the due date, and catches last
+  year's Q4 (due Jan 15) in early January.
+- `test_tax_payments.py` (20 assertions): due/paid/remaining math incl. partial + overpay, tax-year
+  attribution, the briefing skip/escalate/January-edge behavior, and the record/reject/delete routes.
+  Closes the last substantive milestone issue (#40).
+
 ### 2026-07-02 — Auto-detect recurring bills from posted history
 - New `recurring.detect_candidates(con)`: scans the last 12 months of posted 2-split entries (one
   bank/card leg + one real category leg — transfers and Uncategorized are excluded by construction),
