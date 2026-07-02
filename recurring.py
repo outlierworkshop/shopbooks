@@ -84,6 +84,102 @@ def skip_occurrence(con, rid):
                 (advance(r["next_date"], r["frequency"]), rid))
 
 
+# --- auto-detection: suggest templates from posted history ---------------------
+
+# median-gap bands (days) that map to a supported frequency; nominal drives the staleness cut
+_FREQ_BANDS = (("weekly", 7, 5, 10), ("monthly", 30, 24, 35), ("yearly", 365, 330, 400))
+
+
+def _classify_cadence(gaps):
+    """Map a list of day-gaps between occurrences to a supported frequency, or None if the
+    spacing is irregular. Requires the median gap to sit in a band AND most (>=70%) of the
+    individual gaps to sit in that same band — one skipped month shouldn't disqualify rent,
+    but random shopping at the same store shouldn't look like a subscription."""
+    if not gaps:
+        return None
+    med = sorted(gaps)[len(gaps) // 2]
+    for freq, nominal, lo, hi in _FREQ_BANDS:
+        if lo <= med <= hi:
+            in_band = sum(1 for g in gaps if lo <= g <= hi)
+            if in_band >= max(1, round(len(gaps) * 0.7)):
+                return freq, nominal
+            return None
+    return None
+
+
+def detect_candidates(con, today=None, lookback_months=12, min_occurrences=3):
+    """Scan posted history for bills/income that repeat on a regular cadence and suggest recurring
+    templates for them. Deterministic (no AI) and advisory — nothing is created here; the Recurring
+    page offers each candidate as a one-click Create.
+
+    Looks at 2-split entries with exactly one bank/card leg and one real category leg (which
+    naturally excludes transfers and Uncategorized Expense), grouped by normalized vendor
+    (importer.payee_key: 'RENT 03/01' and 'RENT 04/01' group together) + category + account.
+    A group qualifies with >= min_occurrences on a regular weekly/monthly/yearly cadence whose
+    latest occurrence is recent (a pattern that stopped isn't suggested). Patterns that already
+    have a template (by vendor key + account + category) are skipped, so a suggestion disappears
+    once created."""
+    import importer  # lazy: keeps recurring light for callers that never detect
+    today = datetime.strptime(today, "%Y-%m-%d").date() if today else date.today()
+    y, m = today.year, today.month - lookback_months
+    while m <= 0:
+        m += 12
+        y -= 1
+    start = date(y, m, min(today.day, monthrange(y, m)[1])).isoformat()
+
+    rows = con.execute(
+        "SELECT e.date, e.payee, ABS(s_cat.amount_cents) amount, "
+        "  cat.id cat_id, cat.name cat_name, cat.type cat_type, "
+        "  acct.id acct_id, acct.name acct_name "
+        "FROM entries e "
+        "JOIN splits s_cat ON s_cat.entry_id=e.id "
+        "JOIN accounts cat ON cat.id=s_cat.account_id AND cat.type IN ('income','expense') "
+        "  AND cat.name != 'Uncategorized Expense' "
+        "JOIN splits s_acct ON s_acct.entry_id=e.id AND s_acct.id != s_cat.id "
+        "JOIN accounts acct ON acct.id=s_acct.account_id AND acct.kind IN ('bank','card') "
+        "WHERE e.date >= ? AND e.date <= ? "
+        "  AND (SELECT COUNT(*) FROM splits WHERE entry_id=e.id) = 2 "
+        "ORDER BY e.date", (start, today.isoformat())).fetchall()
+
+    groups = {}
+    for r in rows:
+        key = (importer.payee_key(r["payee"]), r["cat_id"], r["acct_id"])
+        g = groups.setdefault(key, {"dates": {}, "payee": r["payee"], "cat_name": r["cat_name"],
+                                    "cat_type": r["cat_type"], "acct_name": r["acct_name"]})
+        g["dates"].setdefault(r["date"], r["amount"])  # one occurrence per date
+        g["payee"] = r["payee"]                        # keep the freshest raw payee as the name
+
+    # a template (active or paused) suppresses matching suggestions — paused means "I decided"
+    templated = {(importer.payee_key(t["name"]), t["category_id"], t["account_id"])
+                 for t in con.execute("SELECT name, category_id, account_id FROM recurring").fetchall()}
+
+    out = []
+    for (vkey, cat_id, acct_id), g in groups.items():
+        if not vkey or (vkey, cat_id, acct_id) in templated:
+            continue
+        dates = sorted(g["dates"])
+        if len(dates) < min_occurrences:
+            continue
+        ds = [datetime.strptime(x, "%Y-%m-%d").date() for x in dates]
+        cadence = _classify_cadence([(b - a).days for a, b in zip(ds, ds[1:])])
+        if not cadence:
+            continue
+        freq, nominal = cadence
+        if (today - ds[-1]).days > nominal * 1.8:
+            continue  # the pattern appears to have stopped — don't suggest a dead bill
+        amounts = sorted(g["dates"].values())
+        out.append({
+            "name": g["payee"], "amount_cents": amounts[len(amounts) // 2],
+            "flow": "income" if g["cat_type"] == "income" else "expense",
+            "account_id": acct_id, "account_name": g["acct_name"],
+            "category_id": cat_id, "category_name": g["cat_name"],
+            "frequency": freq, "occurrences": len(dates),
+            "last_date": dates[-1], "next_date": advance(dates[-1], freq),
+        })
+    out.sort(key=lambda c: (-c["occurrences"], c["name"]))
+    return out
+
+
 def upcoming(con, start, end):
     """Projected occurrences of every active template within [start, end], signed (income +,
     expense -). For the cash-flow forecast. Capped per template to avoid runaway loops."""
