@@ -13,6 +13,20 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-02 — Auto-detect recurring bills from posted history
+- New `recurring.detect_candidates(con)`: scans the last 12 months of posted 2-split entries (one
+  bank/card leg + one real category leg — transfers and Uncategorized are excluded by construction),
+  groups by normalized vendor (`importer.payee_key`) + category + account, and suggests a template for
+  any vendor seen >= 3 times on a regular weekly/monthly/yearly cadence (median-gap bands + a 70%
+  regularity check). Amount = median occurrence; a pattern whose last occurrence is stale (> ~1.8
+  periods ago) or that already has a template (active OR paused) is never suggested.
+- Recurring page: a "Suggested from your history" table — each row one-click Creates via the existing
+  `POST /recurring` route (hidden prefilled form; nothing is created automatically). Once created, the
+  suggestion disappears.
+- Deterministic, no AI. `test_recurring_detect.py` covers grouping/median/frequency inference, all seven
+  exclusion cases (one-off, too-few, irregular, dead, uncategorized, transfer, templated), and the
+  render + one-click-create flow. Full suite green.
+
 ### 2026-07-02 — Model agility: Assistant follows `ai_model`; swap-safe token budgets
 - `chat.py` hardcoded `claude-opus-4-8`, so changing the model in Settings changed every AI feature
   *except* the chatbot. It now uses `ai._claude_model(con)` like everything else. The only remaining

@@ -66,6 +66,38 @@ books stay confirmed. These also feed the cash-flow forecast.</p>
   {% endfor %}
 </table>
 
+{% if suggestions %}
+<h2>Suggested from your history</h2>
+<p class="muted">These look like regular bills or income in your posted books — same vendor, steady
+cadence. One click sets each up as a recurring item (nothing is created until you say so).</p>
+<table class="sortable">
+  <tr><th>Name</th><th class="num">Amount</th><th>From</th><th>Category</th><th>Every</th><th>Seen</th><th>Next due</th><th></th></tr>
+  {% for s in suggestions %}
+  <tr>
+    <td>{{ s.name }}</td>
+    <td class="num {{ 'pos' if s.flow == 'income' else '' }}">{{ '+' if s.flow == 'income' else '−' }}${{ s.amount_cents|money }}</td>
+    <td class="muted">{{ s.account_name }}</td>
+    <td class="muted">{{ s.category_name }}</td>
+    <td>{{ s.frequency }}</td>
+    <td class="muted">{{ s.occurrences }}× (last {{ s.last_date }})</td>
+    <td>{{ s.next_date }}</td>
+    <td>
+      <form class="inline" method="post" action="/recurring">
+        <input type="hidden" name="name" value="{{ s.name }}">
+        <input type="hidden" name="amount" value="{{ s.amount_cents|money }}">
+        <input type="hidden" name="flow" value="{{ s.flow }}">
+        <input type="hidden" name="account_id" value="{{ s.account_id }}">
+        <input type="hidden" name="category_id" value="{{ s.category_id }}">
+        <input type="hidden" name="frequency" value="{{ s.frequency }}">
+        <input type="hidden" name="next_date" value="{{ s.next_date }}">
+        <button class="small" type="submit">Create</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 <h2>Add a recurring item</h2>
 {% if not banks or not cats %}
 <p class="note">You need at least one bank/card account and an expense or income category first.</p>

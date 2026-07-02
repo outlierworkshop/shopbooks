@@ -3474,7 +3474,8 @@ def recurring_page(request: Request, msg: str = "", err: str = ""):
                             "ORDER BY type, name").fetchall()
         return templates.TemplateResponse(request, "recurring.html", ctx(
             request, con, items=recurring.list_all(con), banks=banks,
-            cats=categories(con, ("expense", "income")), msg=msg, err=err))
+            cats=categories(con, ("expense", "income")),
+            suggestions=recurring.detect_candidates(con), msg=msg, err=err))
     finally:
         con.close()
 
