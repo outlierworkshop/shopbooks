@@ -229,7 +229,8 @@ def _claude_receipt(con, path):
     else:
         block = {"type": "image", "source": {"type": "base64", "media_type": mt, "data": data_b64}}
     try:
-        return _claude_json(con, [block, {"type": "text", "text": RECEIPT_PROMPT}], RECEIPT_SCHEMA, max_tokens=1000)
+        # generous cap (not a spend): leaves room for models whose thinking tokens count against max_tokens
+        return _claude_json(con, [block, {"type": "text", "text": RECEIPT_PROMPT}], RECEIPT_SCHEMA, max_tokens=2000)
     except Exception:
         return None
 
@@ -356,7 +357,7 @@ def analyze(con, facts):
     )
     try:
         resp = _claude_client(con).messages.create(
-            model=_claude_model(con), max_tokens=900,
+            model=_claude_model(con), max_tokens=4000,  # cap, not a spend; headroom for thinking-always-on models
             messages=[{"role": "user", "content": prompt}])
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
     except Exception:

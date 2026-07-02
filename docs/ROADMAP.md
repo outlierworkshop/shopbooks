@@ -13,6 +13,18 @@ Guiding constraints live in `ARCHITECTURE.md` §Design goals — local-first, AI
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-02 — Model agility: Assistant follows `ai_model`; swap-safe token budgets
+- `chat.py` hardcoded `claude-opus-4-8`, so changing the model in Settings changed every AI feature
+  *except* the chatbot. It now uses `ai._claude_model(con)` like everything else. The only remaining
+  model strings are the `ai_model` default (db.py) and `_claude_model`'s fallback.
+- Raised `ai.analyze` max_tokens 900→4000 and receipt reads 1000→2000. `max_tokens` is a cap, not a
+  spend — no billing change on Opus 4.8 — but it removes the truncation trap for models whose thinking
+  tokens count against the budget (e.g. Fable 5, where thinking is always on).
+- Decision recorded after reviewing Fable 5 vs Opus 4.8 vs Sonnet 5 for the app: **keep `ai_model` =
+  claude-opus-4-8**. The deterministic-ledger design keeps model tasks easy (extract / pick from a list /
+  narrate), so Fable 5's 2× price + always-on thinking + refusal handling buys nothing here; the cost
+  lever points the other way — optionally set `categorize_model` to a cheaper model in Settings.
+
 ### 2026-06-29 — Fix: receipt-files mirror no longer breaks/alarms the books sync
 - Symptom: a red "Cloud sync hit a problem reading the cloud copy" banner + `Sync: error ([Errno 1]
   Operation not permitted: '…/_sync_docs')`, even though the books DB was actually in sync. Cause: macOS's

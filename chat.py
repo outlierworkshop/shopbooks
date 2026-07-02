@@ -21,7 +21,6 @@ import db
 import insights
 import timetracking
 
-MODEL = "claude-opus-4-8"
 MAX_TOOL_ROUNDS = 8       # safety cap on the tool-use loop
 MAX_TURNS = 24            # cap transcript length sent to the model
 
@@ -246,7 +245,7 @@ def ask(con, history):
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             resp = client.messages.create(
-                model=MODEL, max_tokens=4000,
+                model=ai._claude_model(con), max_tokens=4000,  # follows the ai_model setting, like every other AI feature
                 thinking={"type": "adaptive"},
                 system=_system(con), tools=TOOLS, messages=messages)
             if resp.stop_reason == "tool_use":
