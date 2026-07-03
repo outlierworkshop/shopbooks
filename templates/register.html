@@ -3,11 +3,38 @@
 {% block content %}
 <h1>{{ acct.name }} <span class="muted">({{ acct.type }})</span></h1>
 <p>Current balance: <strong class="{{ 'neg' if balance < 0 else '' }}">${{ balance|money }}</strong></p>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<!-- Bulk actions: each row has ONE checkbox (not bound to either form); prepBulk() injects the
+     checked ids into whichever bulk form is submitted. Keeps each row's own inline edit/delete/
+     job/customer forms untouched. -->
+<form id="bulk-delete-form" method="post" action="/register/{{ acct.id }}/bulk-delete"
+      onsubmit="return prepBulk(this) && confirm('Delete the selected entries? Imported lines return to Review.');">
+  <input type="hidden" name="back" value="/register/{{ acct.id }}">
+</form>
+<form id="bulk-category-form" method="post" action="/register/{{ acct.id }}/bulk-category" onsubmit="return prepBulk(this);">
+  <input type="hidden" name="back" value="/register/{{ acct.id }}">
+</form>
+<div class="toolbar" style="margin-bottom:10px">
+  <label class="muted"><input type="checkbox" id="registerSelectAll"
+    onclick="document.querySelectorAll('.sel-reg').forEach(function(cb){cb.checked=this.checked;}, this)"> Select all</label>
+  <select name="category_id" form="bulk-category-form" style="padding: 4px 8px; font-size: 13px; max-width: 200px;">
+    <option value="">- set category -</option>
+    {% for c in cats %}
+    <option value="{{ c.id }}">{{ c.label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" form="bulk-category-form" class="ghost" style="padding: 4px 10px; font-size: 13px;"
+          title="Apply the chosen category to every checked entry (2-split entries only)">Apply to selected</button>
+  <button type="submit" form="bulk-delete-form" class="danger" style="padding: 4px 10px; font-size: 13px;">Delete selected</button>
+</div>
+
 <table class="sortable">
-  <tr><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th>Customer</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
+  <tr><th></th><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th>Customer</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
   {% for r in rows %}
   <tr>
+    <td><input type="checkbox" class="sel-reg" value="{{ r.entry_id }}"></td>
     <td>
       <span class="view-mode">{{ r.date }}</span>
       <input class="edit-mode" type="date" name="date" value="{{ r.date }}" form="edit-form-{{ r.entry_id }}" required style="display: none; width: 130px;">
@@ -125,11 +152,23 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="9" class="muted">No activity yet.</td></tr>
+  <tr><td colspan="10" class="muted">No activity yet.</td></tr>
   {% endfor %}
 </table>
 
 <script>
+function prepBulk(form) {
+  form.querySelectorAll('input[name="entry_ids"]').forEach(function(el){ el.remove(); });
+  var checked = document.querySelectorAll('.sel-reg:checked');
+  if (checked.length === 0) { alert('Select at least one row first.'); return false; }
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'entry_ids'; inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  return true;
+}
+
 function startEdit(entryId, button) {
   const row = button.closest('tr');
   row.querySelectorAll('.view-mode').forEach(el => {

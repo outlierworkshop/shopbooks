@@ -34,15 +34,31 @@
           onclick="return confirm('Discard the unposted rows of the selected batch? You can re-import the statement.')">Discard batch</button>
   {% endif %}
 </div>
+<div class="toolbar" id="bulkReviewBar">
+  <span class="muted">Selected:</span>
+  <select name="bulk_category" style="padding: 4px 8px; font-size: 13px; max-width: 200px;">
+    <option value="">- set category -</option>
+    {% for c in cats %}
+    <option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>
+    {% endfor %}
+  </select>
+  <button type="submit" name="set_category_selected" value="1" class="ghost" style="padding: 4px 10px; font-size: 13px;"
+          title="Apply the chosen category to every checked row">Apply to selected</button>
+  <button type="submit" name="post_selected" value="1" style="padding: 4px 10px; font-size: 13px;"
+          title="Post every checked row that has a category chosen">Post selected</button>
+  <button type="submit" name="skip_selected" value="1" class="ghost" style="padding: 4px 10px; font-size: 13px;">Skip selected</button>
+</div>
 <div class="table-responsive">
 <table class="sortable review-table resizable">
   <colgroup>
+    <col style="width:26px">
     <col style="width:92px"><col style="width:80px"><col style="width:118px"><col style="width:240px">
     <col style="width:120px"><col style="width:95px"><col style="width:320px"><col style="width:160px">
   </colgroup>
-  <tr><th>Date</th><th>Remember</th><th></th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th></tr>
+  <tr><th><input type="checkbox" id="reviewSelectAll" onclick="document.querySelectorAll('.sel-review').forEach(function(cb){cb.checked=this.checked;}, this)" title="Select all"></th><th>Date</th><th>Remember</th><th></th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th></tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
+    <td><input type="checkbox" name="sel" value="{{ it.id }}" class="sel-review"></td>
     <td>{{ it.date }}</td>
     <td><input type="checkbox" name="remember_{{ it.id }}" title="Create a rule from this payee"></td>
     <td>
