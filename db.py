@@ -298,6 +298,16 @@ CREATE TABLE IF NOT EXISTS feed_txns(
   staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS watched_files(
+  path TEXT PRIMARY KEY,                -- absolute path of a file seen by a folder watcher
+  kind TEXT NOT NULL,                   -- 'statement' | 'receipt'
+  mtime REAL NOT NULL,                  -- last-seen mtime; a changed file is reprocessed
+  size INTEGER NOT NULL,
+  status TEXT NOT NULL,                 -- 'imported' | 'matched' | 'duplicate' | 'empty' | 'error'
+  note TEXT DEFAULT '',
+  processed_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tax_payments(
   id INTEGER PRIMARY KEY,
   year INTEGER NOT NULL,                -- the TAX year (Q4 2026 is paid in Jan 2027 but belongs to 2026)
@@ -405,6 +415,8 @@ DEFAULT_SETTINGS = {
     "next_invoice_number": "1001",
     "next_estimate_number": "1001",
     "next_credit_memo_number": "1001",
+    "statements_watch_folder": "",  # folder auto-scanned for new bank/card statement PDFs/CSVs; blank = off
+    "receipts_watch_folder": "",    # folder auto-scanned for new receipt images/PDFs; blank = off
     "smtp_host": "smtp.gmail.com",
     "smtp_port": "587",
     "smtp_user": "",
@@ -426,7 +438,8 @@ def connect():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    return con
+    con.execute("PRAGMA busy_timeout=5000")  # the folder watcher runs on its own thread; wait
+    return con                               # out brief lock contention instead of erroring
 
 
 def _column_migrations(con):

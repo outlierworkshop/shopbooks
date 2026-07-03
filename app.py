@@ -27,6 +27,7 @@ import reconcile
 import recurring
 import sync
 import timetracking
+import watcher
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="ShopBooks")
@@ -51,8 +52,18 @@ sync.import_on_boot()  # if cloud sync is on: fast-forward from the other machin
 backup.snapshot()      # protect the books on every launch (local + cloud mirror)
 
 
+@app.on_event("startup")
+def _start_watchers():
+    # Deferred to the startup event (not called at import time) so _watch_statement/_watch_receipt,
+    # defined later in this file, already exist by the time this runs. TestClient(app.app) used
+    # without `with` (the pattern this repo's tests use) never fires this, so tests never spin up
+    # a real background thread — they call watcher.run_once(...) directly instead.
+    watcher.start(_watch_statement, _watch_receipt)
+
+
 @app.on_event("shutdown")
 def _sync_on_close():
+    watcher.stop()
     sync.export_on_close()  # push this machine's books to the cloud copy on a clean exit
 
 
@@ -1079,6 +1090,74 @@ def _ingest_receipt(con, data: bytes, original_name: str):
         con.execute("UPDATE documents SET status='matched', entry_id=? WHERE id=?", (match_entry_id, doc["id"]))
         return "matched"
     return "imported"
+
+
+# ---------- folder watchers (issue: auto-detect from dropped files) ----------
+# Callbacks passed to watcher.start()/watcher.run_once() — watcher.py owns the generic scan/dedupe
+# engine and knows nothing about statements or receipts; these two functions ARE the app-specific
+# processing, reusing the exact same pipelines a manual upload uses.
+
+def _watch_receipt(con, path, data):
+    """One receipt file found by the watcher. Thin wrapper: _ingest_receipt already dedupes on
+    content hash, extracts with AI, and auto-matches — identical to a manual upload or the existing
+    'Import a whole folder' button."""
+    status = _ingest_receipt(con, data, path.name)
+    if status in ("matched", "imported"):
+        _categorize_from_receipts(con)
+    return status, ""
+
+
+def _watch_statement(con, path, data):
+    """One statement file found by the watcher. Mirrors do_import's single-step path (detect
+    account -> parse -> categorize -> stage) exactly, minus the confirmation screen a human would
+    see for a manual upload — a background watcher can't ask, so it always takes its best account
+    guess and lands everything as PENDING in Review for the owner to confirm, same as always."""
+    name = path.name.lower()
+    if name.endswith(".csv"):
+        text = data.decode("utf-8-sig", errors="replace")
+        txns = importer.parse_csv(data)
+    elif name.endswith(".pdf"):
+        text = importer.pdf_text(path)  # the file is still on disk in the watch folder
+        extracted = None
+        acct_guess_id = importer.detect_account_id(con, path.name, text)
+        acct_guess = con.execute("SELECT name FROM accounts WHERE id=?", (acct_guess_id,)).fetchone() \
+            if acct_guess_id else None
+        if ai.available(con) and acct_guess:
+            extracted = (ai.extract_statement(con, text, acct_guess["name"]) if text.strip()
+                        else ai.extract_statement_pdf(con, str(path), acct_guess["name"]))
+        txns = []
+        if extracted is not None:
+            for t in extracted:
+                try:
+                    txns.append({"date": ledger.normalize_date(t["date"]),
+                                "description": str(t["description"]).strip(),
+                                "amount_cents": round(float(t["amount"]) * 100)})
+                except (ValueError, KeyError):
+                    continue
+        else:
+            txns = importer.regex_parse_statement(text)
+    else:
+        return "error", "not a .pdf or .csv"
+
+    account_id = importer.detect_account_id(con, path.name, text)
+    if not account_id:
+        return "error", "couldn't tell which account this statement is for"
+    if not txns:
+        return "empty", "no transactions found in the file"
+    dup = importer.is_duplicate_statement(con, account_id, txns, path.name)
+    if dup:
+        return "duplicate", dup
+
+    cur = con.execute("INSERT INTO batches(filename,account_id) VALUES(?,?)", (path.name, account_id))
+    batch_id = cur.lastrowid
+    cats = {a["id"]: a["name"] for a in categories(con, ("expense", "income"))}
+    ai_cats = None
+    uncategorized = [t for t in txns if importer.apply_rules(con, t["description"]) is None]
+    if uncategorized and ai.available(con):
+        ai_cats = ai.categorize(con, [{"description": t["description"], "amount": t["amount_cents"]} for t in txns],
+                                list(cats.values()))
+    importer.stage_transactions(con, batch_id, txns, account_id, cats, ai_cats)
+    return "imported", f"{len(txns)} transaction(s) staged in Review"
 
 
 @app.get("/receipts", response_class=HTMLResponse)
@@ -4177,7 +4256,7 @@ def settings_page(request: Request, msg: str = "", err: str = ""):
             feeds_connected=feeds.connected(con), feed_accounts=feeds.list_feed_accounts(con),
             bankcards=bankcards,
             backup=backup.status(), restorable=backup.list_restorable()[:30],
-            sync_status=sync.status(), msg=msg, err=err))
+            sync_status=sync.status(), watch_status=watcher.status(), msg=msg, err=err))
     finally:
         con.close()
 
@@ -4336,7 +4415,7 @@ async def settings_save(request: Request):
                  "ollama_url", "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
                  "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
                  "email_subject", "email_body", "reminder_subject", "reminder_body",
-                 "estimated_income_tax_rate")
+                 "estimated_income_tax_rate", "statements_watch_folder", "receipts_watch_folder")
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())
@@ -4361,5 +4440,26 @@ async def settings_save(request: Request):
                 f"/settings?err={quote('Settings saved, but that backup folder is not writable - check the path. Falling back to auto-detect.')}",
                 status_code=303)
         return RedirectResponse(f"/settings?msg={quote('Settings saved.')}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/watch/scan-now")
+def watch_scan_now():
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        r = watcher.run_once(con, _watch_statement, _watch_receipt)
+        con.commit()
+        def summarize(label, r):
+            if not r["enabled"]:
+                return None
+            if not r["scanned"]:
+                return f"{label}: nothing new"
+            parts = ", ".join(f"{v} {k}" for k, v in r["counts"].items())
+            return f"{label}: {parts}"
+        parts = [p for p in (summarize("Statements", r["statements"]), summarize("Receipts", r["receipts"])) if p]
+        note = "; ".join(parts) if parts else "No watch folders are set up yet."
+        return RedirectResponse("/settings?msg=" + quote(note), status_code=303)
     finally:
         con.close()
