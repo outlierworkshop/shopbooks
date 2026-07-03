@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-03 — Bulk select on Register and Review
+- Prompted by cleaning up a batch of wrong-signed feed transactions by hand (delete one at a time).
+  Register: checkbox per row, "Delete selected" and "Apply category to selected" (2-split entries;
+  split entries and locked-period entries are skipped, not aborted). Review: checkbox per row, "Apply
+  to selected" (bulk category), "Post selected", "Skip selected".
+- All bulk routes loop the existing single-entry primitives (`ledger.delete_entry`,
+  `ledger.update_entry_fields`, `_post_staged`) per selected id — no new ledger logic, so correctness
+  inherits from what's already tested. `register_bulk_category`/`register_bulk_delete` report a
+  locked-period skip count rather than failing the whole selection.
+- `test_bulk_actions.py` (23 assertions): only selected ids are touched, split/locked entries are
+  skipped correctly, an empty category selection redirects with a friendly error (not a 422), and the
+  HTTP surface (checkboxes, redirects) is wired up on both pages. Full suite green.
+
 ### 2026-07-02 — Bank feeds via SimpleFIN (#43, un-parked)
 - #43 was parked assuming Plaid; re-researched: SimpleFIN Bridge ($15/yr, read-only by design, plain
   HTTPS+JSON) covers 4 of the 5 accounts — Eastern Bank (incl. a Treasury & Business connector), Chase,

@@ -468,6 +468,23 @@ async def review_action(request: Request):
             _post_staged(con, sid, cat_for(sid), remember=f"remember_{sid}" in form)
         elif "skip_one" in form:
             con.execute("UPDATE staged SET status='skipped' WHERE id=?", (int(form["skip_one"]),))
+        elif "post_selected" in form:
+            for sid in sorted(int(v) for v in form.getlist("sel")):
+                cid = cat_for(sid)
+                if cid:
+                    _post_staged(con, sid, cid)
+        elif "skip_selected" in form:
+            ids = [int(v) for v in form.getlist("sel")]
+            if ids:
+                qmarks = ",".join("?" * len(ids))
+                con.execute(f"UPDATE staged SET status='skipped' WHERE status='pending' AND id IN ({qmarks})", ids)
+        elif "set_category_selected" in form:
+            ids = [int(v) for v in form.getlist("sel")]
+            bulk_cat = form.get("bulk_category", "")
+            if ids and bulk_cat:
+                qmarks = ",".join("?" * len(ids))
+                con.execute(f"UPDATE staged SET category_id=? WHERE status='pending' AND id IN ({qmarks})",
+                           [int(bulk_cat)] + ids)
         elif "post_all" in form:
             ids = [int(k.split("_", 1)[1]) for k in form.keys() if k.startswith("cat_")]
             for sid in sorted(ids):
@@ -694,16 +711,16 @@ def _invoice_review_pending(con):
 # ---------- registers & entries ----------
 
 @app.get("/register/{account_id}", response_class=HTMLResponse)
-def register_view(request: Request, account_id: int, err: str = ""):
+def register_view(request: Request, account_id: int, msg: str = "", err: str = ""):
     con = db.connect()
     try:
         acct, rows = ledger.register(con, account_id)
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "register.html", ctx(
-            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con), 
+            request, con, acct=acct, rows=rows, balance=bal, jobs=_active_jobs(con),
             customers=customers, cats=categories(con),
-            bank_cards=ledger.accounts_with_balances(con, kinds=('bank', 'card')), err=err))
+            bank_cards=ledger.accounts_with_balances(con, kinds=('bank', 'card')), msg=msg, err=err))
     finally:
         con.close()
 
@@ -750,6 +767,70 @@ def entry_delete(entry_id: int, back: str = Form("/")):
         dest = back if back.startswith("/") else "/"
         sep = "&" if "?" in dest else "?"
         return RedirectResponse(f"{dest}{sep}err={quote(str(e))}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/register/{account_id}/bulk-delete")
+def register_bulk_delete(account_id: int, entry_ids: list[int] = Form(default=[]), back: str = Form("/")):
+    """Delete several posted entries at once (e.g. a batch that posted with the wrong sign). Each
+    delete goes through ledger.delete_entry, so staged/document/invoice links revert exactly as a
+    single delete would; a locked period skips that entry rather than aborting the whole selection."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        deleted = locked = 0
+        for eid in entry_ids:
+            try:
+                ledger.delete_entry(con, eid)
+                deleted += 1
+            except ledger.LockedPeriodError:
+                locked += 1
+        con.commit()
+        dest = back if back.startswith("/") else "/"
+        sep = "&" if "?" in dest else "?"
+        note = f"Deleted {deleted} entry(ies)." if deleted else "Nothing deleted."
+        if locked:
+            note += f" {locked} skipped (in a closed period)."
+        return RedirectResponse(f"{dest}{sep}msg={quote(note)}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/register/{account_id}/bulk-category")
+def register_bulk_category(account_id: int, entry_ids: list[int] = Form(default=[]),
+                           category_id: str = Form(""), back: str = Form("/")):
+    """Set the category on several posted 2-split entries at once, without touching date/payee/memo/
+    job/customer. Reuses ledger.update_entry_fields with each entry's own current values so only the
+    category changes; split (>2-leg) entries and locked-period entries are skipped, not aborted."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        if not category_id.strip():
+            dest = back if back.startswith("/") else "/"
+            sep = "&" if "?" in dest else "?"
+            return RedirectResponse(f"{dest}{sep}err=" + quote("Pick a category first."), status_code=303)
+        category_id = int(category_id)
+        updated = locked = 0
+        for eid in entry_ids:
+            row = con.execute("SELECT date, payee, memo, job_id, customer_id FROM entries WHERE id=?",
+                              (eid,)).fetchone()
+            if not row:
+                continue
+            try:
+                ledger.update_entry_fields(con, eid, row["payee"], row["memo"], category_id,
+                                           row["job_id"], row["date"], account_id, None,
+                                           customer_id=row["customer_id"])
+                updated += 1
+            except ledger.LockedPeriodError:
+                locked += 1
+        con.commit()
+        dest = back if back.startswith("/") else "/"
+        sep = "&" if "?" in dest else "?"
+        note = f"Updated category on {updated} entry(ies)." if updated else "Nothing updated."
+        if locked:
+            note += f" {locked} skipped (in a closed period)."
+        return RedirectResponse(f"{dest}{sep}msg={quote(note)}", status_code=303)
     finally:
         con.close()
 
