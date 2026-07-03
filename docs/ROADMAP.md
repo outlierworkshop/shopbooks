@@ -34,6 +34,26 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-03 — Folder watchers for statements and receipts
+- New `watcher.py`: a lightweight polling thread (not a system daemon — only runs while ShopBooks
+  itself is running, started at app boot / stopped at shutdown, same lifetime as the existing
+  backup/sync-on-boot behavior) that checks two configurable folders about once a minute for new
+  files. Deliberately generic — the scan/dedupe engine (`scan_folder`/`run_once`, backed by a new
+  `watched_files` path+mtime+size table) knows nothing about statements or receipts; app.py supplies
+  `_watch_statement`/`_watch_receipt` callbacks that reuse the exact existing pipelines (single-step
+  statement import incl. `importer.is_duplicate_statement`; `_ingest_receipt`'s content-hash dedupe).
+- Settings → "Folder watchers": two folder-path fields (blank = off) + a "Scan folders now" button
+  and last-scan status. Dropped files land PENDING in Review or as a receipt document — identical to
+  a manual upload; nothing ever posts automatically.
+- `db.connect()` gains `PRAGMA busy_timeout=5000` — this is the app's first real background thread
+  writing to SQLite concurrently with request handlers, so a brief lock now waits instead of erroring.
+- `test_watcher.py` (29 assertions): the generic engine (new/changed/unchanged file handling, missing
+  folder, a process_fn exception caught not raised), the real statement pipeline (correct account
+  auto-detection, staging, duplicate detection across a renamed file), the real receipt pipeline
+  (content-hash duplicate detection), the HTTP surface, and thread start/stop lifecycle. Full suite
+  green — confirmed `@app.on_event("startup")` never fires under the test suite's
+  `TestClient(app.app)` pattern (no `with`), so no test spins up a real background thread.
+
 ### 2026-07-03 — Bulk select on Register and Review
 - Prompted by cleaning up a batch of wrong-signed feed transactions by hand (delete one at a time).
   Register: checkbox per row, "Delete selected" and "Apply category to selected" (2-split entries;

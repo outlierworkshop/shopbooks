@@ -83,8 +83,35 @@ your database). Use any folder - a OneDrive/Dropbox/Google Drive folder for clou
 drive. Leave blank to auto-detect OneDrive. The folder is created if it doesn't exist; saving writes a
 test backup so you can confirm it works.</p>
 
+<h2 id="watchers">Folder watchers</h2>
+<div class="formgrid">
+  <label>Statements folder</label><input type="text" name="statements_watch_folder" value="{{ s.statements_watch_folder }}"
+    placeholder="leave blank to turn off">
+  <label>Receipts folder</label><input type="text" name="receipts_watch_folder" value="{{ s.receipts_watch_folder }}"
+    placeholder="leave blank to turn off">
+</div>
+<p class="muted">Drop a bank/card statement (PDF/CSV) or a receipt (photo/PDF) into these folders — e.g. your
+Downloads folder, or wherever your bank/phone already saves them — and ShopBooks checks for new files about
+once a minute while it's running (not a background service; it only runs while the app is open) and stages
+them in <a href="/review">Review</a> or <a href="/receipts">Receipts</a> exactly like a manual upload. Nothing
+posts automatically. Leave a field blank to turn that watcher off.</p>
+
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>
+
+<div class="card section" style="max-width:720px">
+  {% if watch_status %}
+  <p class="muted">Last scan {{ watch_status.at }}:
+    {% if watch_status.statements.enabled %}statements — {{ watch_status.statements.scanned }} new;{% endif %}
+    {% if watch_status.receipts.enabled %}receipts — {{ watch_status.receipts.scanned }} new;{% endif %}
+    {% if not watch_status.statements.enabled and not watch_status.receipts.enabled %}no folders configured yet.{% endif %}</p>
+  {% else %}
+  <p class="muted">No scans yet since this session started.</p>
+  {% endif %}
+  <form method="post" action="/watch/scan-now">
+    <button type="submit" class="ghost">Scan folders now</button>
+  </form>
+</div>
 
 <h2 id="feeds">Bank feeds (SimpleFIN)</h2>
 <div class="card section" style="max-width:720px">
