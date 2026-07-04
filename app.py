@@ -152,9 +152,11 @@ def dashboard(request: Request, brief: str = ""):
             "FROM entries e ORDER BY e.date DESC, e.id DESC LIMIT 12").fetchall()
         brief_data = insights.briefing(con)
         narrative = ai.analyze(con, _briefing_facts(brief_data)) if (brief and ai.available(con)) else None
+        trend = insights.monthly_trend(con, f"{year}-01-01", date_cls.today().isoformat())
         return templates.TemplateResponse(request, "dashboard.html", ctx(
             request, con, accounts=accounts, pnl=p, recent=recent, year=year,
-            aging=invoicing.ar_aging(con), brief=brief_data, narrative=narrative, briefed=bool(brief)))
+            aging=invoicing.ar_aging(con), brief=brief_data, narrative=narrative,
+            briefed=bool(brief), trend=trend))
     finally:
         con.close()
 
