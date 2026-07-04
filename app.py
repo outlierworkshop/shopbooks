@@ -352,7 +352,7 @@ async def do_import_confirm(
 
 
 @app.get("/review", response_class=HTMLResponse)
-def review(request: Request, note: str = ""):
+def review(request: Request, note: str = "", err: str = ""):
     con = db.connect()
     try:
         rows = con.execute(
@@ -381,7 +381,7 @@ def review(request: Request, note: str = ""):
                           "invoice_customer": rinv["customer"] if rinv else None,
                           "invoice_id": rinv["id"] if rinv else None})
         cats = categories(con)
-        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, unmatched_receipts=unmatched_receipts, note=note))
+        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, unmatched_receipts=unmatched_receipts, note=note, err=err))
     finally:
         con.close()
 
@@ -407,37 +407,63 @@ def _link_staged_receipt(con, staged_id, entry_id):
         )
 
 
-def _post_staged(con, staged_id, category_id, remember=False):
+def _post_staged(con, staged_id, category_id, remember=False, splits=None):
+    """Post one staged row to the ledger. Returns True if it posted (or intentionally skipped a
+    booked transfer), False on a no-op / invalid input.
+
+    Single category (the common path): pass `category_id`; books [(category, +amt), (source, -amt)].
+    Split across categories: pass `splits` as a list of (category_id, magnitude_cents) with all
+    magnitudes POSITIVE. This applies the row's own sign so each category leg carries the same
+    direction as amount_cents, then balances them against the source. The magnitudes must add up to
+    abs(amount_cents) or nothing is posted (so a mis-entered split can never book a wrong entry).
+    `category_id`/`remember` are ignored in split mode (a split isn't a single-rule payee)."""
     st = con.execute(
         "SELECT st.*, b.account_id source_id FROM staged st JOIN batches b ON b.id=st.batch_id WHERE st.id=?",
         (staged_id,)).fetchone()
-    if not st or st["status"] != "pending" or not category_id:
-        return
-    # post-once for transfers: if the category is one of your own accounts (a transfer) and the
-    # very same transfer is already booked from the other statement, skip instead of double-counting.
-    cat = con.execute("SELECT kind FROM accounts WHERE id=?", (category_id,)).fetchone()
-    if cat and cat["kind"] in ("bank", "card") and \
-            importer.find_posted_transfer(con, st["source_id"], st["amount_cents"], st["date"]) is not None:
-        con.execute("UPDATE staged SET status='skipped' WHERE id=?", (staged_id,))
-        return
+    if not st or st["status"] != "pending":
+        return False
+    total = st["amount_cents"]
+
+    if splits:
+        parts = [(int(cid), abs(int(mag))) for cid, mag in splits if cid and mag]
+        if not parts or sum(m for _, m in parts) != abs(total):
+            return False
+        sign = -1 if total < 0 else 1
+        cat_legs = [(cid, sign * mag) for cid, mag in parts]
+    else:
+        if not category_id:
+            return False
+        cat_legs = [(category_id, total)]
+
+    # post-once for transfers: only a SINGLE own-account category is a transfer. If the very same
+    # transfer is already booked from the other statement, skip instead of double-counting.
+    if len(cat_legs) == 1:
+        cat = con.execute("SELECT kind FROM accounts WHERE id=?", (cat_legs[0][0],)).fetchone()
+        if cat and cat["kind"] in ("bank", "card") and \
+                importer.find_posted_transfer(con, st["source_id"], total, st["date"]) is not None:
+            con.execute("UPDATE staged SET status='skipped' WHERE id=?", (staged_id,))
+            return True
+
     entry_id = ledger.post_entry(con, st["date"], st["description"],
-                                 [(category_id, st["amount_cents"]), (st["source_id"], -st["amount_cents"])],
-                                 memo=st["memo"])
+                                 cat_legs + [(st["source_id"], -total)], memo=st["memo"])
     _link_staged_receipt(con, staged_id, entry_id)
-    if category_id:
-        cat_type = con.execute("SELECT type FROM accounts WHERE id=?", (category_id,)).fetchone()
+    # invoice auto-mark only for a single income category (a plain deposit paying one invoice)
+    if len(cat_legs) == 1:
+        cat_type = con.execute("SELECT type FROM accounts WHERE id=?", (cat_legs[0][0],)).fetchone()
         if cat_type and cat_type["type"] == "income":
-            inv_matches = staged_invoice_matches(con)
-            matched_inv = inv_matches.get(staged_id)
+            matched_inv = staged_invoice_matches(con).get(staged_id)
             if matched_inv:
                 con.execute("UPDATE invoices SET status='paid', paid_date=?, matched_entry_id=? WHERE id=?",
                             (st["date"], entry_id, matched_inv["id"]))
+    # staged.category_id remembers the single category; a split has no single one, so store NULL.
+    primary_cat = cat_legs[0][0] if len(cat_legs) == 1 else None
     con.execute("UPDATE staged SET status='posted', entry_id=?, category_id=? WHERE id=?",
-                (entry_id, category_id, staged_id))
-    if remember:
+                (entry_id, primary_cat, staged_id))
+    if remember and len(cat_legs) == 1:
         token = st["description"].upper().split("  ")[0].strip()[:40]
         if token and not con.execute("SELECT 1 FROM rules WHERE pattern=?", (token,)).fetchone():
-            con.execute("INSERT INTO rules(pattern,account_id) VALUES(?,?)", (token, category_id))
+            con.execute("INSERT INTO rules(pattern,account_id) VALUES(?,?)", (token, cat_legs[0][0]))
+    return True
 
 
 @app.post("/review")
@@ -448,6 +474,22 @@ async def review_action(request: Request):
         def cat_for(sid):
             v = form.get(f"cat_{sid}", "")
             return int(v) if v else None
+
+        def splits_for(sid):
+            """Category splits typed into a row's Split drawer, as (account_id, magnitude_cents)
+            with positive magnitudes. _post_staged applies the row's sign and checks they balance."""
+            cids, amts, parts = form.getlist(f"scat_{sid}"), form.getlist(f"samt_{sid}"), []
+            for c, a in zip(cids, amts):
+                c, a = (c or "").strip(), (a or "").strip()
+                if c and a:
+                    try:
+                        parts.append((int(c), abs(ledger.parse_amount_to_cents(a))))
+                    except ValueError:
+                        continue
+            return parts
+
+        def is_split(sid):
+            return form.get(f"splitmode_{sid}") == "1"
 
         # Persist any typed memos first, so they survive a reload and are carried onto the entry
         # when the row is posted (memo flows through _post_staged -> ledger.post_entry).
@@ -479,14 +521,23 @@ async def review_action(request: Request):
             return RedirectResponse("/review", status_code=303)
         elif "post_one" in form:
             sid = int(form["post_one"])
-            _post_staged(con, sid, cat_for(sid), remember=f"remember_{sid}" in form)
+            if is_split(sid):
+                if not _post_staged(con, sid, None, splits=splits_for(sid)):
+                    from urllib.parse import quote
+                    con.commit()
+                    return RedirectResponse("/review?err=" + quote(
+                        "The split amounts must add up to the transaction total. Nothing was posted."),
+                        status_code=303)
+            else:
+                _post_staged(con, sid, cat_for(sid), remember=f"remember_{sid}" in form)
         elif "skip_one" in form:
             con.execute("UPDATE staged SET status='skipped' WHERE id=?", (int(form["skip_one"]),))
         elif "post_selected" in form:
             for sid in sorted(int(v) for v in form.getlist("sel")):
-                cid = cat_for(sid)
-                if cid:
-                    _post_staged(con, sid, cid)
+                if is_split(sid):
+                    _post_staged(con, sid, None, splits=splits_for(sid))
+                elif cat_for(sid):
+                    _post_staged(con, sid, cat_for(sid))
         elif "skip_selected" in form:
             ids = [int(v) for v in form.getlist("sel")]
             if ids:
@@ -502,9 +553,10 @@ async def review_action(request: Request):
         elif "post_all" in form:
             ids = [int(k.split("_", 1)[1]) for k in form.keys() if k.startswith("cat_")]
             for sid in sorted(ids):
-                cid = cat_for(sid)
-                if cid:
-                    _post_staged(con, sid, cid)
+                if is_split(sid):
+                    _post_staged(con, sid, None, splits=splits_for(sid))
+                elif cat_for(sid):
+                    _post_staged(con, sid, cat_for(sid))
         elif "flip_batch" in form:
             val = form.get("flip_batch")
             if val and val.isdigit():
@@ -887,31 +939,74 @@ def _active_jobs(con):
     return con.execute("SELECT id, name FROM jobs WHERE status='active' ORDER BY created_at DESC").fetchall()
 
 
+def _entry_sources(con):
+    """Bank/card accounts (the money account an entry moves through), tree order."""
+    return ledger.accounts_with_balances(con, kinds=("bank", "card"))
+
+
 @app.get("/entry/new", response_class=HTMLResponse)
 def entry_new(request: Request):
     con = db.connect()
     try:
         return templates.TemplateResponse(request, "entry.html", ctx(
-            request, con, cats=categories(con), jobs=_active_jobs(con), error=None))
+            request, con, cats=categories(con), sources=_entry_sources(con),
+            jobs=_active_jobs(con), error=None))
     finally:
         con.close()
 
 
 @app.post("/entry/new")
-def entry_create(request: Request, date: str = Form(...), payee: str = Form(...),
-                 amount: str = Form(...), to_account: int = Form(...), from_account: int = Form(...),
-                 memo: str = Form(""), job_id: str = Form("")):
+async def entry_create(request: Request):
+    """Manual entry with one money account (source) and one-or-more category splits.
+    direction 'out' = money leaves the source (categories are debited, e.g. an expense or a card
+    payment); 'in' = money arrives (categories credited, e.g. income). Category legs carry the
+    magnitude with the direction's sign; the source leg balances the total. Splitting = more than
+    one category row, each summing into the source."""
+    form = await request.form()
     con = db.connect()
+
+    def rerender(error):
+        return templates.TemplateResponse(request, "entry.html", ctx(
+            request, con, cats=categories(con), sources=_entry_sources(con),
+            jobs=_active_jobs(con), error=error))
     try:
-        cents = ledger.parse_amount_to_cents(amount)
+        date = str(form.get("date", "")).strip()
+        payee = str(form.get("payee", "")).strip()
+        memo = str(form.get("memo", "")).strip()
+        job_id = str(form.get("job_id", "")).strip()
+        direction = form.get("direction", "out")
+        source = form.get("source_account", "")
+        if not date or not payee:
+            return rerender("Date and payee are required.")
+        if not source:
+            return rerender("Choose the account the money moves through.")
+        source_id = int(source)
+
+        legs, total = [], 0
+        for c, a in zip(form.getlist("scat"), form.getlist("samt")):
+            c, a = (c or "").strip(), (a or "").strip()
+            if not c and not a:
+                continue
+            if not (c and a):
+                return rerender("Each split needs both a category and an amount.")
+            mag = abs(ledger.parse_amount_to_cents(a))
+            if mag == 0:
+                continue
+            signed = -mag if direction == "in" else mag
+            legs.append((int(c), signed))
+            total += signed
+        if not legs:
+            return rerender("Add at least one category and amount.")
+        if any(cid == source_id for cid, _ in legs):
+            return rerender("A category can't be the same account the money moves through.")
+
         ledger.post_entry(con, ledger.normalize_date(date), payee,
-                          [(to_account, cents), (from_account, -cents)], memo,
-                          job_id=int(job_id) if job_id.strip() else None)
+                          legs + [(source_id, -total)], memo,
+                          job_id=int(job_id) if job_id else None)
         con.commit()
         return RedirectResponse("/", status_code=303)
     except ValueError as e:
-        return templates.TemplateResponse(request, "entry.html", ctx(
-            request, con, cats=categories(con), jobs=_active_jobs(con), error=str(e)))
+        return rerender(str(e))
     finally:
         con.close()
 

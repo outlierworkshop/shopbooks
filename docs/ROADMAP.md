@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-04 — Split transactions: multiple categories on one entry
+- A fundamental bookkeeping capability: allocate one transaction across several categories
+  (e.g. a $100 store run as $60 Supplies + $40 Office). The ledger already supported arbitrary
+  balanced splits (`post_entry`); this adds the two write surfaces where you actually split.
+- **Review:** each pending row gets an inline "⇔ Split across categories" drawer — add category
+  rows with amounts, with a live "of $X — balanced ✓ / $Y left" indicator against the row total.
+  `_post_staged` grew a `splits=[(category_id, magnitude_cents), …]` mode; magnitudes must sum to
+  the row's absolute amount or **nothing posts** (a mis-typed split can't book a wrong entry).
+  A split leaves `staged.category_id` NULL and skips the single-category-only conveniences
+  (transfer post-once, invoice auto-mark, remember-as-rule).
+- **Manual entry (`/entry/new`) rebuilt** around one money account + a money-in/out direction +
+  N category rows (with "+ Add split" and a live total), replacing the raw to/from debit-credit
+  form with something friendlier that also splits. Rejects a category that equals the source.
+- Posting formula generalized and documented (CLAUDE.md invariant #3, ARCHITECTURE.md §Posting
+  formula): `[(Cᵢ, sign·mᵢ), …, (source, −a)]`. Registers already render multi-leg entries as
+  "(split)". New committed `test_splits.py` (manual out/in, self-ref reject, staged balanced +
+  unbalanced, zero-sum invariant); transfers/bulk/receipt/invoice-staged tests still pass.
+
 ### 2026-07-04 — UI glowup: design-system refresh, dark mode, command-center dashboard
 - Presentation-layer only — no ledger/route logic changed beyond passing one extra value to the
   dashboard. Zero risk to the invariants.

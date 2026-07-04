@@ -313,6 +313,29 @@ table.resizable th { position: relative; overflow: visible; }
 .chip.bad { background: var(--bad-soft); color: var(--bad); }
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
 
+/* ---------- transaction splits (New Entry + Review) ---------- */
+.dir-toggle { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.dir-toggle .radio { display: flex; align-items: center; gap: 7px; font-weight: 500; cursor: pointer; }
+.dir-toggle input[type="radio"] { width: auto; }
+
+.split-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.split-row select { flex: 1; min-width: 0; }
+.split-row .split-amt { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+.split-row .remove-split { flex: 0 0 auto; }
+.split-actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
+.split-total { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* Review inline split drawer */
+.split-toggle { display: inline-block; margin-top: 5px; font-size: 11.5px; text-decoration: none; cursor: pointer; }
+.split-toggle:hover { color: var(--accent); text-decoration: underline; }
+.split-box { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--bg-2); }
+.split-line { display: flex; gap: 6px; margin-bottom: 6px; }
+.split-line select { flex: 1; min-width: 0; font-size: 12px; padding: 4px 8px; }
+.split-line .samt { width: 84px; text-align: right; font-size: 12px; padding: 4px 8px; font-variant-numeric: tabular-nums; }
+.split-foot { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.split-remain { font-size: 12px; font-variant-numeric: tabular-nums; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
