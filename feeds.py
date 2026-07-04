@@ -27,6 +27,9 @@ import importer
 
 OVERLAP_DAYS = 7      # refetch window overlap; feed_txns ids absorb the duplicates
 FIRST_FETCH_DAYS = 30
+CROSS_SOURCE_DAYS = 3  # a feed txn within this many days of a same-account, same-amount statement
+                       # row/entry is treated as the same transaction (feeds and statements often
+                       # disagree on posting date by a day or two)
 
 
 # ---------------------------------------------------------------- HTTP layer (mockable)
@@ -130,16 +133,21 @@ def _txn_date(posted_ts):
 
 def _already_on_books(con, account_id, d, cents):
     """Cross-source guard: True if this ShopBooks account already has this transaction from a
-    statement import — same date + amount in the staged queue (any status) or posted to the ledger.
-    Rare same-day-same-amount false skips are acceptable and visible in Review."""
+    statement import — same amount within CROSS_SOURCE_DAYS of the same date, in the staged queue
+    (any status) or posted to the ledger. The date window (not an exact-date match) is deliberate:
+    a feed and a statement routinely post the same charge a day or two apart, so an exact-date guard
+    would let the feed twin slip through and double-post. Rare same-amount-near-date false skips are
+    acceptable and visible in Review; the /duplicates report catches anything that still slips."""
     if con.execute("SELECT 1 FROM staged s JOIN batches b ON b.id=s.batch_id "
-                   "WHERE b.account_id=? AND s.date=? AND s.amount_cents=? LIMIT 1",
-                   (account_id, d, cents)).fetchone():
+                   "WHERE b.account_id=? AND s.amount_cents=? "
+                   "AND abs(julianday(s.date)-julianday(?))<=? LIMIT 1",
+                   (account_id, cents, d, CROSS_SOURCE_DAYS)).fetchone():
         return True
     return bool(con.execute(
         "SELECT 1 FROM entries e JOIN splits s ON s.entry_id=e.id "
-        "WHERE s.account_id=? AND e.date=? AND s.amount_cents=? LIMIT 1",
-        (account_id, d, -cents)).fetchone())
+        "WHERE s.account_id=? AND s.amount_cents=? "
+        "AND abs(julianday(e.date)-julianday(?))<=? LIMIT 1",
+        (account_id, -cents, d, CROSS_SOURCE_DAYS)).fetchone())
 
 
 def _start_date(con):

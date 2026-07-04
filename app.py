@@ -17,6 +17,7 @@ import ai
 import backup
 import chat
 import db
+import duplicates
 import feeds
 import importer
 import insights
@@ -842,6 +843,40 @@ def register_bulk_category(account_id: int, entry_ids: list[int] = Form(default=
         if locked:
             note += f" {locked} skipped (in a closed period)."
         return RedirectResponse(f"{dest}{sep}msg={quote(note)}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.get("/duplicates", response_class=HTMLResponse)
+def duplicates_page(request: Request, msg: str = "", err: str = ""):
+    con = db.connect()
+    try:
+        groups = duplicates.find_duplicate_groups(con)
+        return templates.TemplateResponse(request, "duplicates.html", ctx(
+            request, con, groups=groups, window=duplicates.WINDOW_DAYS, msg=msg, err=err))
+    finally:
+        con.close()
+
+
+@app.post("/duplicates/delete")
+def duplicates_delete(entry_ids: list[int] = Form(default=[])):
+    """Delete the entries the owner checked as duplicates. Reuses ledger.delete_entry (so staged rows
+    revert to pending, receipts/invoices unlink) per id; a locked-period entry is skipped, not aborted."""
+    from urllib.parse import quote
+    con = db.connect()
+    try:
+        deleted = locked = 0
+        for eid in entry_ids:
+            try:
+                ledger.delete_entry(con, eid)
+                deleted += 1
+            except ledger.LockedPeriodError:
+                locked += 1
+        con.commit()
+        note = f"Deleted {deleted} duplicate entry(ies)." if deleted else "Nothing deleted."
+        if locked:
+            note += f" {locked} skipped (in a closed period)."
+        return RedirectResponse("/duplicates?msg=" + quote(note), status_code=303)
     finally:
         con.close()
 
