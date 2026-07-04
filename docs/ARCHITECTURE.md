@@ -127,8 +127,15 @@ inline "Split across categories" drawer); the magnitudes must add up to |a| or *
 one source account + a money-in/out direction + N category rows. A split leaves `staged.category_id`
 NULL (there's no single category), and skips the single-category-only conveniences — the
 transfer post-once check, invoice auto-mark, and "remember as a rule" — none of which are meaningful
-for a multi-category row. Registers already render a multi-leg entry's counter-account as "(split)"
-and disable inline category editing for it (`ledger.entry_category` returns None for >1 income/expense leg).
+for a multi-category row. A register lists a multi-leg entry's counter side as the comma-joined
+category names, and each row offers an inline **⇔ Split** editor:
+`ledger.rewrite_entry_splits(con, entry_id, anchor_account_id, [(cat_id, magnitude_cents), …],
+direction)` deletes the entry's splits and re-inserts the category legs plus a recomputed anchor leg
+(`-Σ categories`), so a plain 2-leg entry becomes a split (or a split is re-allocated) in place —
+header, receipt, and invoice links untouched. It's anchored to the register account and reuses the
+same direction/sign rule as posting. The old single-field inline editor (`update_entry_fields`)
+still only touches a 2-leg entry's one category; for `>1` category leg the register shows
+"use ⇔ Split to edit" instead of a misleading single dropdown.
 
 ### Transfers / credit-card payments (automatic, ±7 days)
 A CC payment appears on BOTH statements (bank withdrawal + card payment); posting both

@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-04 — Edit a posted entry into a split (register ⇔ Split editor)
+- Follow-up to split transactions: you can now split an **already-posted** entry, or re-allocate an
+  existing split, straight from a register — no delete-and-re-enter. Each row gets an inline
+  **⇔ Split** editor, prefilled with the entry's current categories and its money-in/out direction
+  (derived from the register-account leg's sign), with add/remove rows and a live total.
+- `ledger.rewrite_entry_splits(con, entry_id, anchor_account_id, [(cat_id, magnitude_cents), …],
+  direction)` replaces the category legs and recomputes the anchor leg (`-Σ categories`) so the entry
+  stays balanced; header + receipt/invoice links are untouched, locked periods are still guarded.
+  Route: `POST /entry/{id}/splits` (same field shape as `/entry/new`).
+- The register lists a split's categories (comma-joined) and the old single-field inline editor now
+  says "use ⇔ Split to edit" for multi-category entries instead of showing a misleading single
+  dropdown. `test_splits.py` extended (simple→split, re-allocate, empty-submission no-op, zero-sum).
+
 ### 2026-07-04 — Split transactions: multiple categories on one entry
 - A fundamental bookkeeping capability: allocate one transaction across several categories
   (e.g. a $100 store run as $60 Supplies + $40 Office). The ledger already supported arbitrary
