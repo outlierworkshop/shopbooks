@@ -93,14 +93,25 @@ nav a:hover { color: var(--nav-ink-hi); background: rgba(255, 255, 255, 0.09); }
 }
 .nav-dropdown-trigger:hover, .nav-dropdown:hover .nav-dropdown-trigger { color: var(--nav-ink-hi); background: rgba(255, 255, 255, 0.09); }
 .nav-dropdown-content {
-  display: none; position: absolute; background: var(--nav-bg); min-width: 180px;
+  /* Hidden via visibility/opacity (not display) so it can fade — and the close
+     is delayed to give a grace period for reaching an item. Open is instant. */
+  visibility: hidden; opacity: 0; transform: translateY(-6px);
+  transition: opacity .16s ease .3s, transform .16s ease .3s, visibility 0s linear .46s;
+  position: absolute; background: var(--nav-bg); min-width: 180px;
   box-shadow: var(--shadow-lg); border-radius: var(--r); padding: 6px; z-index: 1000;
   top: calc(100% + 4px); left: 0; border: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Transparent bridge over the 4px gap so moving from trigger to menu never
+   drops :hover (visibility:visible only while the menu is open, so it can't
+   block clicks on the page underneath the rest of the time). */
+.nav-dropdown-content::before { content: ""; position: absolute; top: -6px; left: 0; right: 0; height: 6px; }
 .nav-dropdown-content a { color: var(--nav-ink); padding: 8px 12px; text-decoration: none; display: block;
   border-radius: var(--r-sm); transition: background-color .12s ease, color .12s ease; white-space: nowrap; }
 .nav-dropdown-content a:hover { background: rgba(255, 255, 255, 0.1); color: var(--nav-ink-hi); }
-.nav-dropdown:hover .nav-dropdown-content, .nav-dropdown:focus-within .nav-dropdown-content { display: block; }
+.nav-dropdown:hover .nav-dropdown-content, .nav-dropdown:focus-within .nav-dropdown-content {
+  visibility: visible; opacity: 1; transform: translateY(0);
+  transition: opacity .12s ease, transform .12s ease, visibility 0s;
+}
 .nav-btn {
   background: var(--accent); color: var(--accent-ink) !important; padding: 5px 12px !important;
   font-weight: 700; border-radius: var(--r-sm); box-shadow: var(--shadow-sm);
