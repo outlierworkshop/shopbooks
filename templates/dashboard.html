@@ -1,14 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
 
-<div class="card section" style="max-width:820px">
-  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px">
-    <h2 style="margin:0">Today — {{ brief.today }}</h2>
+<div class="dash-head">
+  <h1>Dashboard</h1>
+  <span class="greeting">{{ business_name }} · {{ brief.today }}</span>
+</div>
+
+{# ---------- hero: the day brief ---------- #}
+<div class="hero">
+  <div class="hero-top">
+    <h2>Today at a glance</h2>
     {% if ai_on and not briefed %}<a class="btn ghost small" href="/?brief=1">✨ Brief me</a>{% endif %}
   </div>
-  {% if narrative %}<p style="white-space:pre-wrap; margin:10px 0 4px">{{ narrative }}</p>{% endif %}
+
+  {% if narrative %}<p class="narrative">{{ narrative }}</p>{% endif %}
+
   {% if brief.attention %}
   <ul class="brieflist">
     {% for a in brief.attention %}
@@ -17,51 +24,117 @@
     {% endfor %}
   </ul>
   {% else %}
-  <p class="pos" style="margin:8px 0">✓ All caught up — nothing needs your attention right now.</p>
+  <p class="allclear">✓ All caught up — nothing needs your attention right now.</p>
   {% endif %}
-  <p class="muted" style="margin:8px 0 0; font-size:14px">
-    Cash <strong>${{ brief.cash_on_hand|money }}</strong>{% if brief.card_debt %} · card debt ${{ brief.card_debt|money }}{% endif %}
-    · owed to you <strong>${{ brief.receivables_total|money }}</strong>{% if brief.receivables_overdue %} (<span class="neg">${{ brief.receivables_overdue|money }} overdue</span>){% endif %}
-    {% if brief.next_tax %} · next tax {{ brief.next_tax.due_date }} ~${{ brief.next_tax.amount|money }}{% endif %}
-  </p>
-</div>
-<style>
-.brieflist{list-style:none; padding:0; margin:10px 0 4px}
-.brieflist li{padding:5px 0 5px 22px; position:relative; border-bottom:1px solid var(--line)}
-.brieflist li:last-child{border-bottom:none}
-.brieflist li:before{content:"•"; position:absolute; left:6px}
-.brieflist li.neg:before{content:"!"; font-weight:700}
-</style>
 
-<div class="cards">
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="k">Cash on hand</div>
+      <div class="v">${{ brief.cash_on_hand|money }}</div>
+    </div>
+    {% if brief.card_debt %}
+    <div class="hero-stat">
+      <div class="k">Card debt</div>
+      <div class="v neg">${{ brief.card_debt|money }}</div>
+    </div>
+    {% endif %}
+    <div class="hero-stat">
+      <div class="k">Owed to you</div>
+      <div class="v">${{ brief.receivables_total|money }}
+        {% if brief.receivables_overdue %}<span class="chip bad">${{ brief.receivables_overdue|money }} overdue</span>{% endif %}
+      </div>
+    </div>
+    {% if brief.next_tax %}
+    <div class="hero-stat">
+      <div class="k">Next tax · {{ brief.next_tax.due_date }}</div>
+      <div class="v warn">~${{ brief.next_tax.amount|money }}</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- quick actions ---------- #}
+<div class="quick">
+  <a href="/import"><span class="ico">📥</span> Import statement</a>
+  <a href="/review"><span class="ico">✅</span> Review{% if pending_count %} <span class="badge">{{ pending_count }}</span>{% endif %}</a>
+  <a href="/receipts"><span class="ico">🧾</span> Match receipts{% if unmatched_count %} <span class="badge">{{ unmatched_count }}</span>{% endif %}</a>
+  <a href="/invoices/new"><span class="ico">📄</span> New invoice</a>
+  <a href="/entry/new"><span class="ico">✏️</span> New entry</a>
+  <a href="/reports"><span class="ico">📊</span> Reports</a>
+</div>
+
+{# ---------- KPI tiles ---------- #}
+<div class="kpis">
   {% for a in accounts %}
-  <div class="card">
-    <div class="label">{{ a.name }} {{ '(card)' if a.kind == 'card' else '' }}</div>
+  <div class="kpi">
+    <div class="label"><span class="ico">{{ '💳' if a.kind == 'card' else '🏦' }}</span>{{ a.name }}</div>
     <div class="big {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</div>
-    <a class="muted" href="/register/{{ a.id }}">view register →</a>
+    <div class="sub"><a class="muted" href="/register/{{ a.id }}">view register →</a></div>
   </div>
   {% endfor %}
-  <div class="card">
-    <div class="label">{{ year }} net profit</div>
+  <div class="kpi accent">
+    <div class="label"><span class="ico">📈</span>{{ year }} net profit</div>
     <div class="big {{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</div>
-    <div class="muted">income ${{ pnl.total_income|money }} · expenses ${{ pnl.total_expenses|money }}</div>
+    <div class="sub">income ${{ pnl.total_income|money }} · expenses ${{ pnl.total_expenses|money }}</div>
   </div>
   {% if aging.total %}
-  <div class="card">
-    <div class="label">Owed to you</div>
+  <div class="kpi">
+    <div class="label"><span class="ico">📬</span>Owed to you</div>
     <div class="big">${{ aging.total|money }}</div>
-    <div class="muted">{% if aging.overdue_total %}<span class="neg">${{ aging.overdue_total|money }} overdue</span> · {% endif %}<a href="/invoices">{{ aging.open_count }} open →</a></div>
+    <div class="sub">{% if aging.overdue_total %}<span class="neg">${{ aging.overdue_total|money }} overdue</span> · {% endif %}<a href="/invoices">{{ aging.open_count }} open →</a></div>
   </div>
   {% endif %}
 </div>
 
-{% if pending_count %}
-<p class="note">{{ pending_count }} imported transaction(s) waiting in <a href="/review">Review</a>.</p>
-{% endif %}
-{% if unmatched_count %}
-<p class="note">{{ unmatched_count }} receipt(s) not yet matched - see <a href="/receipts">Receipts</a>.</p>
+{# ---------- monthly net sparkline ---------- #}
+{% set nets = trend | map(attribute='net') | list %}
+{% if nets | length > 1 %}
+{% set lo = nets | min %}
+{% set hi = nets | max %}
+{% set W = 640 %}{% set H = 120 %}
+{% set n = nets | length %}
+{% set span = (hi - lo) if (hi - lo) != 0 else 1 %}
+{% set ns = namespace(pts='') %}
+{% for v in nets %}
+  {% set x = (loop.index0 * W / (n - 1)) %}
+  {% set y = H - ((v - lo) / span) * H %}
+  {% set ns.pts = ns.pts ~ (x | round(1)) ~ ',' ~ (y | round(1)) ~ ' ' %}
+{% endfor %}
+{% set last_v = nets[-1] %}
+{% set last_y = H - ((last_v - lo) / span) * H %}
+{% set zero_y = H - ((0 - lo) / span) * H %}
+<div class="spark-card">
+  <div class="label">Net profit by month · {{ year }}</div>
+  <div class="spark-wrap">
+    <svg viewBox="-4 -8 {{ W + 8 }} {{ H + 16 }}" preserveAspectRatio="none" role="img"
+         aria-label="Monthly net profit trend for {{ year }}">
+      <defs>
+        <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/>
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      {% if lo < 0 and hi > 0 %}
+      <line x1="0" y1="{{ zero_y | round(1) }}" x2="{{ W }}" y2="{{ zero_y | round(1) }}"
+            stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="4 4"/>
+      {% endif %}
+      <polygon points="0,{{ H }} {{ ns.pts }}{{ W }},{{ H }}" fill="url(#sparkfill)"/>
+      <polyline points="{{ ns.pts | trim }}" fill="none" stroke="var(--accent)"
+                stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
+                vector-effect="non-scaling-stroke"/>
+      <circle cx="{{ W }}" cy="{{ last_y | round(1) }}" r="4" fill="var(--accent)"
+              stroke="var(--card)" stroke-width="2"/>
+    </svg>
+  </div>
+  <div class="spark-axis">
+    <span>{{ trend[0].month }}</span>
+    <span>latest: <strong class="{{ 'neg' if last_v < 0 else 'pos' }}">${{ last_v|money }}</strong></span>
+    <span>{{ trend[-1].month }}</span>
+  </div>
+</div>
 {% endif %}
 
+{# ---------- recent activity ---------- #}
 <h2>Recent activity</h2>
 <table class="sortable">
   <tr><th>Date</th><th>Payee</th><th>Accounts</th><th class="num">Amount</th></tr>

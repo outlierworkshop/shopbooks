@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-04 — UI glowup: design-system refresh, dark mode, command-center dashboard
+- Presentation-layer only — no ledger/route logic changed beyond passing one extra value to the
+  dashboard. Zero risk to the invariants.
+- **`static/style.css` fully tokenized.** Every color is now a CSS variable; light values in
+  `:root`, a `:root[data-theme="dark"]` block overrides them. All existing class names kept
+  (restyled, never renamed), so every page inherits the refresh: sticky gradient nav, softer
+  shadows/radii, card hover-lift, refined tables, buttons, inputs, callouts.
+- **Dark mode.** `base.html` sets `data-theme` on `<html>` before first paint (no flash):
+  explicit choice from `localStorage['sb-theme']` wins, else follows the OS `prefers-color-scheme`.
+  A round toggle button (☾/☀) in the nav flips and persists it. Pure client-side; no server state.
+- **Dashboard rebuilt (`dashboard.html`) into a command center:** hero "Today at a glance" panel
+  (gradient accent bar, attention list, cash/card/receivables/next-tax stat row), quick-action
+  pill bar, KPI tile grid (accented net-profit tile), and an inline-SVG sparkline of monthly net
+  profit fed by `insights.monthly_trend` (the one new value passed from the `/` route), plus the
+  existing recent-activity table.
+
 ### 2026-07-03 — Duplicate handling: tighter prevention + a detection safety net
 - Two-pronged, prompted by "what's the best way to handle duplicates getting posted." All prior
   dedupe (feed txn ids, receipt hashes, statement filename/content, feeds' cross-source check) fires

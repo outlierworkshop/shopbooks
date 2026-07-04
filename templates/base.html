@@ -4,6 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}ShopBooks{% endblock %} - {{ business_name }}</title>
+<meta name="color-scheme" content="light dark">
+<script>
+  /* Set the theme before first paint so there is no flash. Explicit choice wins;
+     otherwise follow the OS. Applied as data-theme on <html>; style.css keys off it. */
+  (function () {
+    try {
+      var t = localStorage.getItem('sb-theme');
+      if (t !== 'light' && t !== 'dark') {
+        t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -70,8 +84,23 @@
 
   <a href="/entry/new" class="nav-btn">+ New Entry</a>
 
+  <button type="button" class="theme-toggle" id="themeToggle" title="Toggle light / dark" aria-label="Toggle light or dark theme"></button>
   <span class="ai-pill {{ 'on' if ai_on else 'off' }}">{{ 'AI on' if ai_on else 'AI off' }}</span>
 </nav>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    var icon = function (t) { btn.textContent = t === 'dark' ? '☀' : '☾'; };
+    icon(document.documentElement.getAttribute('data-theme'));
+    btn.addEventListener('click', function () {
+      var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('sb-theme', next); } catch (e) {}
+      icon(next);
+    });
+  })();
+</script>
 <main>
 {% if reset_suspected %}
 <p class="error" style="font-size:15px">
