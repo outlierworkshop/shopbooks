@@ -117,6 +117,19 @@ Worked examples (verify any change against all four):
   Sales −20000 (income up), Checking +20000 (asset up). ✓
 - Bank withdrawal $23.10, C=Shipping: Shipping +2310, Checking −2310. ✓
 
+**Splits (multiple categories on one entry).** The formula generalizes: a row of amount `a`
+allocated across categories C₁…Cₙ with magnitudes m₁…mₙ (all positive, Σmᵢ = |a|) posts
+`[(C₁, sign·m₁), …, (Cₙ, sign·mₙ), (S, −a)]` where `sign = +1` for money-out rows, `−1` for
+money-in — so every category leg carries the row's direction and the whole thing still sums to
+zero. `app._post_staged(..., splits=[(cat_id, magnitude_cents), …])` books this from Review (the
+inline "Split across categories" drawer); the magnitudes must add up to |a| or **nothing posts**
+(a mis-typed split can never book a wrong entry). Manual entry (`/entry/new`) uses the same shape:
+one source account + a money-in/out direction + N category rows. A split leaves `staged.category_id`
+NULL (there's no single category), and skips the single-category-only conveniences — the
+transfer post-once check, invoice auto-mark, and "remember as a rule" — none of which are meaningful
+for a multi-category row. Registers already render a multi-leg entry's counter-account as "(split)"
+and disable inline category editing for it (`ledger.entry_category` returns None for >1 income/expense leg).
+
 ### Transfers / credit-card payments (automatic, ±7 days)
 A CC payment appears on BOTH statements (bank withdrawal + card payment); posting both
 double-counts. Handled automatically:

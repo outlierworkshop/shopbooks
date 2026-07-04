@@ -3,27 +3,100 @@
 {% block content %}
 <h1>New manual entry</h1>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
-<form method="post" class="formgrid">
-  <label>Date</label><input type="date" name="date" value="{{ today }}" required>
-  <label>Payee / description</label><input type="text" name="payee" required>
-  <label>Amount ($)</label><input type="text" name="amount" placeholder="125.00" required>
-  <label>Money to (debit)</label>
-  <select name="to_account" required>
-    {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
-  </select>
-  <label>Money from (credit)</label>
-  <select name="from_account" required>
-    {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
-  </select>
-  <label>Memo</label><input type="text" name="memo">
-  <label>Job (optional)</label>
-  <select name="job_id">
-    <option value="">(no job)</option>
-    {% for j in jobs %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
-  </select>
-  <span></span><span><button type="submit">Post entry</button></span>
+
+<form method="post" class="entry-form" id="entryForm">
+  <div class="formgrid" style="max-width:640px">
+    <label>Date</label><input type="date" name="date" value="{{ today }}" required>
+    <label>Payee / description</label><input type="text" name="payee" required>
+
+    <label>This is</label>
+    <div class="dir-toggle">
+      <label class="radio"><input type="radio" name="direction" value="out" checked> Money out <span class="muted">(expense, bill, card payment)</span></label>
+      <label class="radio"><input type="radio" name="direction" value="in"> Money in <span class="muted">(income, deposit, refund)</span></label>
+    </div>
+
+    <label id="sourceLabel">Paid from</label>
+    <select name="source_account" required>
+      <option value="">- choose account -</option>
+      {% for s in sources %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+    </select>
+
+    <label>Categories</label>
+    <div>
+      <div id="splitRows">
+        <div class="split-row">
+          <select name="scat" required>
+            <option value="">- category -</option>
+            {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
+          </select>
+          <input type="text" name="samt" class="split-amt" placeholder="0.00" inputmode="decimal">
+          <button type="button" class="btn ghost small remove-split" title="Remove this split" onclick="removeSplit(this)">✕</button>
+        </div>
+      </div>
+      <div class="split-actions">
+        <button type="button" class="btn ghost small" onclick="addSplit()">+ Add split</button>
+        <span class="split-total muted" id="splitTotal">Total: $0.00</span>
+      </div>
+      <p class="muted" style="margin:6px 0 0; font-size:12px">One category is a normal transaction. Add rows to split it across several — e.g. a $100 store run as $60 Supplies + $40 Office.</p>
+    </div>
+
+    <label>Memo</label><input type="text" name="memo">
+    <label>Job (optional)</label>
+    <select name="job_id">
+      <option value="">(no job)</option>
+      {% for j in jobs %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
+    </select>
+
+    <span></span><span><button type="submit">Post entry</button></span>
+  </div>
 </form>
-<p class="muted">Examples - bought supplies on a card: to = Materials &amp; Supplies, from = the card.
-Customer paid by ACH: to = Business Checking, from = Sales - ACH / Invoices.
-Paid a card from checking: to = the card, from = Business Checking.</p>
+
+<p class="muted" style="max-width:640px">Examples — <strong>bought supplies on a card:</strong> Money out, Paid from = the card, category = Materials &amp; Supplies.
+<strong>Customer paid by ACH:</strong> Money in, Paid from = Business Checking, category = Sales – ACH.
+<strong>Paid a card from checking:</strong> Money out, Paid from = Business Checking, category = the card.</p>
+
+<template id="splitRowTemplate">
+  <div class="split-row">
+    <select name="scat" required>
+      <option value="">- category -</option>
+      {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
+    </select>
+    <input type="text" name="samt" class="split-amt" placeholder="0.00" inputmode="decimal">
+    <button type="button" class="btn ghost small remove-split" title="Remove this split" onclick="removeSplit(this)">✕</button>
+  </div>
+</template>
+
+<script>
+  function parseAmt(s) {
+    var n = parseFloat((s || "").replace(/[^0-9.\-]/g, ""));
+    return isNaN(n) ? 0 : Math.abs(n);
+  }
+  function recalcTotal() {
+    var t = 0;
+    document.querySelectorAll("#splitRows .split-amt").forEach(function (i) { t += parseAmt(i.value); });
+    document.getElementById("splitTotal").textContent = "Total: $" + t.toFixed(2);
+    // Only show the remove button when there's more than one row.
+    var rows = document.querySelectorAll("#splitRows .split-row");
+    document.querySelectorAll("#splitRows .remove-split").forEach(function (b) {
+      b.style.visibility = rows.length > 1 ? "visible" : "hidden";
+    });
+  }
+  function addSplit() {
+    var tpl = document.getElementById("splitRowTemplate");
+    document.getElementById("splitRows").appendChild(tpl.content.cloneNode(true));
+    recalcTotal();
+  }
+  function removeSplit(btn) {
+    var rows = document.querySelectorAll("#splitRows .split-row");
+    if (rows.length > 1) { btn.closest(".split-row").remove(); recalcTotal(); }
+  }
+  document.getElementById("splitRows").addEventListener("input", recalcTotal);
+  document.querySelectorAll('input[name="direction"]').forEach(function (r) {
+    r.addEventListener("change", function () {
+      document.getElementById("sourceLabel").textContent =
+        document.querySelector('input[name="direction"]:checked').value === "in" ? "Deposited to" : "Paid from";
+    });
+  });
+  recalcTotal();
+</script>
 {% endblock %}

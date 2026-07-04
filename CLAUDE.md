@@ -67,7 +67,10 @@ the user's real backup folder.
    - Staged imports: `staged.amount_cents` positive = **money out** (charge/withdrawal),
      negative = money in. Single-amount CSV columns are flipped on import (banks use negative=out).
    - Posting a staged txn: `[(category, +a), (source, -a)]`. This one formula handles
-     expenses, income, and transfers uniformly.
+     expenses, income, and transfers uniformly. **Splits** generalize it: N category legs
+     `[(Cᵢ, sign·mᵢ), …, (source, -a)]` where magnitudes `mᵢ>0` sum to `|a|` and `sign` is the
+     row's direction (`_post_staged(..., splits=...)`; must balance or nothing posts). See
+     ARCHITECTURE.md §Posting formula.
 4. **Dates are ISO `YYYY-MM-DD` TEXT.** Normalize all inputs through `ledger.normalize_date`.
    Statement lines are MM/DD only — never trust the model's year; `importer.reconcile_years`
    derives it from the extracted `statement_end_date` and forbids future dates.

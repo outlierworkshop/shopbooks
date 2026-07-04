@@ -3,6 +3,7 @@
 {% block content %}
 <h1>Review imported transactions</h1>
 {% if note %}<p class="note">{{ note }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
 {% if not items %}
 <p class="muted">Nothing to review. <a href="/import">Import a statement</a> to get started.</p>
 {% else %}
@@ -102,12 +103,31 @@
     <td class="muted">{{ it.source_name }}</td>
     <td class="num {{ 'pos' if it.amount_cents < 0 else '' }}">${{ it.amount_cents|money }}</td>
     <td>
-      <select name="cat_{{ it.id }}">
+      <select name="cat_{{ it.id }}" id="cat-{{ it.id }}">
         <option value="">- choose -</option>
         {% for c in cats %}
         <option value="{{ c.id }}" {{ 'selected' if it.category_id == c.id else '' }}>{{ c.label }} ({{ c.type }})</option>
         {% endfor %}
       </select>
+      <a href="#" class="split-toggle muted" onclick="toggleSplit({{ it.id }}); return false;">⇔ Split across categories</a>
+      <div class="split-box" id="splitbox-{{ it.id }}" style="display:none">
+        <input type="hidden" name="splitmode_{{ it.id }}" id="splitmode-{{ it.id }}" value="">
+        <div class="split-rows" data-total="{{ it.amount_cents|abs }}">
+          {% for _ in range(2) %}
+          <div class="split-line">
+            <select name="scat_{{ it.id }}">
+              <option value="">- category -</option>
+              {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
+            </select>
+            <input type="text" name="samt_{{ it.id }}" class="samt" placeholder="0.00" inputmode="decimal">
+          </div>
+          {% endfor %}
+        </div>
+        <div class="split-foot">
+          <button type="button" class="btn ghost small" onclick="addReviewSplit({{ it.id }})">+ Add</button>
+          <span class="split-remain muted" id="remain-{{ it.id }}"></span>
+        </div>
+      </div>
     </td>
     <td><input type="text" name="memo_{{ it.id }}" value="{{ it.memo }}" placeholder="(optional note)"
                title="Optional note saved on this transaction"></td>
@@ -131,5 +151,45 @@ function togglePairing(id) {
     row.style.display = (row.style.display === "none") ? "block" : "none";
   }
 }
+
+// ---- Split a staged row across multiple categories before posting ----
+function toggleSplit(id) {
+  var box = document.getElementById("splitbox-" + id);
+  var on = (box.style.display === "none" || box.style.display === "");
+  box.style.display = on ? "block" : "none";
+  document.getElementById("splitmode-" + id).value = on ? "1" : "";
+  var sel = document.getElementById("cat-" + id);
+  if (sel) sel.disabled = on;   // in split mode the single-category select is ignored server-side
+  recalcRemain(id);
+}
+function addReviewSplit(id) {
+  var rows = document.querySelector("#splitbox-" + id + " .split-rows");
+  var clone = rows.querySelector(".split-line").cloneNode(true);
+  clone.querySelectorAll("select, input").forEach(function (el) {
+    if (el.tagName === "INPUT") el.value = ""; else el.selectedIndex = 0;
+  });
+  rows.appendChild(clone);
+  recalcRemain(id);
+}
+function recalcRemain(id) {
+  var box = document.getElementById("splitbox-" + id);
+  if (!box) return;
+  var target = parseInt(box.querySelector(".split-rows").getAttribute("data-total"), 10) / 100;
+  var sum = 0;
+  box.querySelectorAll(".samt").forEach(function (i) {
+    var n = parseFloat((i.value || "").replace(/[^0-9.\-]/g, ""));
+    if (!isNaN(n)) sum += Math.abs(n);
+  });
+  var remain = target - sum, balanced = Math.abs(remain) < 0.005;
+  var el = document.getElementById("remain-" + id);
+  el.textContent = "of $" + target.toFixed(2) + " — " + (balanced ? "balanced ✓" : "$" + remain.toFixed(2) + " left");
+  el.className = "split-remain " + (balanced ? "pos" : "warn");
+}
+document.addEventListener("input", function (e) {
+  if (e.target && e.target.classList && e.target.classList.contains("samt")) {
+    var box = e.target.closest(".split-box");
+    if (box) recalcRemain(box.id.replace("splitbox-", ""));
+  }
+});
 </script>
 {% endblock %}
