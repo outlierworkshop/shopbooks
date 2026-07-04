@@ -69,7 +69,7 @@
         </div>
         <div>
           <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px;">Category</label>
-          {% if r.other != "(split)" %}
+          {% if r.cat_legs|length <= 1 %}
             {% if acct.kind in ('bank', 'card') %}
               <select name="category_id" form="edit-form-{{ r.entry_id }}" style="width: 100%; max-width: 250px;">
                 {% for c in cats %}
@@ -84,7 +84,7 @@
               </select>
             {% endif %}
           {% else %}
-            <span class="muted">(split - cannot edit)</span>
+            <span class="muted">multiple categories — use <strong>⇔ Split</strong> to edit</span>
           {% endif %}
         </div>
       </div>
@@ -135,6 +135,8 @@
     <td>
       <div class="view-mode" style="display: flex; gap: 4px; align-items: center;">
         <button class="small ghost" type="button" onclick="startEdit({{ r.entry_id }}, this)">Edit</button>
+        <button class="small ghost" type="button" onclick="toggleSplitEdit({{ r.entry_id }})"
+                title="Split this transaction across multiple categories">⇔ Split</button>
         <form class="inline" method="post" action="/entry/delete/{{ r.entry_id }}"
               onsubmit="return confirm('Delete this entry? Imported lines return to Review.')">
           <input type="hidden" name="back" value="/register/{{ acct.id }}">
@@ -149,6 +151,53 @@
           <button class="small ghost" type="button" onclick="cancelEdit({{ r.entry_id }}, this)">Cancel</button>
         </form>
       </div>
+    </td>
+  </tr>
+  <tr class="split-edit-row" id="spliteditrow-{{ r.entry_id }}" style="display:none">
+    <td colspan="10">
+      <form method="post" action="/entry/{{ r.entry_id }}/splits" class="split-editor"
+            onsubmit="return validateSplitEdit({{ r.entry_id }});">
+        <input type="hidden" name="back" value="/register/{{ acct.id }}">
+        <input type="hidden" name="register_account_id" value="{{ acct.id }}">
+        <div class="split-editor-head">
+          <strong>Split “{{ r.payee }}” across categories</strong>
+          <span class="muted">money moves through {{ acct.name }}</span>
+        </div>
+        <div class="dir-toggle" style="margin:8px 0">
+          <label class="radio"><input type="radio" name="direction" value="out" {{ 'checked' if r.direction != 'in' else '' }}> Money out</label>
+          <label class="radio"><input type="radio" name="direction" value="in" {{ 'checked' if r.direction == 'in' else '' }}> Money in</label>
+        </div>
+        <div class="split-rows" id="editrows-{{ r.entry_id }}">
+          {% for leg in r.cat_legs %}
+          <div class="split-row">
+            <select name="scat" required>
+              <option value="">- category -</option>
+              {% for c in cats %}<option value="{{ c.id }}" {{ 'selected' if c.id == leg.account_id else '' }}>{{ c.label }} ({{ c.type }})</option>{% endfor %}
+            </select>
+            <input type="text" name="samt" class="split-amt" value="{{ leg.magnitude|money }}" inputmode="decimal">
+            <button type="button" class="btn ghost small remove-split" onclick="removeEditSplit(this, {{ r.entry_id }})" title="Remove">✕</button>
+          </div>
+          {% endfor %}
+          {% if not r.cat_legs %}
+          <div class="split-row">
+            <select name="scat" required>
+              <option value="">- category -</option>
+              {% for c in cats %}<option value="{{ c.id }}">{{ c.label }} ({{ c.type }})</option>{% endfor %}
+            </select>
+            <input type="text" name="samt" class="split-amt" placeholder="0.00" inputmode="decimal">
+            <button type="button" class="btn ghost small remove-split" onclick="removeEditSplit(this, {{ r.entry_id }})" title="Remove">✕</button>
+          </div>
+          {% endif %}
+        </div>
+        <div class="split-actions">
+          <button type="button" class="btn ghost small" onclick="addEditSplit({{ r.entry_id }})">+ Add split</button>
+          <span class="split-total muted" id="edittotal-{{ r.entry_id }}">Total: $0.00</span>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px">
+          <button class="small" type="submit">Save split</button>
+          <button class="small ghost" type="button" onclick="toggleSplitEdit({{ r.entry_id }})">Cancel</button>
+        </div>
+      </form>
     </td>
   </tr>
   {% else %}
@@ -198,5 +247,49 @@ function cancelEdit(entryId, button) {
     el.style.setProperty('display', 'none', 'important');
   });
 }
+
+// ---- Split an existing posted entry across categories ----
+function parseAmt(s) { var n = parseFloat((s || '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : Math.abs(n); }
+function recalcEditTotal(id) {
+  var box = document.getElementById('editrows-' + id);
+  if (!box) return;
+  var t = 0;
+  box.querySelectorAll('.split-amt').forEach(function (i) { t += parseAmt(i.value); });
+  document.getElementById('edittotal-' + id).textContent = 'Total: $' + t.toFixed(2);
+  var rows = box.querySelectorAll('.split-row');
+  box.querySelectorAll('.remove-split').forEach(function (b) { b.style.visibility = rows.length > 1 ? 'visible' : 'hidden'; });
+}
+function toggleSplitEdit(id) {
+  var row = document.getElementById('spliteditrow-' + id);
+  var showing = (row.style.display === 'none' || row.style.display === '');
+  row.style.display = showing ? 'table-row' : 'none';
+  if (showing) recalcEditTotal(id);
+}
+function addEditSplit(id) {
+  var box = document.getElementById('editrows-' + id);
+  var clone = box.querySelector('.split-row').cloneNode(true);
+  clone.querySelectorAll('select, input').forEach(function (el) { if (el.tagName === 'INPUT') el.value = ''; else el.selectedIndex = 0; });
+  box.appendChild(clone);
+  recalcEditTotal(id);
+}
+function removeEditSplit(btn, id) {
+  var box = document.getElementById('editrows-' + id);
+  if (box.querySelectorAll('.split-row').length > 1) { btn.closest('.split-row').remove(); recalcEditTotal(id); }
+}
+function validateSplitEdit(id) {
+  var box = document.getElementById('editrows-' + id), ok = false;
+  box.querySelectorAll('.split-row').forEach(function (r) {
+    var c = r.querySelector('select').value, a = parseAmt(r.querySelector('.split-amt').value);
+    if (c && a > 0) ok = true;
+  });
+  if (!ok) { alert('Add at least one category and amount.'); return false; }
+  return true;
+}
+document.addEventListener('input', function (e) {
+  if (e.target && e.target.classList && e.target.classList.contains('split-amt')) {
+    var box = e.target.closest('.split-rows');
+    if (box && box.id.indexOf('editrows-') === 0) recalcEditTotal(box.id.replace('editrows-', ''));
+  }
+});
 </script>
 {% endblock %}

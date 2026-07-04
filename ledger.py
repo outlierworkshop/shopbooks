@@ -222,6 +222,45 @@ def update_entry_fields(con, entry_id, payee, memo, category_id, job_id, date, r
             con.execute("UPDATE splits SET account_id=? WHERE id=?", (category_id, other_split["id"]))
 
 
+def entry_legs(con, entry_id):
+    """Every split of an entry with its account name/type: rows of
+    (account_id, name, type, amount_cents), stable order."""
+    return con.execute(
+        "SELECT s.account_id, a.name, a.type, s.amount_cents FROM splits s JOIN accounts a ON a.id=s.account_id "
+        "WHERE s.entry_id=? ORDER BY s.id", (entry_id,)).fetchall()
+
+
+def rewrite_entry_splits(con, entry_id, anchor_account_id, category_pairs, direction):
+    """Replace an entry's category legs while keeping it anchored to one money account, so a plain
+    2-leg entry can become a multi-category split (or a split can be re-allocated) in place.
+
+    category_pairs: list of (account_id, magnitude_cents); magnitudes are POSITIVE and the direction
+    supplies the sign — 'out' debits the categories (+) and credits the anchor, 'in' is the reverse.
+    The single anchor leg is recomputed as -(sum of category legs) so the entry stays balanced; the
+    entry header (date/payee/memo/job/customer) and any receipt/invoice links are untouched. Raises
+    ValueError on empty/invalid input, a category that IS the anchor, or a locked period."""
+    row = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    if not row:
+        raise ValueError("entry not found")
+    assert_unlocked(con, row["date"])
+    pairs = [(int(a), abs(int(m))) for a, m in category_pairs if a and m]
+    if not pairs:
+        raise ValueError("Add at least one category and amount.")
+    if any(a == anchor_account_id for a, _ in pairs):
+        raise ValueError("A category can't be the same account the money moves through.")
+    sign = -1 if direction == "in" else 1
+    cat_legs = [(a, sign * m) for a, m in pairs]
+    total = sum(c for _, c in cat_legs)
+    legs = cat_legs + [(anchor_account_id, -total)]
+    if sum(c for _, c in legs) != 0:  # can't happen by construction, but never write an unbalanced entry
+        raise ValueError("splits do not balance")
+    con.execute("DELETE FROM splits WHERE entry_id=?", (entry_id,))
+    for account_id, cents in legs:
+        if cents != 0:
+            con.execute("INSERT INTO splits(entry_id,account_id,amount_cents) VALUES(?,?,?)",
+                        (entry_id, account_id, cents))
+
+
 def raw_balance(con, account_id, as_of=None):
     if as_of:
         row = con.execute(

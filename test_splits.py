@@ -106,7 +106,44 @@ L3 = legs(row["entry_id"])
 ok(L3.get(e1) == 6000 and L3.get(e2) == 4000, "staged split: each expense leg carries its share (money out = +)")
 ok(L3.get(card) == -10000, "staged split: the card (source) balances the total")
 
-# ---- 5. Ledger invariant holds across everything we posted ----
+# ---- 6. Turn a simple posted entry into a split, then re-allocate it (register editor) ----
+# a plain single-category card charge ($100 -> Advertising), booked via manual entry
+client.post("/entry/new", data={
+    "date": "2026-04-01", "payee": "Split me later", "direction": "out",
+    "source_account": str(card), "scat": [str(e1)], "samt": ["100.00"],
+})
+con = db.connect()
+seid = con.execute("SELECT id FROM entries WHERE payee='Split me later'").fetchone()["id"]
+con.close()
+ok(len(legs(seid)) == 2, "starts as a simple 2-leg entry")
+
+# split it across two categories, anchored to the card (the register account)
+client.post(f"/entry/{seid}/splits", data={
+    "back": f"/register/{card}", "register_account_id": str(card), "direction": "out",
+    "scat": [str(e1), str(e2)], "samt": ["70.00", "30.00"],
+})
+LS = legs(seid)
+ok(len(LS) == 3, f"editing turns it into a 3-leg split (got {len(LS)})")
+ok(LS.get(e1) == 7000 and LS.get(e2) == 3000, "the two category legs carry the new allocation")
+ok(LS.get(card) == -10000, "the anchor (card) still balances the $100 total")
+
+# re-allocate again (80/20) — an existing split can be edited
+client.post(f"/entry/{seid}/splits", data={
+    "back": f"/register/{card}", "register_account_id": str(card), "direction": "out",
+    "scat": [str(e1), str(e2)], "samt": ["80.00", "20.00"],
+})
+LS2 = legs(seid)
+ok(LS2.get(e1) == 8000 and LS2.get(e2) == 2000 and LS2.get(card) == -10000, "an existing split can be re-allocated")
+
+# an empty submission is rejected and leaves the entry untouched
+before = legs(seid)
+client.post(f"/entry/{seid}/splits", data={
+    "back": f"/register/{card}", "register_account_id": str(card), "direction": "out",
+    "scat": [""], "samt": [""],
+})
+ok(legs(seid) == before, "an empty split submission changes nothing")
+
+# ---- 7. Ledger invariant holds across everything we posted ----
 ok(zero_sum_ok(), "every entry's splits sum to zero")
 
 print("\nSPLIT TESTS DONE")

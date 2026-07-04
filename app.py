@@ -781,6 +781,15 @@ def register_view(request: Request, account_id: int, msg: str = "", err: str = "
     con = db.connect()
     try:
         acct, rows = ledger.register(con, account_id)
+        # Attach each entry's category legs (the non-register side) + its money-in/out direction so
+        # the register can offer an inline "Split across categories" editor prefilled with them.
+        for r in rows:
+            legs = ledger.entry_legs(con, r["entry_id"])
+            reg_leg = next((l for l in legs if l["account_id"] == account_id), None)
+            r["cat_legs"] = [{"account_id": l["account_id"], "name": l["name"],
+                              "magnitude": abs(l["amount_cents"])}
+                             for l in legs if l["account_id"] != account_id]
+            r["direction"] = "in" if (reg_leg and reg_leg["amount_cents"] > 0) else "out"
         bal = ledger.display_balance(acct["type"], ledger.raw_balance(con, account_id))
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "register.html", ctx(
@@ -817,6 +826,37 @@ def entry_edit(entry_id: int,
         redirect_url = back if back.startswith("/") else "/"
         sep = "&" if "?" in redirect_url else "?"
         return RedirectResponse(f"{redirect_url}{sep}err={str(e)}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/entry/{entry_id}/splits")
+async def entry_splits_save(entry_id: int, request: Request):
+    """Re-allocate a posted entry across one-or-more categories (turn a simple entry into a split,
+    or edit an existing split) from the register. Anchored to register_account_id; same field shape
+    as /entry/new (direction + scat[]/samt[])."""
+    form = await request.form()
+    con = db.connect()
+    back = str(form.get("back", "/"))
+    dest = back if back.startswith("/") else "/"
+    try:
+        anchor = int(form["register_account_id"])
+        direction = form.get("direction", "out")
+        pairs = []
+        for a, m in zip(form.getlist("scat"), form.getlist("samt")):
+            a, m = (a or "").strip(), (m or "").strip()
+            if not a and not m:
+                continue
+            if not (a and m):
+                raise ValueError("Each split needs both a category and an amount.")
+            pairs.append((int(a), abs(ledger.parse_amount_to_cents(m))))
+        ledger.rewrite_entry_splits(con, entry_id, anchor, pairs, direction)
+        con.commit()
+        return RedirectResponse(dest, status_code=303)
+    except ValueError as e:
+        from urllib.parse import quote
+        sep = "&" if "?" in dest else "?"
+        return RedirectResponse(f"{dest}{sep}err={quote(str(e))}", status_code=303)
     finally:
         con.close()
 
