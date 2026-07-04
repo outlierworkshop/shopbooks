@@ -34,6 +34,26 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-03 — Duplicate handling: tighter prevention + a detection safety net
+- Two-pronged, prompted by "what's the best way to handle duplicates getting posted." All prior
+  dedupe (feed txn ids, receipt hashes, statement filename/content, feeds' cross-source check) fires
+  at the import boundary; nothing re-examined the posted ledger.
+- **Prevention tweak**: `feeds._already_on_books` matched a same-amount statement twin only on an
+  EXACT date — but a feed and a statement routinely post the same charge a day or two apart, so the
+  feed twin slipped past and double-posted. Widened to a ±`CROSS_SOURCE_DAYS` (3) window, matching
+  the philosophy of the statement re-import guard's existing ±2-day check.
+- **Detection safety net**: new `duplicates.py` + `/duplicates` page (nav: Bookkeeping → Find
+  Duplicates). Finds posted entries on the same bank/card account for the same signed amount within a
+  4-day window, chained into groups. Anchored on the money-movement leg so each pair is reported once
+  (not twice via the shared category). Never auto-deletes — a genuine repeat is indistinguishable by
+  amount, so it surfaces candidates and the owner checks which to remove (reusing `ledger.delete_entry`,
+  so deleted imports revert to Review; locked-period entries are skipped, not aborted). This is the
+  honest catch-all: cross-source duplicates are inherently heuristic (a statement and a feed can't
+  share a txn id), so prevention keeps the list short and detection covers the rest.
+- `test_duplicates.py` (24 assertions): window boundaries, chained runs, same-amount-different-account
+  separation, once-not-twice reporting, the widened feeds guard, and the delete/skip HTTP surface.
+  Full suite green (incl. test_feeds.py — the guard change didn't regress).
+
 ### 2026-07-03 — Folder watchers for statements and receipts
 - New `watcher.py`: a lightweight polling thread (not a system daemon — only runs while ShopBooks
   itself is running, started at app boot / stopped at shutdown, same lifetime as the existing

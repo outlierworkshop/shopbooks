@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Find Duplicates{% endblock %}
+{% block content %}
+<h1>Possible duplicates</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<p class="muted">Posted entries that hit the same bank/card account for the same amount within {{ window }} days
+of each other — likely the same transaction booked twice (e.g. from both a statement and a bank feed). Check
+the ones to remove and delete them. <strong>Nothing is deleted automatically</strong>: a real repeat (two
+identical charges the same day) looks the same here, so you decide. Deleting an imported line returns it to
+<a href="/review">Review</a>.</p>
+
+{% if not groups %}
+<p class="note">No possible duplicates found. 🎉</p>
+{% else %}
+<form method="post" action="/duplicates/delete"
+      onsubmit="return confirm('Delete the checked entries? Imported lines return to Review.');">
+  <div class="toolbar" style="margin-bottom:12px">
+    <button type="submit" class="danger">Delete checked</button>
+    <span class="muted">{{ groups|length }} group(s) found</span>
+  </div>
+
+  {% for g in groups %}
+  <div class="card section" style="margin-bottom:14px">
+    <div style="font-weight:600; margin-bottom:6px;">
+      {{ g.account_name }} — <span class="{{ 'neg' if g.amount_display < 0 else '' }}">${{ g.amount_display|money }}</span>
+      <span class="muted" style="font-weight:normal;">· {{ g.entries|length }} entries</span>
+    </div>
+    <table class="sortable" style="margin:0">
+      <tr><th></th><th>Date</th><th>Payee</th><th>Category</th><th>Memo</th><th></th></tr>
+      {% for e in g.entries %}
+      <tr>
+        <td><input type="checkbox" name="entry_ids" value="{{ e.entry_id }}"
+                   title="Check to delete this entry"></td>
+        <td>{{ e.date }}</td>
+        <td>{{ e.payee }}</td>
+        <td class="muted">{{ e.counter }}</td>
+        <td class="muted">{{ e.memo }}</td>
+        <td><a href="/register/{{ g.account_id }}" class="muted" style="font-size:12px;">open register</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+
+  <div class="toolbar"><button type="submit" class="danger">Delete checked</button></div>
+</form>
+{% endif %}
+{% endblock %}
