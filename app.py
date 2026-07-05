@@ -381,7 +381,7 @@ def review(request: Request, note: str = "", err: str = ""):
                           "invoice_customer": rinv["customer"] if rinv else None,
                           "invoice_id": rinv["id"] if rinv else None})
         cats = categories(con)
-        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, unmatched_receipts=unmatched_receipts, note=note, err=err))
+        return templates.TemplateResponse(request, "review.html", ctx(request, con, items=items, cats=cats, unmatched_receipts=unmatched_receipts, note=note, err=err, feeds_connected=feeds.connected(con)))
     finally:
         con.close()
 

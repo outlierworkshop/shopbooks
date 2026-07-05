@@ -4,6 +4,14 @@
 <h1>Review imported transactions</h1>
 {% if note %}<p class="note">{{ note }}</p>{% endif %}
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
+{% if feeds_connected %}
+<div class="toolbar" style="margin-bottom:10px">
+  <form class="inline" method="post" action="/feeds/fetch">
+    <button type="submit">⇣ Get bank feeds</button></form>
+  <span class="muted">Pull new transactions from your connected banks into this queue
+    (<a href="/settings#feeds">manage feeds</a>).</span>
+</div>
+{% endif %}
 {% if not items %}
 <p class="muted">Nothing to review. <a href="/import">Import a statement</a> to get started.</p>
 {% else %}
