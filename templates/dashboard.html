@@ -63,76 +63,874 @@
   <a href="/reports"><span class="ico">📊</span> Reports</a>
 </div>
 
-{# ---------- KPI tiles ---------- #}
-<div class="kpis">
-  {% for a in accounts %}
-  <div class="kpi">
-    <div class="label"><span class="ico">{{ '💳' if a.kind == 'card' else '🏦' }}</span>{{ a.name }}</div>
-    <div class="big {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</div>
-    <div class="sub"><a class="muted" href="/register/{{ a.id }}">view register →</a></div>
+<style>
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 24px;
+  margin: 24px 0;
+}
+
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .card-double {
+    grid-column: span 2;
+  }
+}
+
+.dash-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  min-height: 360px;
+}
+
+.dash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.card-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+
+.card-action {
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-action::after {
+  content: '▼';
+  font-size: 0.55rem;
+  opacity: 0.7;
+}
+
+.dash-card-metric {
+  margin-bottom: 12px;
+}
+
+.metric-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.metric-val {
+  font-size: 1.8rem;
+  font-weight: 300;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.metric-trend {
+  font-size: 0.78rem;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metric-trend.pos { color: var(--accent); }
+.metric-trend.neg { color: var(--bad); }
+
+.dash-card-body {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.dash-card-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.dash-card-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.dash-card-footer a:hover {
+  text-decoration: underline;
+}
+
+.more-action {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+/* Donut chart layout */
+.donut-layout {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.donut-chart-container {
+  width: 100px;
+  height: 100px;
+  flex-shrink: 0;
+}
+
+.donut-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-grow: 1;
+  font-size: 0.76rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.legend-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.legend-val {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Progress bar styles */
+.bar-label-group {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  margin-bottom: 2px;
+}
+
+.bar-name { color: var(--muted); }
+.bar-value { font-weight: 600; }
+
+.bar-container {
+  background: var(--line);
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+.bar-fill.income { background: var(--accent); }
+.bar-fill.expense { background: #1c7ed6; }
+
+/* Invoices card horizontal progress bar */
+.invoice-section {
+  margin-bottom: 12px;
+}
+
+.invoice-section:last-child {
+  margin-bottom: 0;
+}
+
+.invoice-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+
+.stacked-bar {
+  display: flex;
+  height: 8px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-segment {
+  height: 100%;
+}
+.bar-segment.overdue { background: var(--bad); }
+.bar-segment.current { background: var(--muted); }
+.bar-segment.deposited { background: var(--accent); }
+
+/* Toggle Button Group */
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.toggle-btn.active {
+  background: var(--line-strong);
+  color: var(--text);
+}
+
+/* SVG Line / Area charts */
+.chart-svg-container {
+  width: 100%;
+  height: 110px;
+}
+
+.chart-svg-container svg {
+  width: 100%;
+  height: 100%;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Hover effects for chart elements */
+.sales-dot, .cash-dot {
+  cursor: pointer;
+  transition: r 0.15s ease, fill 0.15s ease;
+}
+.sales-dot:hover {
+  r: 6;
+  fill: #fff;
+  stroke: #2ca02c;
+  stroke-width: 2.5px;
+}
+.cash-dot:hover {
+  r: 6;
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2.5px;
+}
+.flow-rect {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.flow-rect:hover {
+  opacity: 0.75;
+}
+</style>
+
+{% set label_parts = p_l_compare.current_label.split() %}
+{% if label_parts|length == 2 %}
+  {% set label_yr = label_parts[0] %}
+  {% set label_q = label_parts[1] %}
+  {% set display_period = label_q ~ " FY" ~ label_yr[2:] %}
+  {% set display_prev = "Q" ~ ((label_q[1]|int - 1) if label_q[1]|int > 1 else 4) ~ " FY" ~ (label_yr[2:]|int - (1 if label_q[1]|int == 1 else 0)) %}
+{% else %}
+  {% set display_period = p_l_compare.current_label %}
+  {% set display_prev = p_l_compare.base_label %}
+{% endif %}
+
+<div class="dashboard-grid">
+
+  {# 1. PROFIT & LOSS #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Profit & Loss</span>
+      <select id="select-pl" onchange="updateDashboardPeriods()" style="border: none; background: transparent; color: var(--muted); font-size: 0.78rem; font-weight: 500; cursor: pointer; text-align-last: right; padding-right: 14px; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%228%22 height=%226%22 viewBox=%220 0 8 6%22><path fill=%22%23737373%22 d=%22M0 1.5 L4 5.5 L8 1.5 Z%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 8px 6px;">
+        <option value="last-30-days" {% if pl_period == 'last-30-days' %}selected{% endif %}>Last 30 days</option>
+        <option value="month-to-date" {% if pl_period == 'month-to-date' %}selected{% endif %}>This month to date</option>
+        <option value="this-quarter" {% if pl_period == 'this-quarter' %}selected{% endif %}>This fiscal quarter</option>
+        <option value="fq-to-date" {% if pl_period == 'fq-to-date' %}selected{% endif %}>FQ to date</option>
+        <option value="this-year" {% if pl_period == 'this-year' %}selected{% endif %}>This year</option>
+        <option value="last-quarter" {% if pl_period == 'last-quarter' %}selected{% endif %}>Last quarter</option>
+      </select>
+    </div>
+    {% set net_pct = p_l_compare.net.pct_change %}
+    {% set net_val = p_l_compare.net.current %}
+    {% set net_sign = '-' if net_val < 0 else '' %}
+    {% set net_abs = net_val|abs %}
+    <div class="dash-card-metric">
+      <div class="metric-sub">Net profit for {{ display_period }}</div>
+      <div class="metric-val">{{ net_sign }}${{ "{:,}".format((net_abs / 100) | round | int) }}</div>
+      {% if net_pct is not none %}
+        {% if net_pct < 0 %}
+          <div class="metric-trend neg">↓ Down {{ net_pct|abs }}% <span class="muted">from last quarter</span></div>
+        {% else %}
+          <div class="metric-trend pos">↑ Up {{ net_pct }}% <span class="muted">from last quarter</span></div>
+        {% endif %}
+      {% endif %}
+    </div>
+    <div class="dash-card-body">
+      {% set max_val = [p_l_compare.income.current|abs, p_l_compare.expenses.current|abs] | max %}
+      {% set max_val = max_val if max_val > 0 else 100000 %}
+      {% set inc_pct = (p_l_compare.income.current / max_val * 100) | round | int %}
+      {% set exp_pct = (p_l_compare.expenses.current / max_val * 100) | round | int %}
+      
+      <div class="bar-label-group">
+        <span class="bar-name">Income</span>
+        <span class="bar-value">${{ "{:,}".format((p_l_compare.income.current / 100) | round | int) }}</span>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill income" style="width: {{ inc_pct }}%;"></div>
+      </div>
+      
+      <div class="bar-label-group">
+        <span class="bar-name">Expenses</span>
+        <span class="bar-value">${{ "{:,}".format((p_l_compare.expenses.current / 100) | round | int) }}</span>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill expense" style="width: {{ exp_pct }}%;"></div>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      {% if pending_count %}
+        <a href="/review">Review {{ pending_count }} pending</a>
+      {% else %}
+        <a href="/reports">View reports</a>
+      {% endif %}
+      <span class="more-action">⋮</span>
+    </div>
   </div>
-  {% endfor %}
-  <div class="kpi accent">
-    <div class="label"><span class="ico">📈</span>{{ year }} net profit</div>
-    <div class="big {{ 'neg' if pnl.net < 0 else 'pos' }}">${{ pnl.net|money }}</div>
-    <div class="sub">income ${{ pnl.total_income|money }} · expenses ${{ pnl.total_expenses|money }}</div>
+
+  {# 2. EXPENSES #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Expenses</span>
+      <select id="select-exp" onchange="updateDashboardPeriods()" style="border: none; background: transparent; color: var(--muted); font-size: 0.78rem; font-weight: 500; cursor: pointer; text-align-last: right; padding-right: 14px; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%228%22 height=%226%22 viewBox=%220 0 8 6%22><path fill=%22%23737373%22 d=%22M0 1.5 L4 5.5 L8 1.5 Z%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 8px 6px;">
+        <option value="last-30-days" {% if exp_period == 'last-30-days' %}selected{% endif %}>Last 30 days</option>
+        <option value="month-to-date" {% if exp_period == 'month-to-date' %}selected{% endif %}>This month to date</option>
+        <option value="this-quarter" {% if exp_period == 'this-quarter' %}selected{% endif %}>This fiscal quarter</option>
+        <option value="fq-to-date" {% if exp_period == 'fq-to-date' %}selected{% endif %}>FQ to date</option>
+        <option value="this-year" {% if exp_period == 'this-year' %}selected{% endif %}>This year</option>
+      </select>
+    </div>
+    {% set exp_val = exp_compare.expenses.current %}
+    {% set exp_pct_change = exp_compare.expenses.pct_change %}
+    {% set exp_label_parts = exp_compare.current_label.split() %}
+    {% if exp_label_parts|length == 2 %}
+      {% set exp_display_period = exp_label_parts[1] ~ " FY" ~ exp_label_parts[0][2:] %}
+    {% else %}
+      {% set exp_display_period = exp_compare.current_label %}
+    {% endif %}
+    <div class="dash-card-metric">
+      <div class="metric-sub">Spending for {{ exp_display_period }}</div>
+      <div class="metric-val">${{ "{:,}".format((exp_val / 100) | round | int) }}</div>
+      {% if exp_pct_change is not none %}
+        {% if exp_pct_change < 0 %}
+          <div class="metric-trend pos">↓ Down {{ exp_pct_change|abs }}% <span class="muted">from last quarter</span></div>
+        {% else %}
+          <div class="metric-trend neg">↑ Up {{ exp_pct_change }}% <span class="muted">from last quarter</span></div>
+        {% endif %}
+      {% endif %}
+    </div>
+    <div class="dash-card-body">
+      {% if expense_slices|length > 0 %}
+        <div class="donut-layout">
+          <div class="donut-chart-container">
+            <svg width="100%" height="100%" viewBox="0 0 42 42" class="donut">
+              <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="var(--line)" stroke-width="4.5"></circle>
+              {% set ns = namespace(offset=0) %}
+              {% for slice in expense_slices %}
+                {% set pct = (slice.amount / exp_val * 100) if exp_val > 0 else 0 %}
+                {% if pct > 0 %}
+                  <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" 
+                          stroke="{{ slice.color }}" stroke-width="4.5" 
+                          stroke-dasharray="{{ pct }} {{ 100 - pct }}" 
+                          stroke-dashoffset="{{ 25 - ns.offset }}">
+                  </circle>
+                  {% set ns.offset = ns.offset + pct %}
+                {% endif %}
+              {% endfor %}
+            </svg>
+          </div>
+          <ul class="donut-legend">
+            {% for slice in expense_slices %}
+              {% set pct = (slice.amount / exp_val * 100) if exp_val > 0 else 0 %}
+              <li class="legend-item">
+                <span class="legend-label">
+                  <span class="legend-dot" style="background-color: {{ slice.color }};"></span>
+                  {{ slice.name }}
+                </span>
+                <span class="legend-val">${{ "{:,}".format((slice.amount / 100) | round | int) }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% else %}
+        <div style="text-align: center; color: var(--muted); font-size: 0.85rem; padding: 20px 0;">
+          No expenses recorded this quarter.
+        </div>
+      {% endif %}
+    </div>
+    <div class="dash-card-footer">
+      {% if pending_count %}
+        <a href="/review">Categorize {{ pending_count }} transactions</a>
+      {% else %}
+        <a href="/reports">View expenses</a>
+      {% endif %}
+      <span class="more-action">⋮</span>
+    </div>
   </div>
-  {% if aging.total %}
-  <div class="kpi">
-    <div class="label"><span class="ico">📬</span>Owed to you</div>
-    <div class="big">${{ aging.total|money }}</div>
-    <div class="sub">{% if aging.overdue_total %}<span class="neg">${{ aging.overdue_total|money }} overdue</span> · {% endif %}<a href="/invoices">{{ aging.open_count }} open →</a></div>
+
+  {# 3. CASH FLOW #}
+  <div class="dash-card card-double">
+    <div class="dash-card-header">
+      <span class="card-title">Cash Flow</span>
+      <div class="toggle-group">
+        <button class="toggle-btn active" id="btn-cash-bal">Cash balance</button>
+        <button class="toggle-btn" id="btn-money-inout">Money in/out</button>
+      </div>
+    </div>
+    <div class="dash-card-metric">
+      <div class="metric-sub">Today's cash balance</div>
+      <div class="metric-val">${{ "{:,}".format((brief.cash_on_hand / 100) | round | int) }}</div>
+    </div>
+    <div class="dash-card-body">
+      {% set lo = cash_flow_min %}
+      {% set hi = cash_flow_max %}
+      {% set span = (hi - lo) if (hi - lo) != 0 else 100000 %}
+      {% set W = 560 %}{% set H = 90 %}
+      
+      {% set pts_past = namespace(val='') %}
+      {% set pts_proj = namespace(val='') %}
+      {% set fill_past = namespace(val='0,'~H~' ') %}
+      {% set last_past_x = namespace(val=0) %}
+      {% set last_past_y = namespace(val=0) %}
+      
+      {% for item in cash_flow_chart %}
+        {% set x = (loop.index0 * W / 11) | round(1) %}
+        {% set y = (H - ((item.balance - lo) / span) * H) | round(1) %}
+        {% if loop.index0 <= 8 %}
+          {% set pts_past.val = pts_past.val ~ x ~ ',' ~ y ~ ' ' %}
+          {% set fill_past.val = fill_past.val ~ x ~ ',' ~ y ~ ' ' %}
+          {% set last_past_x.val = x %}
+          {% set last_past_y.val = y %}
+        {% endif %}
+        {% if loop.index0 >= 8 %}
+          {% set pts_proj.val = pts_proj.val ~ x ~ ',' ~ y ~ ' ' %}
+        {% endif %}
+      {% endfor %}
+      {% set fill_past.val = fill_past.val ~ last_past_x.val ~ ',' ~ H %}
+
+      <!-- Chart 1: Cash Balance Area Chart -->
+      <div class="chart-svg-container" id="cash-bal-chart">
+        <svg viewBox="-10 -5 {{ W + 20 }} {{ H + 10 }}" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="cashfill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="0" x2="{{ W }}" y2="0" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ H/2 }}" x2="{{ W }}" y2="{{ H/2 }}" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ H }}" x2="{{ W }}" y2="{{ H }}" stroke="var(--line)" stroke-width="0.5" />
+          
+          <polygon points="{{ fill_past.val }}" fill="url(#cashfill)"></polygon>
+          <polyline points="{{ pts_past.val | trim }}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          <polyline points="{{ pts_proj.val | trim }}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="4 4" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          
+          {% for item in cash_flow_chart %}
+            {% set cx = (loop.index0 * W / 11) | round(1) %}
+            {% set cy = (H - ((item.balance - lo) / span) * H) | round(1) %}
+            <circle class="cash-dot" cx="{{ cx }}" cy="{{ cy }}" r="4" fill="var(--accent)" stroke="var(--card)" stroke-width="1.5"
+                    data-month="{{ item.label }}"
+                    data-balance="${{ "{:,}".format((item.balance / 100) | round | int) }}"
+                    data-projected="{{ '1' if item.projected else '0' }}"></circle>
+          {% endfor %}
+        </svg>
+      </div>
+
+      <!-- Chart 2: Money In/Out Bar Chart -->
+      <div class="chart-svg-container" id="money-inout-chart" style="display: none;">
+        <svg viewBox="-10 -5 {{ W + 20 }} {{ H + 10 }}" preserveAspectRatio="none">
+          <line x1="0" y1="0" x2="{{ W }}" y2="0" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ H/2 }}" x2="{{ W }}" y2="{{ H/2 }}" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ H }}" x2="{{ W }}" y2="{{ H }}" stroke="var(--line)" stroke-width="0.5" />
+          
+          {% set flow_max = money_flow_max if money_flow_max > 0 else 100000 %}
+          {% set bar_w = W / 12 %}
+          {% for item in cash_flow_chart %}
+            {% set x_center = loop.index0 * bar_w + bar_w / 2 %}
+            
+            {% set h_in = (item.inflow / flow_max * H) | round(1) %}
+            {% set y_in = H - h_in %}
+            <rect class="flow-rect" x="{{ x_center - 8 }}" y="{{ y_in }}" width="6" height="{{ h_in }}" fill="var(--accent)" rx="1"
+                  data-month="{{ item.label }}"
+                  data-type="Money In"
+                  data-val="${{ "{:,}".format((item.inflow / 100) | round | int) }}"></rect>
+            
+            {% set h_out = (item.outflow / flow_max * H) | round(1) %}
+            {% set y_out = H - h_out %}
+            <rect class="flow-rect" x="{{ x_center + 2 }}" y="{{ y_out }}" width="6" height="{{ h_out }}" fill="#1c7ed6" rx="1"
+                  data-month="{{ item.label }}"
+                  data-type="Money Out"
+                  data-val="${{ "{:,}".format((item.outflow / 100) | round | int) }}"></rect>
+          {% endfor %}
+        </svg>
+      </div>
+
+      <div class="chart-axis">
+        <span>{{ cash_flow_chart[0].label }}</span>
+        <span>{{ cash_flow_chart[2].label }}</span>
+        <span>{{ cash_flow_chart[4].label }}</span>
+        <span>{{ cash_flow_chart[6].label }}</span>
+        <span>{{ cash_flow_chart[8].label }}</span>
+        <span>{{ cash_flow_chart[10].label }}</span>
+        <span>{{ cash_flow_chart[11].label }}</span>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      <a href="/reports">View cash flow</a>
+      <span class="more-action">⋮</span>
+    </div>
   </div>
-  {% endif %}
+
 </div>
 
-{# ---------- monthly net sparkline ---------- #}
-{% set nets = trend | map(attribute='net') | list %}
-{% if nets | length > 1 %}
-{% set lo = nets | min %}
-{% set hi = nets | max %}
-{% set W = 640 %}{% set H = 120 %}
-{% set n = nets | length %}
-{% set span = (hi - lo) if (hi - lo) != 0 else 1 %}
-{% set ns = namespace(pts='') %}
-{% for v in nets %}
-  {% set x = (loop.index0 * W / (n - 1)) %}
-  {% set y = H - ((v - lo) / span) * H %}
-  {% set ns.pts = ns.pts ~ (x | round(1)) ~ ',' ~ (y | round(1)) ~ ' ' %}
-{% endfor %}
-{% set last_v = nets[-1] %}
-{% set last_y = H - ((last_v - lo) / span) * H %}
-{% set zero_y = H - ((0 - lo) / span) * H %}
-<div class="spark-card">
-  <div class="label">Net profit by month · {{ year }}</div>
-  <div class="spark-wrap">
-    <svg viewBox="-4 -8 {{ W + 8 }} {{ H + 16 }}" preserveAspectRatio="none" role="img"
-         aria-label="Monthly net profit trend for {{ year }}">
-      <defs>
-        <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/>
-          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
-        </linearGradient>
-      </defs>
-      {% if lo < 0 and hi > 0 %}
-      <line x1="0" y1="{{ zero_y | round(1) }}" x2="{{ W }}" y2="{{ zero_y | round(1) }}"
-            stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="4 4"/>
-      {% endif %}
-      <polygon points="0,{{ H }} {{ ns.pts }}{{ W }},{{ H }}" fill="url(#sparkfill)"/>
-      <polyline points="{{ ns.pts | trim }}" fill="none" stroke="var(--accent)"
-                stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"
-                vector-effect="non-scaling-stroke"/>
-      <circle cx="{{ W }}" cy="{{ last_y | round(1) }}" r="4" fill="var(--accent)"
-              stroke="var(--card)" stroke-width="2"/>
-    </svg>
+<div class="dashboard-grid">
+
+  {# 4. INVOICES #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Invoices</span>
+      <span class="card-action">Last 365 days</span>
+    </div>
+    <div class="dash-card-body" style="justify-content: space-around;">
+      <div class="invoice-section">
+        {% set unpaid_val = aging.total %}
+        {% set overdue_val = aging.overdue_total %}
+        {% set current_val = unpaid_val - overdue_val %}
+        {% set overdue_pct = (overdue_val / unpaid_val * 100) | round | int if unpaid_val > 0 else 0 %}
+        {% set current_pct = 100 - overdue_pct if unpaid_val > 0 else 100 %}
+        
+        <div class="bar-label-group" style="margin-bottom: 4px;">
+          <span class="bar-value" style="font-size: 1.1rem; font-weight: 600;">${{ "{:,}".format((unpaid_val / 100) | round | int) }} Unpaid</span>
+          <span class="bar-name">Last 365 days</span>
+        </div>
+        <div class="stacked-bar">
+          <div class="bar-segment overdue" style="width: {{ overdue_pct }}%;"></div>
+          <div class="bar-segment current" style="style: width: {{ current_pct }}%;"></div>
+        </div>
+        <div class="invoice-stats">
+          <span><strong class="neg">${{ "{:,}".format((overdue_val / 100) | round | int) }}</strong> Overdue</span>
+          <span><strong>${{ "{:,}".format((current_val / 100) | round | int) }}</strong> Not due yet</span>
+        </div>
+      </div>
+
+      <div class="invoice-section" style="margin-top: 8px;">
+        <div class="bar-label-group" style="margin-bottom: 4px;">
+          <span class="bar-value" style="font-size: 1.1rem; font-weight: 600;">${{ "{:,}".format((paid_last_30_days / 100) | round | int) }} Paid</span>
+          <span class="bar-name">Last 30 days</span>
+        </div>
+        <div class="stacked-bar">
+          <div class="bar-segment deposited" style="width: 100%;"></div>
+        </div>
+        <div class="invoice-stats">
+          <span>$0 Not deposited</span>
+          <span><strong>${{ "{:,}".format((paid_last_30_days / 100) | round | int) }}</strong> Deposited</span>
+        </div>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      <a href="/invoices">Create invoice</a>
+      <span class="more-action">⋮</span>
+    </div>
   </div>
-  <div class="spark-axis">
-    <span>{{ trend[0].month }}</span>
-    <span>latest: <strong class="{{ 'neg' if last_v < 0 else 'pos' }}">${{ last_v|money }}</strong></span>
-    <span>{{ trend[-1].month }}</span>
+
+  {# 5. SALES #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Sales</span>
+      <select id="select-sales" onchange="updateDashboardPeriods()" style="border: none; background: transparent; color: var(--muted); font-size: 0.78rem; font-weight: 500; cursor: pointer; text-align-last: right; padding-right: 14px; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%228%22 height=%226%22 viewBox=%220 0 8 6%22><path fill=%22%23737373%22 d=%22M0 1.5 L4 5.5 L8 1.5 Z%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 8px 6px;">
+        <option value="last-30-days" {% if sales_period == 'last-30-days' %}selected{% endif %}>Last 30 days</option>
+        <option value="month-to-date" {% if sales_period == 'month-to-date' %}selected{% endif %}>This month to date</option>
+        <option value="this-quarter" {% if sales_period == 'this-quarter' %}selected{% endif %}>This fiscal quarter</option>
+        <option value="ytd" {% if sales_period == 'ytd' %}selected{% endif %}>This year to date</option>
+        <option value="last-12-months" {% if sales_period == 'last-12-months' %}selected{% endif %}>Last 12 months</option>
+      </select>
+    </div>
+    <div class="dash-card-metric">
+      <div class="metric-sub">Total Amount</div>
+      <div class="metric-val">${{ "{:,}".format((sales_total / 100) | round | int) }}</div>
+    </div>
+    <div class="dash-card-body">
+      {% set s_lo = 0 %}
+      {% set s_hi = trend | map(attribute='income') | max %}
+      {% set s_hi = s_hi if s_hi > 0 else 1000000 %}
+      {% set s_span = s_hi - s_lo %}
+      {% set s_W = 280 %}{% set s_H = 70 %}
+      {% set s_pts = namespace(val='') %}
+      {% for item in trend %}
+        {% set x = (loop.index0 * s_W / (trend|length - 1)) | round(1) if trend|length > 1 else 0 %}
+        {% set y = (s_H - ((item.income - s_lo) / s_span) * s_H) | round(1) %}
+        {% set s_pts.val = s_pts.val ~ x ~ ',' ~ y ~ ' ' %}
+      {% endfor %}
+      
+      <div class="chart-svg-container" style="height: 80px;">
+        <svg viewBox="-5 -5 {{ s_W + 10 }} {{ s_H + 10 }}">
+          <line x1="0" y1="0" x2="{{ s_W }}" y2="0" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ s_H/2 }}" x2="{{ s_W }}" y2="{{ s_H/2 }}" stroke="var(--line)" stroke-width="0.5" stroke-dasharray="2 2" />
+          <line x1="0" y1="{{ s_H }}" x2="{{ s_W }}" y2="{{ s_H }}" stroke="var(--line)" stroke-width="0.5" />
+          
+          <polyline points="{{ s_pts.val | trim }}" fill="none" stroke="#2ca02c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          
+          {% set month_map = {'01':'Jan', '02':'Feb', '03':'Mar', '04':'Apr', '05':'May', '06':'Jun', '07':'Jul', '08':'Aug', '09':'Sep', '10':'Oct', '11':'Nov', '12':'Dec'} %}
+          {% for item in trend %}
+            {% set x = (loop.index0 * s_W / (trend|length - 1)) | round(1) if trend|length > 1 else 0 %}
+            {% set y = (s_H - ((item.income - s_lo) / s_span) * s_H) | round(1) %}
+            <circle class="sales-dot" cx="{{ x }}" cy="{{ y }}" r="4" fill="#2ca02c" stroke="var(--card)" stroke-width="1.5"
+                    data-month="{{ month_map.get(item.month[5:], item.month) }}"
+                    data-amount="${{ "{:,}".format((item.income / 100) | round | int) }}"></circle>
+          {% endfor %}
+        </svg>
+      </div>
+
+      {% set month_map = {'01':'Jan', '02':'Feb', '03':'Mar', '04':'Apr', '05':'May', '06':'Jun', '07':'Jul', '08':'Aug', '09':'Sep', '10':'Oct', '11':'Nov', '12':'Dec'} %}
+      <div class="chart-axis">
+        <span>{{ month_map.get(trend[0].month[5:], trend[0].month) }}</span>
+        {% if trend|length > 2 %}
+          <span>{{ month_map.get(trend[(trend|length / 2)|int].month[5:], trend[(trend|length / 2)|int].month) }}</span>
+        {% endif %}
+        <span>{{ month_map.get(trend[-1].month[5:], trend[-1].month) }}</span>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      <a href="/reports">View sales details</a>
+      <span class="more-action">⋮</span>
+    </div>
   </div>
+
+  {# 6. ACCOUNTS RECEIVABLE #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Accounts Receivable</span>
+      <span class="card-action">As of today</span>
+    </div>
+    <div class="dash-card-metric">
+      <div class="metric-sub">Total</div>
+      <div class="metric-val">${{ "{:,}".format((aging.total / 100) | round | int) }}</div>
+    </div>
+    <div class="dash-card-body">
+      <div class="donut-layout">
+        <div class="donut-chart-container">
+          <svg width="100%" height="100%" viewBox="0 0 42 42" class="donut">
+            {% if ar_slices|length > 0 %}
+              <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="var(--line)" stroke-width="4.5"></circle>
+              {% set ns_ar = namespace(offset=0) %}
+              {% for slice in ar_slices %}
+                {% set pct = (slice.amount / aging.total * 100) if aging.total > 0 else 0 %}
+                {% if pct > 0 %}
+                  <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" 
+                          stroke="{{ slice.color }}" stroke-width="4.5" 
+                          stroke-dasharray="{{ pct }} {{ 100 - pct }}" 
+                          stroke-dashoffset="{{ 25 - ns_ar.offset }}">
+                  </circle>
+                  {% set ns_ar.offset = ns_ar.offset + pct %}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="var(--line-strong)" stroke-width="4.5"></circle>
+            {% endif %}
+          </svg>
+        </div>
+        <ul class="donut-legend">
+          {% set ar_brackets = [('current', 'Current', '#37b24d'), ('1-30', '1-30', '#17becf'), ('31-60', '31-60', '#7048e8'), ('61-90', '61-90', '#1c7ed6'), ('90+', '91 and over', '#d8842a')] %}
+          {% for b_key, b_label, b_color in ar_brackets %}
+            <li class="legend-item">
+              <span class="legend-label">
+                <span class="legend-dot" style="background-color: {{ b_color }};"></span>
+                {{ b_label }}
+              </span>
+              <span class="legend-val">${{ "{:,}".format((aging.buckets[b_key] / 100) | round | int) }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      <a href="/invoices">View aging report</a>
+      <span class="more-action">⋮</span>
+    </div>
+  </div>
+
+  {# 7. ACCOUNTS PAYABLE #}
+  <div class="dash-card">
+    <div class="dash-card-header">
+      <span class="card-title">Accounts Payable</span>
+      <span class="card-action">As of today</span>
+    </div>
+    <div class="dash-card-metric">
+      <div class="metric-sub">Total</div>
+      <div class="metric-val">$0</div>
+    </div>
+    <div class="dash-card-body">
+      <div class="donut-layout">
+        <div class="donut-chart-container">
+          <svg width="100%" height="100%" viewBox="0 0 42 42" class="donut">
+            <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="var(--line-strong)" stroke-width="4.5"></circle>
+          </svg>
+        </div>
+        <ul class="donut-legend">
+          {% set ap_brackets = [('Current', '#37b24d'), ('1-30', '#17becf'), ('31-60', '#7048e8'), ('61-90', '#1c7ed6'), ('91 and over', '#d8842a')] %}
+          {% for b_label, b_color in ap_brackets %}
+            <li class="legend-item">
+              <span class="legend-label">
+                <span class="legend-dot" style="background-color: {{ b_color }};"></span>
+                {{ b_label }}
+              </span>
+              <span class="legend-val">$0</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="dash-card-footer">
+      <span>No unpaid bills</span>
+      <span class="more-action">⋮</span>
+    </div>
+  </div>
+
 </div>
-{% endif %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const btnCashBal = document.getElementById("btn-cash-bal");
+  const btnMoneyInOut = document.getElementById("btn-money-inout");
+  const cashBalChart = document.getElementById("cash-bal-chart");
+  const moneyInOutChart = document.getElementById("money-inout-chart");
+  
+  if (btnCashBal && btnMoneyInOut) {
+    btnCashBal.addEventListener("click", function() {
+      btnCashBal.classList.add("active");
+      btnMoneyInOut.classList.remove("active");
+      cashBalChart.style.display = "block";
+      moneyInOutChart.style.display = "none";
+    });
+    
+    btnMoneyInOut.addEventListener("click", function() {
+      btnMoneyInOut.classList.add("active");
+      btnCashBal.classList.remove("active");
+      cashBalChart.style.display = "none";
+      moneyInOutChart.style.display = "block";
+    });
+  }
+});
+
+function updateDashboardPeriods() {
+  const pl = document.getElementById("select-pl").value;
+  const exp = document.getElementById("select-exp").value;
+  const sales = document.getElementById("select-sales").value;
+  window.location.href = `/?pl_period=${pl}&exp_period=${exp}&sales_period=${sales}`;
+}
+</script>
+
+<div id="chart-tooltip" style="position: fixed; display: none; pointer-events: none; background: rgba(0, 0, 0, 0.85); color: white; padding: 6px 10px; border-radius: 4px; font-size: 0.72rem; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.15); z-index: 99999; line-height: 1.3; border: 1px solid rgba(255, 255, 255, 0.15);"></div>
+
+<script>
+(function() {
+  const tooltip = document.getElementById("chart-tooltip");
+  if (!tooltip) return;
+
+  function showTooltip(e, content) {
+    tooltip.innerHTML = content;
+    tooltip.style.display = "block";
+    positionTooltip(e);
+  }
+
+  function positionTooltip(e) {
+    tooltip.style.left = (e.clientX + 12) + "px";
+    tooltip.style.top = (e.clientY - 12) + "px";
+  }
+
+  function hideTooltip() {
+    tooltip.style.display = "none";
+  }
+
+  // Use event delegation on document so it works immediately and dynamically
+  document.addEventListener("mouseover", function(e) {
+    const target = e.target;
+    if (target.classList.contains("sales-dot")) {
+      const month = target.getAttribute("data-month");
+      const amount = target.getAttribute("data-amount");
+      showTooltip(e, `<strong>Sales (${month})</strong><br>${amount}`);
+    } else if (target.classList.contains("cash-dot")) {
+      const month = target.getAttribute("data-month");
+      const balance = target.getAttribute("data-balance");
+      const isProj = target.getAttribute("data-projected") === "1";
+      const suffix = isProj ? " <span style='opacity:0.7; font-size:0.65rem;'>(Projected)</span>" : "";
+      showTooltip(e, `<strong>Cash Balance (${month})</strong>${suffix}<br>${balance}`);
+    } else if (target.classList.contains("flow-rect")) {
+      const month = target.getAttribute("data-month");
+      const type = target.getAttribute("data-type");
+      const val = target.getAttribute("data-val");
+      showTooltip(e, `<strong>${type} (${month})</strong><br>${val}`);
+    }
+  });
+
+  document.addEventListener("mousemove", function(e) {
+    if (tooltip.style.display === "block") {
+      positionTooltip(e);
+    }
+  });
+
+  document.addEventListener("mouseout", function(e) {
+    const target = e.target;
+    if (target.classList.contains("sales-dot") || target.classList.contains("cash-dot") || target.classList.contains("flow-rect")) {
+      hideTooltip();
+    }
+  });
+})();
+</script>
 
 {# ---------- recent activity ---------- #}
 <h2>Recent activity</h2>

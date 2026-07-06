@@ -44,18 +44,35 @@ def parse_period(period="this-year", today=None):
     def month(y, m):
         return (f"{y}-{m:02d}-01", _month_end(y, m).isoformat(), f"{y}-{m:02d}")
 
-    if p in ("this-year", "ytd", "year"):
+    if p in ("this-year", "year"):
         return yr(today.year)
+    if p in ("year-to-date", "ytd"):
+        return (f"{today.year}-01-01", today.isoformat(), "Year to Date")
     if p == "last-year":
         return yr(today.year - 1)
     if p in ("this-month", "month"):
         return month(today.year, today.month)
+    if p in ("this-month-to-date", "month-to-date", "mtd"):
+        return (f"{today.year}-{today.month:02d}-01", today.isoformat(), "Month to Date")
     if p == "last-month":
         y, m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
         return month(y, m)
+    if p in ("last-30-days", "30-days"):
+        start_d = today - timedelta(days=30)
+        return (start_d.isoformat(), today.isoformat(), "Last 30 Days")
+    if p in ("last-12-months", "12-months"):
+        m = today.month + 1
+        y = today.year - 1
+        if m > 12:
+            m -= 12
+            y += 1
+        return (f"{y}-{m:02d}-01", today.isoformat(), "Last 12 Months")
     cur_q = (today.month - 1) // 3 + 1
     if p in ("this-quarter", "quarter"):
         return quarter(today.year, cur_q)
+    if p in ("this-quarter-to-date", "fq-to-date", "qtd"):
+        sm = 3 * (cur_q - 1) + 1
+        return (f"{today.year}-{sm:02d}-01", today.isoformat(), f"Q{cur_q} to Date")
     if p == "last-quarter":
         return quarter(today.year - 1, 4) if cur_q == 1 else quarter(today.year, cur_q - 1)
 
