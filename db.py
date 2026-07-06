@@ -224,6 +224,20 @@ CREATE TABLE IF NOT EXISTS customers(
   phone TEXT DEFAULT '',
   notes TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS customer_files(
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  path TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'tax_form',
+  uploaded_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS customer_notes(
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  note TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS invoices(
   id INTEGER PRIMARY KEY,
   number TEXT UNIQUE NOT NULL,
@@ -551,6 +565,24 @@ def _column_migrations(con):
       invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
       amount_cents INTEGER NOT NULL,
       date TEXT NOT NULL
+    )""")
+
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS customer_files(
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      path TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'tax_form',
+      uploaded_at TEXT DEFAULT (datetime('now'))
+    )""")
+
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS customer_notes(
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      note TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
     )""")
 
 

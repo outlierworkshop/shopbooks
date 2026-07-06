@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Customer Statement: {{ customer.name }}</title>
+<style>
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #1f2937;
+    margin: 40px;
+    background: #fff;
+    line-height: 1.5;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 24px;
+    margin-bottom: 24px;
+  }
+  .logo-area {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  .title-area {
+    text-align: right;
+  }
+  .title {
+    font-size: 1.8rem;
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 8px 0;
+  }
+  .details-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-bottom: 32px;
+  }
+  .details-box h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin: 0 0 8px 0;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 4px;
+  }
+  .details-box p {
+    margin: 0;
+    font-size: 0.95rem;
+    white-space: pre-wrap;
+  }
+  .summary-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .summary-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 16px;
+    background: #f9fafb;
+    text-align: center;
+  }
+  .summary-card .label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 4px;
+  }
+  .summary-card .value {
+    font-size: 1.4rem;
+    font-weight: 600;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 32px;
+  }
+  th {
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #d1d5db;
+  }
+  td {
+    padding: 12px;
+    font-size: 0.9rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .num {
+    text-align: right;
+  }
+  .btn-print {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 24px;
+  }
+  .btn-print:hover {
+    background: #059669;
+  }
+  @media print {
+    .btn-print {
+      display: none;
+    }
+    body {
+      margin: 0;
+    }
+  }
+</style>
+</head>
+<body>
+
+<button class="btn-print" onclick="window.print()">🖨 Print Statement</button>
+
+<div class="header">
+  <div class="logo-area">
+    <strong>📒 ShopBooks</strong>
+  </div>
+  <div class="title-area">
+    <div class="title">Customer Statement</div>
+    <div style="font-size:0.9rem; color:#6b7280;">Date: {{ today }}</div>
+  </div>
+</div>
+
+<div class="details-grid">
+  <div class="details-box">
+    <h3>From</h3>
+    <p><strong>{{ business_name }}</strong>
+{{ business_address }}
+{{ business_phone }}
+{{ business_email }}</p>
+  </div>
+  <div class="details-box">
+    <h3>Customer</h3>
+    <p><strong>{{ customer.name }}</strong>
+{{ customer.address or '' }}
+{{ customer.phone or '' }}
+{{ customer.email or '' }}</p>
+  </div>
+</div>
+
+<div class="summary-cards">
+  <div class="summary-card">
+    <div class="label">Total Invoiced</div>
+    <div class="value">${{ total_invoiced|money }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Total Paid / Credited</div>
+    <div class="value" style="color: #10b981;">${{ total_payments|money }}</div>
+  </div>
+  <div class="summary-card" style="border-left: 4px solid #10b981;">
+    <div class="label">Ending Balance Due</div>
+    <div class="value" style="color: #ef4444;">${{ ending_balance|money }}</div>
+  </div>
+</div>
+
+<h3>Transaction History</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Transaction</th>
+      <th>Type</th>
+      <th class="num">Amount (Debit)</th>
+      <th class="num">Payments (Credit)</th>
+      <th class="num">Running Balance</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in ledger %}
+    <tr>
+      <td>{{ r.date }}</td>
+      <td><strong>{{ r.number }}</strong></td>
+      <td>{{ r.type }}</td>
+      <td class="num">{% if r.debit > 0 %}${{ r.debit|money }}{% else %}—{% endif %}</td>
+      <td class="num">{% if r.credit > 0 %}${{ r.credit|money }}{% else %}—{% endif %}</td>
+      <td class="num"><strong>${{ r.balance|money }}</strong></td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="6" class="muted" style="text-align: center;">No transactions recorded for this period.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div style="margin-top: 60px; text-align: center; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 16px;">
+  Thank you for your business!
+</div>
+
+</body>
+</html>

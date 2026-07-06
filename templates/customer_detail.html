@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }} - Details{% endblock %}
+{% block content %}
+<div style="margin-bottom: 12px;">
+  <a href="/customers" style="text-decoration: none; color: var(--accent); font-weight: 500;">← Back to Customers</a>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+  <h1 style="margin: 0;">{{ customer.name }}</h1>
+  <a class="btn" href="/customers/{{ customer.id }}/report" target="_blank">📄 Generate Statement Report</a>
+</div>
+
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="cards" style="margin-bottom: 24px;">
+  <div class="card">
+    <div class="label">Lifetime Sales</div>
+    <div class="big">${{ total_sales|money }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Outstanding Balance</div>
+    <div class="big {{ 'neg' if total_open > 0 else 'pos' }}">${{ total_open|money }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Available Credit</div>
+    <div class="big {{ 'pos' if credits_avail > 0 else 'muted' }}">${{ credits_avail|money }}</div>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px; align-items: start;">
+  
+  {# LEFT COLUMN: DETAILS, FILES, NOTES #}
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    
+    {# 1. Profile Details #}
+    <div class="card">
+      <h3>Edit Customer Info</h3>
+      <form method="post" action="/customers/update" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="hidden" name="customer_id" value="{{ customer.id }}">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Name</label>
+          <input type="text" name="name" value="{{ customer.name }}" required style="width: 100%;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Email</label>
+          <input type="email" name="email" value="{{ customer.email or '' }}" style="width: 100%;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Phone</label>
+          <input type="text" name="phone" value="{{ customer.phone or '' }}" style="width: 100%;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Billing Address</label>
+          <input type="text" name="address" value="{{ customer.address or '' }}" style="width: 100%;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Notes</label>
+          <textarea name="notes" rows="3" style="width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 6px; background: var(--card); color: var(--text);">{{ customer.notes or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn" style="align-self: flex-end;">Save Profile</button>
+      </form>
+    </div>
+
+    {# 2. Attached Files #}
+    <div class="card">
+      <h3>Documents & Sales Tax Forms</h3>
+      
+      {% if files %}
+      <ul style="list-style: none; padding: 0; margin: 0 0 16px 0; display: flex; flex-direction: column; gap: 8px;">
+        {% for f in files %}
+        <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--card);">
+          <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+            <span style="font-size: 1.2rem;">📄</span>
+            <a href="/customers/file/{{ f.id }}" target="_blank" style="text-decoration: none; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;">{{ f.filename }}</a>
+            <span class="muted" style="font-size: 0.72rem;">({{ f.uploaded_at[:10] }})</span>
+          </div>
+          <form method="post" action="/customers/file/{{ f.id }}/delete" onsubmit="return confirm('Delete this file?');" style="margin: 0;">
+            <button type="submit" style="background: transparent; border: none; color: var(--bad); cursor: pointer; font-size: 0.85rem;">Delete</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin-bottom: 16px;">No documents attached yet.</p>
+      {% endif %}
+
+      <form method="post" action="/customers/{{ customer.id }}/upload-file" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+          <input type="file" name="file" required style="font-size: 0.8rem; max-width: 200px;">
+          <input type="hidden" name="kind" value="tax_form">
+          <button type="submit" class="btn small">Upload File</button>
+        </div>
+      </form>
+    </div>
+
+    {# 3. Customer Notes #}
+    <div class="card">
+      <h3>Chronological Notes</h3>
+      
+      <form method="post" action="/customers/{{ customer.id }}/add-note" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+        <textarea name="note" placeholder="Write a note..." rows="2" required style="width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 6px; background: var(--card); color: var(--text);"></textarea>
+        <button type="submit" class="btn small" style="align-self: flex-end;">Add Note</button>
+      </form>
+
+      {% if notes %}
+      <div style="display: flex; flex-direction: column; gap: 12px; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+        {% for n in notes %}
+        <div style="padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); position: relative;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 4px;">
+            <span>{{ n.created_at }}</span>
+            <form method="post" action="/customers/note/{{ n.id }}/delete" onsubmit="return confirm('Delete this note?');" style="margin: 0;">
+              <button type="submit" style="background: transparent; border: none; color: var(--bad); cursor: pointer; padding: 0;">✕</button>
+            </form>
+          </div>
+          <p style="margin: 0; font-size: 0.85rem; white-space: pre-wrap; line-height: 1.4; color: var(--text);">{{ n.note }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">No notes created yet.</p>
+      {% endif %}
+    </div>
+
+  </div>
+
+  {# RIGHT COLUMN: HISTORY #}
+  <div class="card" style="min-height: 400px;">
+    <h3>Invoices & Estimates History</h3>
+    
+    {% if history %}
+    <table class="sortable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th class="num">Amount</th>
+          <th class="num">Outstanding</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td><strong style="font-size: 1.05rem;"><a href="/invoices/{{ h.id }}">{{ h.number }}</a></strong></td>
+          <td>{{ h.date }}</td>
+          <td>{{ h.kind|capitalize }}</td>
+          <td>
+            {% if h.kind == 'credit_memo' %}
+              {% if h.status == 'paid' %}<span class="pos">fully applied</span>
+              {% elif h.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially applied</span>
+              {% else %}<span class="muted">unapplied</span>{% endif %}
+            {% else %}
+              {% if h.status == 'paid' %}<span class="pos">paid</span>
+              {% elif h.status == 'partially_paid' %}<span class="warn" style="color: #c97d02;">partially paid</span>
+              {% elif h.status == 'void' %}<span class="muted">void</span>
+              {% else %}{{ h.status }}{% endif %}
+            {% endif %}
+          </td>
+          <td class="num">${{ h.total|money }}</td>
+          <td class="num {{ 'neg' if h.outstanding > 0 else 'muted' }}">${{ h.outstanding|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="text-align: center; margin-top: 40px;">No historical invoices or estimates found for this customer.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<h1>Customers</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="toolbar">
+  <button class="btn" onclick="toggleAddCustomer()">+ New Customer</button>
+</div>
+
+<div id="add-customer-panel" class="card" style="display: none; margin-bottom: 20px; max-width: 600px;">
+  <h3>Add New Customer</h3>
+  <form method="post" action="/customers" style="display: flex; flex-direction: column; gap: 12px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Customer Name *</label>
+      <input type="text" name="name" required style="width: 100%;">
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Email</label>
+        <input type="email" name="email" style="width: 100%;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Phone</label>
+        <input type="text" name="phone" style="width: 100%;">
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Billing Address</label>
+      <input type="text" name="address" style="width: 100%;">
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Internal Notes</label>
+      <textarea name="notes" rows="3" style="width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 6px; background: var(--card); color: var(--text);"></textarea>
+    </div>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+      <button type="button" class="btn ghost" onclick="toggleAddCustomer()">Cancel</button>
+      <button type="submit" class="btn">Save Customer</button>
+    </div>
+  </form>
+</div>
+
+<div class="cards" style="margin-bottom: 24px;">
+  <div class="card">
+    <div class="label">Total Customers</div>
+    <div class="big">{{ customers|length }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Accounts Receivable</div>
+    <div class="big {{ 'neg' if ar_total > 0 else 'pos' }}">${{ ar_total|money }}</div>
+    <div class="muted">Outstanding across all invoices</div>
+  </div>
+  <div class="card">
+    <div class="label">Available Credits</div>
+    <div class="big {{ 'pos' if credits_total > 0 else 'muted' }}">${{ credits_total|money }}</div>
+    <div class="muted">Unapplied memos/overpayments</div>
+  </div>
+</div>
+
+{% if customers %}
+<table class="sortable">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Phone</th>
+      <th>Address</th>
+      <th class="num">Sales Total</th>
+      <th class="num">Outstanding</th>
+      <th class="num">Available Credit</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in customers %}
+    <tr>
+      <td><strong style="font-size: 1.05rem;"><a href="/customers/{{ c.id }}">{{ c.name }}</a></strong></td>
+      <td>{{ c.email or '—' }}</td>
+      <td>{{ c.phone or '—' }}</td>
+      <td class="muted">{{ c.address or '—' }}</td>
+      <td class="num">${{ c.total_sales|money }}</td>
+      <td class="num {{ 'neg' if c.total_open > 0 else 'muted' }}">${{ c.total_open|money }}</td>
+      <td class="num {{ 'pos' if c.credit > 0 else 'muted' }}">{% if c.credit > 0 %}${{ c.credit|money }}{% else %}—{% endif %}</td>
+      <td style="text-align: right;"><a href="/customers/{{ c.id }}" class="small btn ghost">View Workspace</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted" style="text-align: center; margin: 40px 0;">No customers found. Click "+ New Customer" to add one.</p>
+{% endif %}
+
+<script>
+function toggleAddCustomer() {
+  const panel = document.getElementById("add-customer-panel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+</script>
+{% endblock %}
