@@ -410,3 +410,89 @@ def db_get_next(con):
     con.execute("INSERT INTO settings(key,value) VALUES('next_invoice_number',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(n + 1),))
     return n
+
+
+# ---------- 5. Products & Services ----------
+
+def parse_items(con, raw_bytes):
+    """Parse a QBO Product/Service list CSV. Returns list of parsed item dicts."""
+    rows = _rows(raw_bytes)
+    hi, headers = _header_index(rows, "product/service", "description", "price")
+    if hi is None:
+        hi, headers = _header_index(rows, "name", "price")
+    if hi is None:
+        hi, headers = _header_index(rows, "product", "rate")
+    if hi is None:
+        hi, headers = _header_index(rows, "item name", "description")
+    if hi is None:
+        hi, headers = _header_index(rows, "name", "rate")
+        
+    if hi is None:
+        raise ValueError(
+            "Couldn't find the header row. Export your QuickBooks Online 'Product/Service List' "
+            "report to CSV (it should contain Name, Description, and Price/Rate columns)."
+        )
+        
+    name_i = _col(headers, "product/service", "item name", "name", "product")
+    sku_i = _col(headers, "sku", "item sku")
+    desc_i = _col(headers, "description", "sales description", "sales memo")
+    price_i = _col(headers, "sales price", "price", "rate", "price/rate")
+    acct_i = _col(headers, "income account", "account", "sales account")
+    
+    lookup = account_lookup(con)
+    out = []
+    
+    for row in rows[hi + 1:]:
+        name = _get(row, name_i)
+        if not name:
+            continue
+            
+        sku = _get(row, sku_i)
+        desc = _get(row, desc_i)
+        price_str = _get(row, price_i)
+        acct_name = _get(row, acct_i)
+        
+        unit_cents = 0
+        if price_str:
+            try:
+                unit_cents = parse_amount_to_cents(price_str)
+            except ValueError:
+                pass
+                
+        income_account_id = None
+        if acct_name:
+            acct = _match_account(lookup, acct_name)
+            if acct:
+                income_account_id = acct["id"]
+                
+        out.append({
+            "name": name,
+            "sku": sku,
+            "description": desc,
+            "unit_cents": unit_cents,
+            "income_account_id": income_account_id
+        })
+        
+    if not out:
+        raise ValueError("No products/services recognized in that file.")
+    return out
+
+
+def import_items(con, parsed):
+    """Import parsed items into the database. Returns (created, updated, skipped)."""
+    created = updated = skipped = 0
+    for item in parsed:
+        row = con.execute("SELECT id FROM items WHERE lower(name) = lower(?)", (item["name"],)).fetchone()
+        if row:
+            con.execute(
+                "UPDATE items SET sku=?, description=?, unit_cents=?, income_account_id=? WHERE id=?",
+                (item["sku"] or None, item["description"], item["unit_cents"], item["income_account_id"], row["id"])
+            )
+            updated += 1
+        else:
+            con.execute(
+                "INSERT INTO items(name, sku, description, unit_cents, income_account_id) VALUES(?,?,?,?,?)",
+                (item["name"], item["sku"] or None, item["description"], item["unit_cents"], item["income_account_id"])
+            )
+            created += 1
+    return created, updated, skipped

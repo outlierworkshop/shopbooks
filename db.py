@@ -254,9 +254,19 @@ CREATE TABLE IF NOT EXISTS invoices(
   last_reminder_date TEXT,                         -- when the last overdue reminder email was sent (AR follow-ups)
   created_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS items(
+  id INTEGER PRIMARY KEY,
+  sku TEXT UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  unit_cents INTEGER NOT NULL DEFAULT 0,
+  income_account_id INTEGER REFERENCES accounts(id),
+  active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS invoice_items(
   id INTEGER PRIMARY KEY,
   invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
   description TEXT NOT NULL,
   qty REAL NOT NULL DEFAULT 1,
   unit_cents INTEGER NOT NULL
@@ -584,6 +594,21 @@ def _column_migrations(con):
       note TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     )""")
+
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS items(
+      id INTEGER PRIMARY KEY,
+      sku TEXT UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      unit_cents INTEGER NOT NULL DEFAULT 0,
+      income_account_id INTEGER REFERENCES accounts(id),
+      active INTEGER NOT NULL DEFAULT 1
+    )""")
+
+    inv_items = {r["name"] for r in con.execute("PRAGMA table_info(invoice_items)").fetchall()}
+    if "item_id" not in inv_items:
+        con.execute("ALTER TABLE invoice_items ADD COLUMN item_id INTEGER REFERENCES items(id) ON DELETE SET NULL")
 
 
 def init():

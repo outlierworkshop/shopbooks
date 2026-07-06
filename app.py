@@ -3270,14 +3270,126 @@ def customer_report(customer_id: int, request: Request):
         con.close()
 
 
+# ---------- products & services catalog ----------
+
+@app.get("/items", response_class=HTMLResponse)
+def items_page(request: Request):
+    con = db.connect()
+    try:
+        err = request.query_params.get("err", "")
+        msg = request.query_params.get("msg", "")
+        
+        items = con.execute(
+            "SELECT i.*, a.name as account_name FROM items i "
+            "LEFT JOIN accounts a ON a.id=i.income_account_id "
+            "ORDER BY i.name"
+        ).fetchall()
+        
+        income_accounts = categories(con, types=("income",))
+        
+        total_items = sum(1 for it in items if it["active"])
+        mapped_items = sum(1 for it in items if it["income_account_id"] and it["active"])
+        
+        return templates.TemplateResponse(request, "items.html", ctx(
+            request, con,
+            items=items,
+            income_accounts=income_accounts,
+            total_items=total_items,
+            mapped_items=mapped_items,
+            err=err,
+            msg=msg
+        ))
+    finally:
+        con.close()
+
+
+@app.post("/items")
+def items_create(name: str = Form(...), sku: str = Form(""), description: str = Form(""),
+                 unit_price: str = Form("0.00"), income_account_id: str = Form("")):
+    con = db.connect()
+    try:
+        if not name.strip():
+            return RedirectResponse("/items?err=Name is required", status_code=303)
+            
+        unit_cents = 0
+        if unit_price.strip():
+            try:
+                unit_cents = ledger.parse_amount_to_cents(unit_price)
+            except ValueError:
+                return RedirectResponse("/items?err=Invalid price format", status_code=303)
+                
+        acct_id = int(income_account_id) if income_account_id.strip() else None
+        
+        con.execute(
+            "INSERT INTO items(name, sku, description, unit_cents, income_account_id) VALUES(?,?,?,?,?)",
+            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id)
+        )
+        con.commit()
+        return RedirectResponse("/items?msg=Product/service added successfully", status_code=303)
+    except Exception as e:
+        return RedirectResponse(f"/items?err={str(e)}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/items/update")
+def items_update(item_id: int = Form(...), name: str = Form(...), sku: str = Form(""),
+                 description: str = Form(""), unit_price: str = Form("0.00"),
+                 income_account_id: str = Form(""), active: str = Form("0")):
+    con = db.connect()
+    try:
+        if not name.strip():
+            return RedirectResponse("/items?err=Name is required", status_code=303)
+            
+        unit_cents = 0
+        if unit_price.strip():
+            try:
+                unit_cents = ledger.parse_amount_to_cents(unit_price)
+            except ValueError:
+                return RedirectResponse("/items?err=Invalid price format", status_code=303)
+                
+        acct_id = int(income_account_id) if income_account_id.strip() else None
+        is_active = 1 if active == "1" else 0
+        
+        con.execute(
+            "UPDATE items SET name=?, sku=?, description=?, unit_cents=?, income_account_id=?, active=? WHERE id=?",
+            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id, is_active, item_id)
+        )
+        con.commit()
+        return RedirectResponse("/items?msg=Product/service updated successfully", status_code=303)
+    except Exception as e:
+        return RedirectResponse(f"/items?err={str(e)}", status_code=303)
+    finally:
+        con.close()
+
+
+@app.post("/items/import-qbo")
+async def items_import_qbo(file: UploadFile = File(...)):
+    con = db.connect()
+    try:
+        contents = await file.read()
+        parsed = migrate.parse_items(con, contents)
+        created, updated, skipped = migrate.import_items(con, parsed)
+        con.commit()
+        return RedirectResponse(
+            f"/items?msg=Import complete: {created} items created, {updated} updated",
+            status_code=303
+        )
+    except Exception as e:
+        return RedirectResponse(f"/items?err={str(e)}", status_code=303)
+    finally:
+        con.close()
+
+
 @app.get("/invoices/new", response_class=HTMLResponse)
 def invoice_new(request: Request):
     con = db.connect()
     try:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         kind = request.query_params.get("kind", "invoice")
+        standard_items = con.execute("SELECT * FROM items WHERE active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "invoice_new.html", ctx(
-            request, con, customers=customers, kind=kind, error=None))
+            request, con, customers=customers, kind=kind, standard_items=standard_items, error=None))
     finally:
         con.close()
 
@@ -3333,8 +3445,9 @@ def invoice_edit(request: Request, invoice_id: int):
         if not inv:
             return RedirectResponse("/invoices", status_code=303)
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        standard_items = con.execute("SELECT * FROM items WHERE active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "invoice_edit.html", ctx(
-            request, con, inv=inv, items=items, customers=customers, error=None))
+            request, con, inv=inv, items=items, customers=customers, standard_items=standard_items, error=None))
     finally:
         con.close()
 
@@ -4097,8 +4210,9 @@ def estimate_new(request: Request):
     con = db.connect()
     try:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
+        standard_items = con.execute("SELECT * FROM items WHERE active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "estimate_new.html", ctx(
-            request, con, customers=customers, error=None))
+            request, con, customers=customers, standard_items=standard_items, error=None))
     finally:
         con.close()
 

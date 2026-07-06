@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Products & Services{% endblock %}
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+  <h1 style="margin: 0;">Products & Services</h1>
+  <div style="display: flex; gap: 8px;">
+    <button class="btn" onclick="toggleAddPanel()">+ New Product/Service</button>
+  </div>
+</div>
+
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="cards" style="margin-bottom: 24px;">
+  <div class="card">
+    <div class="label">Total Products/Services</div>
+    <div class="big">{{ total_items }}</div>
+    <div class="muted">Active billing items</div>
+  </div>
+  <div class="card">
+    <div class="label">Income-Mapped Items</div>
+    <div class="big">{{ mapped_items }}</div>
+    <div class="muted">Correctly mapped to general ledger</div>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; margin-bottom: 24px;">
+  {# 1. Add item panel #}
+  <div id="add-panel" class="card" style="display: none;">
+    <h3>Add Product/Service</h3>
+    <form method="post" action="/items" style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Name *</label>
+        <input type="text" name="name" required style="width: 100%;">
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">SKU</label>
+          <input type="text" name="sku" style="width: 100%;">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Standard Price/Rate ($)</label>
+          <input type="text" name="unit_price" placeholder="0.00" style="width: 100%;">
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Description</label>
+        <input type="text" name="description" placeholder="Standard sales description shown on invoices" style="width: 100%;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label style="font-weight: 500; font-size: 0.85rem; color: var(--text-muted);">Income Account</label>
+        <select name="income_account_id" style="width: 100%;">
+          <option value="">-- Choose Account (optional) --</option>
+          {% for acct in income_accounts %}
+            <option value="{{ acct.id }}">{{ acct.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+        <button type="button" class="btn ghost" onclick="toggleAddPanel()">Cancel</button>
+        <button type="submit" class="btn">Save Product/Service</button>
+      </div>
+    </form>
+  </div>
+
+  {# 2. Import panel #}
+  <div class="card">
+    <h3>QuickBooks Online CSV Import</h3>
+    <p class="muted" style="font-size: 0.85rem; margin-bottom: 12px; line-height: 1.4;">
+      Export your Products and Services list to a CSV file from QuickBooks Online, then upload it below to import all items, descriptions, rates, and account mappings in bulk.
+    </p>
+    <form method="post" action="/items/import-qbo" enctype="multipart/form-data" style="display: flex; align-items: center; gap: 12px;">
+      <input type="file" name="file" accept=".csv" required style="font-size: 0.85rem;">
+      <button type="submit" class="btn small">Import CSV</button>
+    </form>
+  </div>
+</div>
+
+{% if items %}
+<table class="sortable">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>SKU</th>
+      <th>Description</th>
+      <th class="num">Standard Rate</th>
+      <th>Income Account</th>
+      <th>Status</th>
+      <th style="width: 80px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr class="{{ 'muted' if not it.active else '' }}">
+      <td><strong>{{ it.name }}</strong></td>
+      <td>{{ it.sku or '—' }}</td>
+      <td class="muted">{{ it.description or '—' }}</td>
+      <td class="num">${{ it.unit_cents|money }}</td>
+      <td>{{ it.account_name or '—' }}</td>
+      <td>
+        {% if it.active %}
+          <span class="pos" style="font-size: 0.8rem;">Active</span>
+        {% else %}
+          <span class="muted" style="font-size: 0.8rem;">Inactive</span>
+        {% endif %}
+      </td>
+      <td style="text-align: right;">
+        <button class="small btn ghost" onclick='openEditDrawer({{ {
+          "id": it.id,
+          "name": it.name,
+          "sku": it.sku or "",
+          "description": it.description or "",
+          "price": it.unit_cents|money,
+          "income_account_id": it.income_account_id or "",
+          "active": it.active
+        }|tojson|safe }})'>Edit</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted" style="text-align: center; margin: 40px 0;">No products or services found. Click "+ New Product/Service" or upload a QBO CSV to begin.</p>
+{% endif %}
+
+{# EDIT DRAWER / MODAL #}
+<div id="edit-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); z-index:1000;" onclick="closeEditDrawer()"></div>
+<div id="edit-drawer" class="card" style="display:none; position:fixed; right:0; top:0; width:450px; height:100%; background:var(--bg); border-left:1px solid var(--line); z-index:1001; padding:24px; box-shadow:-4px 0 16px rgba(0,0,0,0.1); overflow-y:auto;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid var(--line); padding-bottom:12px;">
+    <h3 style="margin:0;">Edit Product/Service</h3>
+    <button onclick="closeEditDrawer()" style="background:transparent; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">✕</button>
+  </div>
+  <form method="post" action="/items/update" style="display:flex; flex-direction:column; gap:16px;">
+    <input type="hidden" id="edit-id" name="item_id">
+    
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <label style="font-weight:500; font-size:0.85rem; color:var(--text-muted);">Name *</label>
+      <input type="text" id="edit-name" name="name" required style="width:100%;">
+    </div>
+    
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-weight:500; font-size:0.85rem; color:var(--text-muted);">SKU</label>
+        <input type="text" id="edit-sku" name="sku" style="width:100%;">
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-weight:500; font-size:0.85rem; color:var(--text-muted);">Standard Price/Rate ($)</label>
+        <input type="text" id="edit-price" name="unit_price" style="width:100%;">
+      </div>
+    </div>
+    
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <label style="font-weight:500; font-size:0.85rem; color:var(--text-muted);">Description</label>
+      <input type="text" id="edit-description" name="description" style="width:100%;">
+    </div>
+    
+    <div style="display:flex; flex-direction:column; gap:4px;">
+      <label style="font-weight:500; font-size:0.85rem; color:var(--text-muted);">Income Account</label>
+      <select id="edit-account" name="income_account_id" style="width:100%;">
+        <option value="">-- Choose Account (optional) --</option>
+        {% for acct in income_accounts %}
+          <option value="{{ acct.id }}">{{ acct.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    
+    <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+      <input type="checkbox" id="edit-active" name="active" value="1">
+      <label for="edit-active" style="font-weight:500; font-size:0.9rem;">Product/Service is active</label>
+    </div>
+    
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
+      <button type="button" class="btn ghost" onclick="closeEditDrawer()">Cancel</button>
+      <button type="submit" class="btn">Save Changes</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function toggleAddPanel() {
+  const panel = document.getElementById("add-panel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+function openEditDrawer(item) {
+  document.getElementById("edit-id").value = item.id;
+  document.getElementById("edit-name").value = item.name;
+  document.getElementById("edit-sku").value = item.sku;
+  document.getElementById("edit-price").value = item.price;
+  document.getElementById("edit-description").value = item.description;
+  document.getElementById("edit-account").value = item.income_account_id;
+  document.getElementById("edit-active").checked = (item.active === 1 || item.active === true);
+  
+  document.getElementById("edit-overlay").style.display = "block";
+  document.getElementById("edit-drawer").style.display = "block";
+}
+
+function closeEditDrawer() {
+  document.getElementById("edit-overlay").style.display = "none";
+  document.getElementById("edit-drawer").style.display = "none";
+}
+</script>
+{% endblock %}
