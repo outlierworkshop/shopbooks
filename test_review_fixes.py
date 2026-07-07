@@ -104,4 +104,37 @@ conv = con.execute(
 ok(conv and conv["item_id"] == item_id, "estimate->invoice conversion carries item_id")
 con.close()
 
+# ---- #2b: editing an invoice whose catalog item was later DEACTIVATED keeps the link ----
+con = db.connect()
+con.execute("INSERT INTO items(name,description,unit_cents,active) VALUES('Legacy Widget','old',5000,1)")
+legacy_id = con.execute("SELECT id FROM items WHERE name='Legacy Widget'").fetchone()["id"]
+con.commit()
+con.close()
+
+client.post("/invoices/new", data={
+    "customer_id": str(cust_id), "date": "2026-05-01", "due_date": "2026-06-01", "kind": "invoice",
+    "item_id": str(legacy_id), "item_desc": "old", "item_qty": "1", "item_price": "50.00",
+})
+con = db.connect()
+leg_inv = con.execute("SELECT invoice_id FROM invoice_items WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                      (legacy_id,)).fetchone()["invoice_id"]
+con.execute("UPDATE items SET active=0 WHERE id=?", (legacy_id,))  # deactivate it
+con.commit()
+con.close()
+
+# the edit page keeps the now-inactive item selected, so the browser re-posts its id
+g = client.get(f"/invoices/{leg_inv}/edit")
+ok(g.status_code == 200 and "(inactive)" in g.text and f'value="{legacy_id}" selected' in g.text,
+   "edit page shows the deactivated item as a selected (inactive) option")
+
+# an unrelated edit (posting the id the page carried) preserves the linkage
+client.post(f"/invoices/{leg_inv}/edit", data={
+    "customer_id": str(cust_id), "date": "2026-05-01", "due_date": "2026-06-01",
+    "item_id": str(legacy_id), "item_desc": "old", "item_qty": "2", "item_price": "50.00",
+})
+con = db.connect()
+row = con.execute("SELECT item_id FROM invoice_items WHERE invoice_id=?", (leg_inv,)).fetchone()
+ok(row["item_id"] == legacy_id, "editing an invoice preserves the link to a deactivated item")
+con.close()
+
 print("\nREVIEW FIX TESTS DONE")

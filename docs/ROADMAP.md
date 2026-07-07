@@ -34,6 +34,14 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-06 — Harden item linkage when a catalog item is deactivated
+- Edge case from the item_id wiring: if a product/service was **deactivated** after being used on an
+  invoice, it dropped out of the (active-only) line dropdown, so editing the invoice re-posted an
+  empty `item_id` and silently broke the linkage. `invoicing.get_invoice` now LEFT JOINs the catalog
+  (adding `item_name`/`item_active` per line), and the edit form renders the line's current item as a
+  selected **"(inactive)"** option in its own row — so an unrelated edit keeps the link, while the
+  user can still switch to an active item. Covered in `test_review_fixes.py`.
+
 ### 2026-07-06 — Fix statement payments; wire invoice lines to the catalog (review follow-ups)
 - **Customer statement report** now counts multi-payment invoices correctly. It was totaling
   payments from only `paid_entry_id`/`matched_entry_id`, so an invoice paid by several deposits
