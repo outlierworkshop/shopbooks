@@ -20,6 +20,7 @@ Used only for the billable-value figures on the Time and Jobs pages - it is not 
 
 <h2>Invoicing</h2>
 <div class="formgrid">
+  <label>Sales tax rate (%)</label><input type="text" name="sales_tax_rate" value="{{ s.sales_tax_rate }}" placeholder="0" title="Charged on invoice lines marked taxable; 0 = no sales tax. Collected tax is booked to the Sales Tax Payable account.">
   <label>Invoice terms / footer</label><input type="text" name="invoice_terms" value="{{ s.invoice_terms }}">
   <label>Email subject</label><input type="text" name="email_subject" value="{{ s.email_subject }}">
   <label>Email message</label><textarea name="email_body" rows="5">{{ s.email_body }}</textarea>

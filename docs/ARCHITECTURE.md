@@ -177,13 +177,27 @@ double-counts. Handled automatically:
 ## Invoicing (phase 2)
 
 Cash basis: creating/sending an invoice does **not** touch the ledger. "Record payment" posts
-`[(bank, +total), (income, −total)]` and stores `paid_entry_id`. Undo payment (or deleting the
-entry from a register) reverts the invoice to `sent` — `ledger.delete_entry` owns that cleanup.
+`[(bank, +total), (income, −total)]` and stores `paid_entry_id` (for a taxed invoice the income leg
+is split — see Sales tax). Undo payment (or deleting the entry from a register) reverts the invoice
+to `sent` — `ledger.delete_entry` owns that cleanup.
 Numbering: `settings.next_invoice_number`, rendered as `INV-{n}`, incremented at creation
 (numbers are not reused after deletion — fine for this scale).
 PDF: `invoicing.render_pdf` (fpdf2, helvetica, latin-1 — `_latin()` sanitizes).
 Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in settings with
 `{number} {business} {customer} {total} {due_date} {date}` placeholders.
+
+**Sales tax.** Items and invoice/estimate lines carry a `taxable` flag; a single business-wide
+`settings.sales_tax_rate` (percent) applies. `invoice_total` is **tax-inclusive** —
+`invoice_subtotal + invoice_tax` (tax = rate × the taxable lines) — so aging, outstanding balances,
+and payment reconciliation all account for the tax the customer owes. Collected tax is a **liability,
+not income**: `/invoices/{id}/pay` splits the deposit `[(bank, +P), (income, −inc), (Sales Tax
+Payable, −tax)]` via `invoicing.tax_allocation` (proportional on partial payments; no-tax invoices
+stay a plain 2-leg income posting). Because the payment now has income **and** tax legs,
+`invoice_payments_total` / `invoice_payment_entries` count both (income + the Sales Tax Payable leg,
+via `_payment_leg_filter`) so tax-inclusive invoices still reconcile. "Sales Tax Payable" is seeded
+and ensured on every `db.init` (idempotent, `accounts.name` UNIQUE). **Known limitation:** payments
+recorded by *matching an already-booked deposit* (Review/`_match_invoice_to_entry`) don't
+retroactively split tax — that deposit was categorized to income at import time.
 
 ## AI integration (`ai.py`)
 

@@ -8,15 +8,61 @@ import db
 from ledger import fmt_cents
 
 
-def invoice_total(con, invoice_id):
+SALES_TAX_ACCOUNT = "Sales Tax Payable"
+
+
+def sales_tax_rate(con):
+    """Business-wide sales tax rate as a percent float (0 = no sales tax)."""
+    try:
+        return float(db.get_setting(con, "sales_tax_rate", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
+def sales_tax_account_id(con):
+    """Account id of the Sales Tax Payable liability (db.init ensures it exists), or None."""
+    row = con.execute("SELECT id FROM accounts WHERE name=?", (SALES_TAX_ACCOUNT,)).fetchone()
+    return row["id"] if row else None
+
+
+def invoice_subtotal(con, invoice_id):
+    """Sum of line amounts (qty*unit_cents), pre-tax, integer cents. Not credit-signed."""
     row = con.execute(
         "SELECT COALESCE(SUM(CAST(round(qty*unit_cents) AS INTEGER)),0) t FROM invoice_items WHERE invoice_id=?",
         (invoice_id,)).fetchone()
-    total = row["t"]
+    return row["t"]
+
+
+def invoice_tax(con, invoice_id):
+    """Sales tax on the taxable lines at the current rate, integer cents. Not credit-signed."""
+    rate = sales_tax_rate(con)
+    if rate <= 0:
+        return 0
+    row = con.execute(
+        "SELECT COALESCE(SUM(CAST(round(qty*unit_cents) AS INTEGER)),0) t FROM invoice_items "
+        "WHERE invoice_id=? AND taxable=1", (invoice_id,)).fetchone()
+    return round(row["t"] * rate / 100.0)
+
+
+def invoice_total(con, invoice_id):
+    """Subtotal + sales tax (credit memos negated). Tax-inclusive, so balances/aging/payment
+    reconciliation all account for the tax the customer owes."""
+    total = invoice_subtotal(con, invoice_id) + invoice_tax(con, invoice_id)
     inv = con.execute("SELECT kind FROM invoices WHERE id=?", (invoice_id,)).fetchone()
     if inv and inv["kind"] == "credit_memo":
         return -total
     return total
+
+
+def tax_allocation(subtotal, tax, amount):
+    """Split a payment `amount` into (income_cents, tax_cents) proportional to an invoice's
+    subtotal/tax, so collected sales tax lands in the liability rather than income. Tax rounds and
+    income takes the remainder, so income+tax == amount exactly. No tax → (amount, 0)."""
+    total = subtotal + tax
+    if tax <= 0 or total <= 0:
+        return amount, 0
+    tax_part = round(amount * tax / total)
+    return amount - tax_part, tax_part
 
 
 def invoice_applied_credits(con, invoice_id):
@@ -47,33 +93,40 @@ def invoice_outstanding_balance(con, invoice_id):
     return 0
 
 
+def _payment_leg_filter(con):
+    """SQL condition + params selecting an entry's customer-payment legs: income plus any collected
+    sales tax booked to Sales Tax Payable. So a tax-split payment (income + tax legs) totals the full
+    amount received, and a plain matched deposit (all income) still totals correctly."""
+    tax_id = sales_tax_account_id(con)
+    if tax_id:
+        return "(a.type='income' OR s.account_id=?)", [tax_id]
+    return "a.type='income'", []
+
+
 def invoice_payments_total(con, invoice_id):
-    """Calculate the total matched payments for an invoice (integer cents)."""
+    """Total payments matched to an invoice (integer cents), counting income + collected-sales-tax
+    legs so tax-inclusive invoices reconcile."""
     row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
     if not row:
         return 0
+    cond, p = _payment_leg_filter(con)
+
     if row["paid_entry_id"]:
         val = con.execute(
-            "SELECT SUM(abs(s.amount_cents)) FROM splits s "
-            "JOIN accounts a ON a.id=s.account_id "
-            "WHERE s.entry_id=? AND a.type='income'", (row["paid_entry_id"],)
-        ).fetchone()[0]
+            f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
+            f"WHERE s.entry_id=? AND {cond}", [row["paid_entry_id"], *p]).fetchone()[0]
         return val or 0
-    
+
     val = con.execute(
-        "SELECT SUM(abs(s.amount_cents)) FROM splits s "
-        "JOIN accounts a ON a.id=s.account_id "
-        "JOIN invoice_entry_links iel ON iel.entry_id=s.entry_id "
-        "WHERE iel.invoice_id=? AND a.type='income'", (invoice_id,)
-    ).fetchone()[0]
-    
+        f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
+        f"JOIN invoice_entry_links iel ON iel.entry_id=s.entry_id "
+        f"WHERE iel.invoice_id=? AND {cond}", [invoice_id, *p]).fetchone()[0]
+
     if not val and row["matched_entry_id"]:
         val = con.execute(
-            "SELECT SUM(abs(s.amount_cents)) FROM splits s "
-            "JOIN accounts a ON a.id=s.account_id "
-            "WHERE s.entry_id=? AND a.type='income'", (row["matched_entry_id"],)
-        ).fetchone()[0]
-        
+            f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
+            f"WHERE s.entry_id=? AND {cond}", [row["matched_entry_id"], *p]).fetchone()[0]
+
     return val or 0
 
 
@@ -96,10 +149,11 @@ def invoice_payment_entries(con, invoice_id):
     if not eids:
         return []
     ph = ",".join("?" for _ in eids)
+    cond, p = _payment_leg_filter(con)  # income + collected-sales-tax legs = the full amount received
     rows = con.execute(
         f"SELECT e.id entry_id, e.date, e.payee, COALESCE(SUM(abs(s.amount_cents)),0) amount_cents "
         f"FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
-        f"WHERE e.id IN ({ph}) AND a.type='income' GROUP BY e.id ORDER BY e.date, e.id", eids).fetchall()
+        f"WHERE e.id IN ({ph}) AND {cond} GROUP BY e.id ORDER BY e.date, e.id", [*eids, *p]).fetchall()
     return [{"entry_id": r["entry_id"], "date": r["date"], "payee": r["payee"],
              "amount_cents": r["amount_cents"]} for r in rows if r["amount_cents"] > 0]
 
@@ -291,7 +345,18 @@ def render_pdf(con, inv, items, total):
     pdf.set_draw_color(227, 225, 216)
     pdf.set_line_width(0.5)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    
+
+    # Subtotal + sales tax (only shown when tax applies; `total` passed in is already tax-inclusive)
+    tax_cents = invoice_tax(con, inv["id"])
+    if tax_cents:
+        pdf.ln(2)
+        pdf.set_font("helvetica", "", 10.5)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(150, 6, "Subtotal:  ", align="R")
+        pdf.cell(40, 6, f"${fmt_cents(invoice_subtotal(con, inv['id']))}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(150, 6, f"Sales Tax ({sales_tax_rate(con):g}%):  ", align="R")
+        pdf.cell(40, 6, f"${fmt_cents(tax_cents)}  ", align="R", new_x="LMARGIN", new_y="NEXT")
+
     # 5. Total Section
     pdf.ln(2)
     payments_total = 0

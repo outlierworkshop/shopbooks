@@ -38,12 +38,16 @@
     <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr>
     {% for it in items %}
     <tr>
-      <td>{{ it.description }}</td>
+      <td>{{ it.description }}{% if it.taxable %} <span class="muted" style="font-size:11px">(tax)</span>{% endif %}</td>
       <td class="num">{{ '%g'|format(it.qty) }}</td>
       <td class="num">${{ it.unit_cents|money }}</td>
       <td class="num">${{ (it.qty * it.unit_cents)|round|int|money }}</td>
     </tr>
     {% endfor %}
+    {% if tax and tax > 0 and (inv.kind or 'invoice') == 'invoice' %}
+    <tr><td colspan="3" class="num muted">Subtotal</td><td class="num">${{ subtotal|money }}</td></tr>
+    <tr><td colspan="3" class="num muted">Sales Tax ({{ sales_tax_rate }}%)</td><td class="num">${{ tax|money }}</td></tr>
+    {% endif %}
     <tr><td colspan="3"><strong>Total</strong></td><td class="num"><strong>${{ (0 - total)|money if total < 0 else total|money }}</strong></td></tr>
   </table>
   {% if inv.memo %}<p>{{ inv.memo }}</p>{% endif %}
