@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search{% if q %} <span class="muted">“{{ q }}”</span>{% endif %}</h1>
+
+{% if not q %}
+<p class="muted">Type an amount (e.g. <code>45.00</code>), a customer, a vendor or payee, an invoice
+number, or an account name in the search box above.</p>
+
+{% elif results.total == 0 %}
+<p class="muted">No matches for “{{ q }}”. Try an amount like <code>45.00</code>, a customer name,
+a vendor, or an invoice number.</p>
+
+{% else %}
+<p class="muted">{{ results.total }} match{{ 'es' if results.total != 1 else '' }} across your books.</p>
+
+{% if results.transactions %}
+<h2>Transactions</h2>
+<table class="sortable">
+  <tr><th>Date</th><th>Payee</th><th>Account</th><th class="num">Amount</th></tr>
+  {% for r in results.transactions %}
+  <tr>
+    <td>{{ r.date }}</td>
+    <td><a href="/register/{{ r.acct_id }}#entry-{{ r.entry_id }}">{{ r.payee or '(no payee)' }}</a>{% if r.memo %} <span class="muted">- {{ r.memo }}</span>{% endif %}</td>
+    <td class="muted">{{ r.acct }}</td>
+    <td class="num {{ 'neg' if r.amount_cents < 0 else '' }}">${{ r.amount_cents|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.invoices %}
+<h2>Invoices &amp; Estimates</h2>
+<table class="sortable">
+  <tr><th>Number</th><th>Customer</th><th>Date</th><th>Status</th><th class="num">Total</th></tr>
+  {% for r in results.invoices %}
+  <tr>
+    <td><a href="/{{ 'estimates' if r.kind == 'estimate' else 'invoices' }}/{{ r.id }}">{{ r.number }}</a></td>
+    <td>{{ r.customer }}</td>
+    <td>{{ r.date }}</td>
+    <td class="muted">{{ r.status }}</td>
+    <td class="num">${{ r.total_cents|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.customers %}
+<h2>Customers</h2>
+<table class="sortable">
+  <tr><th>Name</th><th>Email</th><th>Phone</th></tr>
+  {% for r in results.customers %}
+  <tr>
+    <td><a href="/customers/{{ r.id }}">{{ r.name }}</a></td>
+    <td class="muted">{{ r.email }}</td>
+    <td class="muted">{{ r.phone }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.receipts %}
+<h2>Receipts</h2>
+<table class="sortable">
+  <tr><th>Vendor</th><th>Date</th><th class="num">Amount</th><th>Status</th></tr>
+  {% for r in results.receipts %}
+  <tr>
+    <td><a href="/doc/{{ r.id }}" target="_blank" data-doc="/doc/{{ r.id }}">{{ r.vendor or '(receipt)' }}</a></td>
+    <td>{{ r.doc_date }}</td>
+    <td class="num">{% if r.amount_cents is not none %}${{ r.amount_cents|money }}{% endif %}</td>
+    <td class="muted">{{ r.status }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.accounts %}
+<h2>Accounts</h2>
+<table class="sortable">
+  <tr><th>Account</th><th>Type</th><th>Kind</th></tr>
+  {% for r in results.accounts %}
+  <tr>
+    <td><a href="/register/{{ r.id }}">{{ r.name }}</a>{% if not r.active %} <span class="muted">(hidden)</span>{% endif %}</td>
+    <td class="muted">{{ r.type }}</td>
+    <td class="muted">{{ r.kind }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.review %}
+<h2>Review queue <span class="muted">(unposted)</span></h2>
+<table class="sortable">
+  <tr><th>Date</th><th>Description</th><th>Account</th><th class="num">Amount</th></tr>
+  {% for r in results.review %}
+  <tr>
+    <td>{{ r.date }}</td>
+    <td><a href="/review">{{ r.description }}</a></td>
+    <td class="muted">{{ r.acct }}</td>
+    <td class="num">${{ r.amount_cents|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.jobs %}
+<h2>Jobs</h2>
+<table class="sortable">
+  <tr><th>Job</th><th>Status</th></tr>
+  {% for r in results.jobs %}
+  <tr><td><a href="/jobs/{{ r.id }}">{{ r.name }}</a></td><td class="muted">{{ r.status }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if results.mileage %}
+<h2>Mileage</h2>
+<table class="sortable">
+  <tr><th>Date</th><th>Purpose</th><th>From</th><th>To</th><th class="num">Miles</th></tr>
+  {% for r in results.mileage %}
+  <tr>
+    <td>{{ r.date }}</td>
+    <td><a href="/mileage">{{ r.purpose or '(trip)' }}</a></td>
+    <td class="muted">{{ r.from_loc }}</td>
+    <td class="muted">{{ r.to_loc }}</td>
+    <td class="num">{{ '%.1f'|format(r.miles) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% endif %}
+{% endblock %}

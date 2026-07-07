@@ -25,6 +25,7 @@ import invoicing
 import ledger
 import migrate
 import reconcile
+import search
 import recurring
 import sync
 import timetracking
@@ -2390,6 +2391,16 @@ def job_detail(request: Request, job_id: int):
 
 
 # ---------- reconciliation ----------
+
+@app.get("/search", response_class=HTMLResponse)
+def search_page(request: Request, q: str = ""):
+    con = db.connect()
+    try:
+        return templates.TemplateResponse(request, "search.html", ctx(
+            request, con, q=q, results=search.run(con, q)))
+    finally:
+        con.close()
+
 
 @app.get("/reconcile", response_class=HTMLResponse)
 def reconcile_page(request: Request, msg: str = ""):

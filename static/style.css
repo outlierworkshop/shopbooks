@@ -389,3 +389,18 @@ table.resizable th { position: relative; overflow: visible; }
   .kpis { grid-template-columns: 1fr 1fr; }
   .hero-stats { gap: 16px; }
 }
+
+/* Global search box in the nav (mirrors the .theme-toggle translucent treatment) */
+.nav-search { display: flex; align-items: center; margin: 0; }
+nav input[type="search"] {
+  background: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--nav-ink-hi); border-radius: var(--r-sm); padding: 5px 10px;
+  min-width: 210px; font-size: 13px;
+}
+nav input[type="search"]::placeholder { color: rgba(255, 255, 255, 0.55); }
+nav input[type="search"]:focus {
+  outline: none; border-color: rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.16);
+}
+/* Highlight a transaction row when deep-linked from a search result (#entry-<id>) */
+tr:target { animation: rowflash 2.2s ease-out; }
+@keyframes rowflash { from { background: var(--accent-ring); } to { background: transparent; } }

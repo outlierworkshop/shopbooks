@@ -86,6 +86,10 @@
 
   <a href="/entry/new" class="nav-btn">+ New Entry</a>
 
+  <form method="get" action="/search" role="search" class="nav-search" style="margin-left:auto">
+    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search amount, name, invoice…" aria-label="Search">
+  </form>
+
   <button type="button" class="theme-toggle" id="themeToggle" title="Toggle light / dark" aria-label="Toggle light or dark theme"></button>
   <span class="ai-pill {{ 'on' if ai_on else 'off' }}">{{ 'AI on' if ai_on else 'AI off' }}</span>
 </nav>

@@ -33,7 +33,7 @@
 <table class="sortable">
   <tr><th></th><th>Date</th><th>Payee</th><th>Other account</th><th></th><th>Job</th><th>Customer</th><th class="num">Amount</th><th class="num">Balance</th><th></th></tr>
   {% for r in rows %}
-  <tr>
+  <tr id="entry-{{ r.entry_id }}">
     <td><input type="checkbox" class="sel-reg" value="{{ r.entry_id }}"></td>
     <td>
       <span class="view-mode">{{ r.date }}</span>

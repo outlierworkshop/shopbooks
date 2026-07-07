@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-07 — Global search
+- New search box in the nav (every page) -> GET /search?q= results page grouping matches by type,
+  each row linking to its detail page. New module search.py (run(con,q)); route in app.py.
+- Interprets the query: text is matched case-insensitively (LIKE) across payee/memo, customer
+  name/email/phone, invoice number/memo, account name, receipt vendor, staged description, job,
+  mileage; an amount-looking query ALSO matches abs(amount_cents) (signs vary across tables).
+  Invoice amounts are computed (invoicing.invoice_total) since no total column exists.
+- Transactions have no detail page, so results deep-link to /register/{acct}#entry-{id}; added an
+  id="entry-{id}" anchor to register rows + a tr:target flash highlight. Nav input styled to match
+  the dark nav. All queries parameterized (injection-safe). test_search.py covers 15 cases.
+
 ### 2026-07-07 — Reconcile: correct the auto-detected account
 - Statement upload (/reconcile/upload) auto-detects the account and jumped straight into it with no
   way to fix a wrong guess. Added an Account selector at the top of the per-account reconcile page
