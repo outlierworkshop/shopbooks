@@ -110,7 +110,12 @@ def get_invoice(con, invoice_id):
         "FROM invoices i JOIN customers c ON c.id=i.customer_id WHERE i.id=?", (invoice_id,)).fetchone()
     if not inv:
         return None, [], 0
-    items = con.execute("SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY id", (invoice_id,)).fetchall()
+    # LEFT JOIN the catalog so each line carries item_name/item_active — lets the edit form keep a
+    # line linked to a now-inactive item (which isn't in the active dropdown) instead of dropping it.
+    items = con.execute(
+        "SELECT ii.*, itm.name AS item_name, itm.active AS item_active "
+        "FROM invoice_items ii LEFT JOIN items itm ON itm.id = ii.item_id "
+        "WHERE ii.invoice_id=? ORDER BY ii.id", (invoice_id,)).fetchall()
     return inv, items, invoice_total(con, invoice_id)
 
 

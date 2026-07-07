@@ -25,6 +25,10 @@
         {% if standard_items %}
         <select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom: 4px;">
           <option value="">-- Choose a Product/Service --</option>
+          {% if it.item_id and not it.item_active %}
+            {# this line's catalog item was deactivated; keep it selected so editing doesn't drop the link #}
+            <option value="{{ it.item_id }}" selected data-desc="{{ it.description }}" data-price="{{ it.unit_cents|money }}">{{ it.item_name or 'Item #' ~ it.item_id }} (inactive)</option>
+          {% endif %}
           {% for item in standard_items %}
             <option value="{{ item.id }}" {{ 'selected' if item.id == it.item_id else '' }} data-desc="{{ item.description }}" data-price="{{ item.unit_cents|money }}">{{ item.name }}</option>
           {% endfor %}
