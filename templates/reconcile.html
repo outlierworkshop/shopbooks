@@ -24,7 +24,7 @@ agree. Do this once per statement (usually monthly).</p>
   <tr><th>Account</th><th class="num">Book balance</th><th>Last reconciled</th><th>Status</th><th></th></tr>
   {% for a in accounts %}
   <tr>
-    <td>{{ a.name }} <span class="muted">({{ a.kind }})</span></td>
+    <td><a href="/register/{{ a.id }}">{{ a.name }}</a> <span class="muted">({{ a.kind }})</span></td>
     <td class="num {{ 'neg' if a.book_balance < 0 else '' }}">${{ a.book_balance|money }}</td>
     <td class="muted">{{ a.last_date or '—' }}</td>
     <td>

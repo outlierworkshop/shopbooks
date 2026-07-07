@@ -682,8 +682,10 @@ async def review_action(request: Request):
         def is_split(sid):
             return form.get(f"splitmode_{sid}") == "1"
 
-        # Persist any typed memos first, so they survive a reload and are carried onto the entry
-        # when the row is posted (memo flows through _post_staged -> ledger.post_entry).
+        # Persist any typed memos and category picks first, so they survive a reload — changing a
+        # row's category (or memo) and then posting/skipping a DIFFERENT row must not revert it.
+        # A row in split mode has its single-category select disabled, so `cat_{id}` isn't submitted
+        # and we don't clobber its category here. (`scat_`/`samt_` split fields don't match `cat_`.)
         for k in form.keys():
             if k.startswith("memo_"):
                 try:
@@ -692,6 +694,14 @@ async def review_action(request: Request):
                     continue
                 con.execute("UPDATE staged SET memo=? WHERE id=? AND status='pending'",
                             (str(form[k]).strip(), msid))
+            elif k.startswith("cat_"):
+                try:
+                    csid = int(k.split("_", 1)[1])
+                except ValueError:
+                    continue
+                v = str(form[k]).strip()
+                con.execute("UPDATE staged SET category_id=? WHERE id=? AND status='pending'",
+                            (int(v) if v else None, csid))
 
         if "save_matches" in form:
             sid = int(form["save_matches"])

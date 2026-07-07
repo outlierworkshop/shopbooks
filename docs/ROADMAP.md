@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-07 — Review/reconcile UX fixes
+- **Reconcile**: each account in the list now links to its register (the name is a link to
+  `/register/{id}`), so you can jump straight to the transactions.
+- **Review**: changing a transaction's category and then posting/skipping a *different* row no
+  longer reverts the change. The review handler now persists all `cat_{id}` picks on every submit
+  (mirroring the existing memo persistence), so edits survive the reload. Split-mode rows are
+  unaffected (their single-category select is disabled and not submitted). Covered by
+  `test_review_category_persist.py`.
+
+
 ### 2026-07-06 — Sales tax on invoices
 - Each product/service and each invoice/estimate line has a **taxable** checkbox; a single
   business-wide **Sales tax rate** (Settings) applies. Invoices/estimates add a **Sales Tax line**
