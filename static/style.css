@@ -404,3 +404,23 @@ nav input[type="search"]:focus {
 /* Highlight a transaction row when deep-linked from a search result (#entry-<id>) */
 tr:target { animation: rowflash 2.2s ease-out; }
 @keyframes rowflash { from { background: var(--accent-ring); } to { background: transparent; } }
+
+/* Type-ahead dropdown under the nav search box */
+.nav-search { position: relative; }
+.search-dropdown {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 340px; max-width: 460px;
+  max-height: 70vh; overflow-y: auto; z-index: 200;
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+.search-dropdown a { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px;
+  color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line); font-size: 13px; }
+.search-dropdown a:last-child { border-bottom: none; }
+.search-dropdown a.active, .search-dropdown a:hover { background: var(--accent-soft); }
+.search-dropdown .stype { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); min-width: 74px; flex: 0 0 auto; }
+.search-dropdown .slabel { font-weight: 500; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-dropdown .ssub { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
+.search-dropdown .search-all { justify-content: center; font-weight: 600; color: var(--accent); }
+.search-dropdown .search-empty { padding: 10px 12px; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--line); }

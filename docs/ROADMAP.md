@@ -34,6 +34,15 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-07 — Global search: live type-ahead
+- Added a debounced type-ahead dropdown to the nav search box. New `search.suggest(con,q,cap)` (a
+  lighter, small-LIMIT flat list; text-only invoice match so it is cheap per keystroke) served by a
+  new `GET /search.json` endpoint (FastAPI serializes the list). New `static/search.js`: fetches on
+  input, renders grouped items each linking to its detail page, with arrow-key highlight, Enter to
+  open (or submit for the full /search page), Esc/outside-click to close; stale responses dropped by
+  a sequence counter; HTML-escaped. Dropdown styled in style.css. Progressive enhancement — the plain
+  submit still works without JS.
+
 ### 2026-07-07 — Global search
 - New search box in the nav (every page) -> GET /search?q= results page grouping matches by type,
   each row linking to its detail page. New module search.py (run(con,q)); route in app.py.

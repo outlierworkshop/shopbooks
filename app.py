@@ -2402,6 +2402,15 @@ def search_page(request: Request, q: str = ""):
         con.close()
 
 
+@app.get("/search.json")
+def search_suggest(q: str = ""):
+    con = db.connect()
+    try:
+        return search.suggest(con, q)   # FastAPI serializes the list to JSON
+    finally:
+        con.close()
+
+
 @app.get("/reconcile", response_class=HTMLResponse)
 def reconcile_page(request: Request, msg: str = ""):
     con = db.connect()
