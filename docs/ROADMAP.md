@@ -34,6 +34,12 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-07 — Reconcile: correct the auto-detected account
+- Statement upload (/reconcile/upload) auto-detects the account and jumped straight into it with no
+  way to fix a wrong guess. Added an Account selector at the top of the per-account reconcile page
+  (reconcile_account.html, fed by a new all_accounts list from the route) that switches account and
+  carries the statement date & balance over. Detection is a heuristic; this restores manual control.
+
 ### 2026-07-07 — Review/reconcile UX fixes
 - **Reconcile**: each account in the list now links to its register (the name is a link to
   `/register/{id}`), so you can jump straight to the transactions.

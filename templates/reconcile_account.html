@@ -8,6 +8,17 @@
     ({% if last.difference_cents == 0 %}<span class="pos">in balance</span>{% else %}<span class="error">was off by ${{ last.difference_cents|abs|money }}</span>{% endif %}){% endif %}
 </p>
 
+<form method="get" class="toolbar" style="margin:4px 0 14px; gap:8px">
+  <label class="muted" for="acctpick">Account:</label>
+  <select id="acctpick" style="max-width:320px"
+          onchange="location.href='/reconcile/'+this.value+'?date={{ date|urlencode }}&amp;balance={{ balance|urlencode }}'">
+    {% for a in all_accounts %}
+    <option value="{{ a.id }}" {{ 'selected' if a.id == acct.id else '' }}>{{ a.name }} ({{ a.kind }})</option>
+    {% endfor %}
+  </select>
+  <span class="muted">If a statement upload picked the wrong account, switch it here — the date &amp; balance carry over.</span>
+</form>
+
 <h2>Check against a statement</h2>
 <form method="get" action="/reconcile/{{ acct.id }}" class="toolbar">
   <input type="date" name="date" value="{{ date or today }}" required>

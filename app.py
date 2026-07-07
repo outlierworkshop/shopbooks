@@ -2422,10 +2422,12 @@ def reconcile_account(request: Request, account_id: int, date: str = "", balance
                 unreconciled = reconcile.unreconciled_transactions(con, account_id, sd)
             except ValueError:
                 result = None
+        all_accounts = con.execute(
+            "SELECT id, name, kind FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "reconcile_account.html", ctx(
             request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
             result=result, txns=txns, dups=dups, unreconciled=unreconciled, cleared_begin=cleared_begin,
-            date=date, balance=balance, cats=categories(con), msg=msg))
+            date=date, balance=balance, cats=categories(con), msg=msg, all_accounts=all_accounts))
     finally:
         con.close()
 
