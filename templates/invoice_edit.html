@@ -23,10 +23,10 @@
     <tr>
       <td>
         {% if standard_items %}
-        <select class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom: 4px;">
+        <select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom: 4px;">
           <option value="">-- Choose a Product/Service --</option>
           {% for item in standard_items %}
-            <option value="{{ item.id }}" data-desc="{{ item.description }}" data-price="{{ item.unit_cents|money }}">{{ item.name }}</option>
+            <option value="{{ item.id }}" {{ 'selected' if item.id == it.item_id else '' }} data-desc="{{ item.description }}" data-price="{{ item.unit_cents|money }}">{{ item.name }}</option>
           {% endfor %}
         </select>
         {% endif %}
@@ -80,7 +80,7 @@ function addRow() {
     for (const item of standardItems) {
       optionsHtml += `<option value="${item.id}" data-desc="${escapeHtml(item.description)}" data-price="${item.price}">${escapeHtml(item.name)}</option>`;
     }
-    selectHtml = `<select class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom:4px;">${optionsHtml}</select>`;
+    selectHtml = `<select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom:4px;">${optionsHtml}</select>`;
   }
   
   r.innerHTML = '<td>' + selectHtml + '<input type="text" name="item_desc" style="width:100%" placeholder="Line description"></td>' +

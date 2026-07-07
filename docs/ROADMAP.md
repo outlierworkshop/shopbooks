@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-06 — Fix statement payments; wire invoice lines to the catalog (review follow-ups)
+- **Customer statement report** now counts multi-payment invoices correctly. It was totaling
+  payments from only `paid_entry_id`/`matched_entry_id`, so an invoice paid by several deposits
+  linked via `invoice_entry_links` showed missing payment rows and an overstated balance. New
+  `invoicing.invoice_payment_entries()` mirrors `invoice_payments_total`'s priority (single full
+  payment → all linked payments → matched deposit); the report reuses it, so the statement now
+  reconciles with the invoice's outstanding balance.
+- **Invoice/estimate lines now persist `item_id`** — the previously-inert column added with the
+  Products & Services catalog. Picking a catalog item records the linkage (on create, edit, and
+  estimate→invoice conversion), enabling future "sales by product/service" reporting; manual lines
+  store NULL. Line-item parsing/insertion consolidated into `_parse_line_items`/`_insert_line_items`,
+  and the item dropdowns now survive validation-error re-renders and the estimate edit page.
+- New committed `test_review_fixes.py` (multi-payment statement, item_id on create/edit/convert,
+  NULL for manual lines). Invoice/estimate/customer suites still pass.
+
+
 ### 2026-07-04 — Edit a posted entry into a split (register ⇔ Split editor)
 - Follow-up to split transactions: you can now split an **already-posted** entry, or re-allocate an
   existing split, straight from a register — no delete-and-re-enter. Each row gets an inline
