@@ -867,6 +867,10 @@ boring tech, built for exactly one user.
   themselves and land in Review.
 - **AI monthly close summary** — one-paragraph "here's what happened in your business last
   month" + anomalies (new vendors, unusual amounts), shown on the dashboard or emailed.
+- **Standalone app (not a browser tab)** — launch in a chromeless app-mode window (Edge/Chrome
+  `--app`) with a taskbar/dock icon and no server console, via a small stdlib `desktop.py`; no new
+  deps, no build step. Owner-approved approach, not scheduled. Full ready-to-execute design:
+  [docs/standalone-app.md](standalone-app.md).
 
 ## Engineering debt (do these opportunistically)
 
