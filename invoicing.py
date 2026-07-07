@@ -77,6 +77,33 @@ def invoice_payments_total(con, invoice_id):
     return val or 0
 
 
+def invoice_payment_entries(con, invoice_id):
+    """Each payment posted against an invoice, as {entry_id, date, payee, amount_cents} (income legs,
+    positive cents), oldest first. Mirrors invoice_payments_total's priority so totals reconcile:
+    a single full-payment entry (paid_entry_id), else every entry linked via invoice_entry_links
+    (multi-payment), else the matched deposit. Callers that need per-payment rows (e.g. the customer
+    statement) use this instead of re-deriving the set from paid_entry_id/matched_entry_id alone."""
+    row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not row:
+        return []
+    if row["paid_entry_id"]:
+        eids = [row["paid_entry_id"]]
+    else:
+        eids = [r["entry_id"] for r in con.execute(
+            "SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchall()]
+        if not eids and row["matched_entry_id"]:
+            eids = [row["matched_entry_id"]]
+    if not eids:
+        return []
+    ph = ",".join("?" for _ in eids)
+    rows = con.execute(
+        f"SELECT e.id entry_id, e.date, e.payee, COALESCE(SUM(abs(s.amount_cents)),0) amount_cents "
+        f"FROM entries e JOIN splits s ON s.entry_id=e.id JOIN accounts a ON a.id=s.account_id "
+        f"WHERE e.id IN ({ph}) AND a.type='income' GROUP BY e.id ORDER BY e.date, e.id", eids).fetchall()
+    return [{"entry_id": r["entry_id"], "date": r["date"], "payee": r["payee"],
+             "amount_cents": r["amount_cents"]} for r in rows if r["amount_cents"] > 0]
+
+
 def get_invoice(con, invoice_id):
     inv = con.execute(
         "SELECT i.*, c.name customer, c.email customer_email, c.address customer_address "

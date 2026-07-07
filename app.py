@@ -3209,28 +3209,18 @@ def customer_report(customer_id: int, request: Request):
                     "id": inv["id"]
                 })
                 
-                row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (inv["id"],)).fetchone()
-                if row:
-                    entry_ids = [eid for eid in (row["paid_entry_id"], row["matched_entry_id"]) if eid]
-                    if entry_ids:
-                        placeholders = ",".join("?" for _ in entry_ids)
-                        payments = con.execute(
-                            f"SELECT e.id, e.date, e.payee, COALESCE(SUM(abs(s.amount_cents)), 0) amt "
-                            f"FROM splits s JOIN entries e ON e.id=s.entry_id "
-                            f"JOIN accounts a ON a.id=s.account_id "
-                            f"WHERE e.id IN ({placeholders}) AND a.type='income' "
-                            f"GROUP BY e.id", entry_ids
-                        ).fetchall()
-                        for p in payments:
-                            if p["amt"] > 0:
-                                txns.append({
-                                    "date": p["date"],
-                                    "number": f"PMT-{p['id']}",
-                                    "type": "Payment",
-                                    "debit_cents": 0,
-                                    "credit_cents": p["amt"],
-                                    "id": p["id"]
-                                })
+                # All payments against this invoice — including multi-payment invoices tracked via
+                # invoice_entry_links (invoicing.invoice_payment_entries mirrors invoice_payments_total,
+                # so the statement reconciles with the invoice's outstanding balance).
+                for p in invoicing.invoice_payment_entries(con, inv["id"]):
+                    txns.append({
+                        "date": p["date"],
+                        "number": f"PMT-{p['entry_id']}",
+                        "type": "Payment",
+                        "debit_cents": 0,
+                        "credit_cents": p["amount_cents"],
+                        "id": p["entry_id"]
+                    })
                                 
         txns.sort(key=lambda x: (x["date"], x["type"] != "Invoice"))
         
@@ -3394,6 +3384,37 @@ def invoice_new(request: Request):
         con.close()
 
 
+def _active_items(con):
+    """Active catalog products/services for invoice/estimate line dropdowns."""
+    return con.execute("SELECT * FROM items WHERE active=1 ORDER BY name").fetchall()
+
+
+def _parse_line_items(form):
+    """Invoice/estimate line rows from the form as (desc, qty, unit_cents, item_id) tuples, skipping
+    blank-description rows. item_id links a line back to the catalog item it was filled from (aligned
+    row-for-row with the descriptions; absent when the page has no catalog dropdown)."""
+    descs = form.getlist("item_desc")
+    qtys = form.getlist("item_qty")
+    prices = form.getlist("item_price")
+    item_ids = form.getlist("item_id")
+    if len(item_ids) != len(descs):        # no catalog on the page → no per-row item select posted
+        item_ids = [""] * len(descs)
+    out = []
+    for d, q, p, iid in zip(descs, qtys, prices, item_ids):
+        if not d.strip():
+            continue
+        out.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p),
+                    int(iid) if (iid and iid.strip()) else None))
+    return out
+
+
+def _insert_line_items(con, invoice_id, items):
+    """Insert parsed (desc, qty, unit_cents, item_id) rows for an invoice/estimate."""
+    for d, q, u, iid in items:
+        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id) VALUES(?,?,?,?,?)",
+                    (invoice_id, d, q, u, iid))
+
+
 @app.post("/invoices/new")
 async def invoice_create(request: Request):
     form = await request.form()
@@ -3403,14 +3424,7 @@ async def invoice_create(request: Request):
         inv_date = ledger.normalize_date(form["date"])
         due_date = ledger.normalize_date(form["due_date"])
         kind = form.get("kind", "invoice")
-        descs = form.getlist("item_desc")
-        qtys = form.getlist("item_qty")
-        prices = form.getlist("item_price")
-        items = []
-        for d, q, p in zip(descs, qtys, prices):
-            if not d.strip():
-                continue
-            items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        items = _parse_line_items(form)
         if not items:
             raise ValueError("Add at least one line item.")
         
@@ -3423,16 +3437,14 @@ async def invoice_create(request: Request):
             "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,?)",
             (number, customer_id, inv_date, due_date, form.get("memo", "").strip(), kind))
         inv_id = cur.lastrowid
-        for d, q, u in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
-                        (inv_id, d, q, u))
+        _insert_line_items(con, inv_id, items)
         con.commit()
         return RedirectResponse(f"/invoices/{inv_id}", status_code=303)
     except (ValueError, KeyError) as e:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         kind = form.get("kind", "invoice")
         return templates.TemplateResponse(request, "invoice_new.html", ctx(
-            request, con, customers=customers, kind=kind, error=str(e)))
+            request, con, customers=customers, kind=kind, standard_items=_active_items(con), error=str(e)))
     finally:
         con.close()
 
@@ -3463,14 +3475,7 @@ async def invoice_update(request: Request, invoice_id: int):
         customer_id = int(form["customer_id"])
         inv_date = ledger.normalize_date(form["date"])
         due_date = ledger.normalize_date(form["due_date"])
-        descs = form.getlist("item_desc")
-        qtys = form.getlist("item_qty")
-        prices = form.getlist("item_price")
-        items = []
-        for d, q, p in zip(descs, qtys, prices):
-            if not d.strip():
-                continue
-            items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        items = _parse_line_items(form)
         if not items:
             raise ValueError("Add at least one line item.")
         
@@ -3478,10 +3483,8 @@ async def invoice_update(request: Request, invoice_id: int):
             "UPDATE invoices SET customer_id=?, date=?, due_date=?, memo=? WHERE id=?",
             (customer_id, inv_date, due_date, form.get("memo", "").strip(), invoice_id))
         con.execute("DELETE FROM invoice_items WHERE invoice_id=?", (invoice_id,))
-        for d, q, u in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
-                        (invoice_id, d, q, u))
-        
+        _insert_line_items(con, invoice_id, items)
+
         _update_document_status(con, invoice_id)
             
         _update_entry_customers_for_invoice(con, invoice_id)
@@ -3492,7 +3495,7 @@ async def invoice_update(request: Request, invoice_id: int):
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         inv, items, _ = invoicing.get_invoice(con, invoice_id)
         return templates.TemplateResponse(request, "invoice_edit.html", ctx(
-            request, con, inv=inv, items=items, customers=customers, error=str(e)))
+            request, con, inv=inv, items=items, customers=customers, standard_items=_active_items(con), error=str(e)))
     finally:
         con.close()
 
@@ -4225,11 +4228,7 @@ async def estimate_create(request: Request):
         customer_id = int(form["customer_id"])
         est_date = ledger.normalize_date(form["date"])
         valid_until = ledger.normalize_date(form["valid_until"])
-        descs, qtys, prices = form.getlist("item_desc"), form.getlist("item_qty"), form.getlist("item_price")
-        items = []
-        for d, q, p in zip(descs, qtys, prices):
-            if d.strip():
-                items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        items = _parse_line_items(form)
         if not items:
             raise ValueError("Add at least one line item.")
         number = invoicing.next_estimate_number(con)
@@ -4237,15 +4236,13 @@ async def estimate_create(request: Request):
             "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,'estimate')",
             (number, customer_id, est_date, valid_until, form.get("memo", "").strip()))
         est_id = cur.lastrowid
-        for d, q, u in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
-                        (est_id, d, q, u))
+        _insert_line_items(con, est_id, items)
         con.commit()
         return RedirectResponse(f"/estimates/{est_id}", status_code=303)
     except (ValueError, KeyError) as e:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "estimate_new.html", ctx(
-            request, con, customers=customers, error=str(e)))
+            request, con, customers=customers, standard_items=_active_items(con), error=str(e)))
     finally:
         con.close()
 
@@ -4259,7 +4256,7 @@ def estimate_edit(request: Request, estimate_id: int):
             return RedirectResponse("/estimates", status_code=303)
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "invoice_edit.html", ctx(
-            request, con, inv=est, items=items, customers=customers, error=None))
+            request, con, inv=est, items=items, customers=customers, standard_items=_active_items(con), error=None))
     finally:
         con.close()
 
@@ -4275,14 +4272,7 @@ async def estimate_update(request: Request, estimate_id: int):
         customer_id = int(form["customer_id"])
         est_date = ledger.normalize_date(form["date"])
         due_date = ledger.normalize_date(form["due_date"])
-        descs = form.getlist("item_desc")
-        qtys = form.getlist("item_qty")
-        prices = form.getlist("item_price")
-        items = []
-        for d, q, p in zip(descs, qtys, prices):
-            if not d.strip():
-                continue
-            items.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p)))
+        items = _parse_line_items(form)
         if not items:
             raise ValueError("Add at least one line item.")
         
@@ -4290,16 +4280,14 @@ async def estimate_update(request: Request, estimate_id: int):
             "UPDATE invoices SET customer_id=?, date=?, due_date=?, memo=? WHERE id=?",
             (customer_id, est_date, due_date, form.get("memo", "").strip(), estimate_id))
         con.execute("DELETE FROM invoice_items WHERE invoice_id=?", (estimate_id,))
-        for d, q, u in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
-                        (estimate_id, d, q, u))
+        _insert_line_items(con, estimate_id, items)
         con.commit()
         return RedirectResponse(f"/estimates/{estimate_id}", status_code=303)
     except (ValueError, KeyError) as e:
         customers = con.execute("SELECT * FROM customers ORDER BY name").fetchall()
         est, items, _ = invoicing.get_invoice(con, estimate_id)
         return templates.TemplateResponse(request, "invoice_edit.html", ctx(
-            request, con, inv=est, items=items, customers=customers, error=str(e)))
+            request, con, inv=est, items=items, customers=customers, standard_items=_active_items(con), error=str(e)))
     finally:
         con.close()
 
@@ -4400,8 +4388,8 @@ def estimate_convert(estimate_id: int):
              est["memo"]))
         inv_id = cur.lastrowid
         for it in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents) VALUES(?,?,?,?)",
-                        (inv_id, it["description"], it["qty"], it["unit_cents"]))
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id) VALUES(?,?,?,?,?)",
+                        (inv_id, it["description"], it["qty"], it["unit_cents"], it["item_id"]))
         con.execute("UPDATE invoices SET status='accepted', converted_invoice_id=? WHERE id=?",
                     (inv_id, estimate_id))
         con.commit()
