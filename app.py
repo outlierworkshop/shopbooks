@@ -75,7 +75,8 @@ def ctx(request, con, **kw):
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
             "reset_suspected": backup.reset_suspected(),
             "sync_alert": sync.last_alert(),
-            "business_name": db.get_setting(con, "business_name", "My Business"), **kw}
+            "business_name": db.get_setting(con, "business_name", "My Business"),
+            "sales_tax_rate": db.get_setting(con, "sales_tax_rate", "0"), **kw}
 
 
 def categories(con, types=("expense", "income", "asset", "liability", "equity")):
@@ -3295,24 +3296,25 @@ def items_page(request: Request):
 
 @app.post("/items")
 def items_create(name: str = Form(...), sku: str = Form(""), description: str = Form(""),
-                 unit_price: str = Form("0.00"), income_account_id: str = Form("")):
+                 unit_price: str = Form("0.00"), income_account_id: str = Form(""),
+                 taxable: str = Form("")):
     con = db.connect()
     try:
         if not name.strip():
             return RedirectResponse("/items?err=Name is required", status_code=303)
-            
+
         unit_cents = 0
         if unit_price.strip():
             try:
                 unit_cents = ledger.parse_amount_to_cents(unit_price)
             except ValueError:
                 return RedirectResponse("/items?err=Invalid price format", status_code=303)
-                
+
         acct_id = int(income_account_id) if income_account_id.strip() else None
-        
+
         con.execute(
-            "INSERT INTO items(name, sku, description, unit_cents, income_account_id) VALUES(?,?,?,?,?)",
-            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id)
+            "INSERT INTO items(name, sku, description, unit_cents, income_account_id, taxable) VALUES(?,?,?,?,?,?)",
+            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id, 1 if taxable else 0)
         )
         con.commit()
         return RedirectResponse("/items?msg=Product/service added successfully", status_code=303)
@@ -3325,25 +3327,25 @@ def items_create(name: str = Form(...), sku: str = Form(""), description: str = 
 @app.post("/items/update")
 def items_update(item_id: int = Form(...), name: str = Form(...), sku: str = Form(""),
                  description: str = Form(""), unit_price: str = Form("0.00"),
-                 income_account_id: str = Form(""), active: str = Form("0")):
+                 income_account_id: str = Form(""), active: str = Form("0"), taxable: str = Form("")):
     con = db.connect()
     try:
         if not name.strip():
             return RedirectResponse("/items?err=Name is required", status_code=303)
-            
+
         unit_cents = 0
         if unit_price.strip():
             try:
                 unit_cents = ledger.parse_amount_to_cents(unit_price)
             except ValueError:
                 return RedirectResponse("/items?err=Invalid price format", status_code=303)
-                
+
         acct_id = int(income_account_id) if income_account_id.strip() else None
         is_active = 1 if active == "1" else 0
-        
+
         con.execute(
-            "UPDATE items SET name=?, sku=?, description=?, unit_cents=?, income_account_id=?, active=? WHERE id=?",
-            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id, is_active, item_id)
+            "UPDATE items SET name=?, sku=?, description=?, unit_cents=?, income_account_id=?, active=?, taxable=? WHERE id=?",
+            (name.strip(), sku.strip() or None, description.strip(), unit_cents, acct_id, is_active, 1 if taxable else 0, item_id)
         )
         con.commit()
         return RedirectResponse("/items?msg=Product/service updated successfully", status_code=303)
@@ -3390,29 +3392,34 @@ def _active_items(con):
 
 
 def _parse_line_items(form):
-    """Invoice/estimate line rows from the form as (desc, qty, unit_cents, item_id) tuples, skipping
-    blank-description rows. item_id links a line back to the catalog item it was filled from (aligned
-    row-for-row with the descriptions; absent when the page has no catalog dropdown)."""
+    """Invoice/estimate line rows from the form as (desc, qty, unit_cents, item_id, taxable) tuples,
+    skipping blank-description rows. item_id links a line back to the catalog item it was filled from;
+    taxable rides a per-row hidden field (a checkbox alone wouldn't submit for unchecked rows and
+    would misalign). Both lists are aligned row-for-row with the descriptions."""
     descs = form.getlist("item_desc")
     qtys = form.getlist("item_qty")
     prices = form.getlist("item_price")
     item_ids = form.getlist("item_id")
+    taxables = form.getlist("item_taxable")
     if len(item_ids) != len(descs):        # no catalog on the page → no per-row item select posted
         item_ids = [""] * len(descs)
+    if len(taxables) != len(descs):
+        taxables = ["0"] * len(descs)
     out = []
-    for d, q, p, iid in zip(descs, qtys, prices, item_ids):
+    for d, q, p, iid, tx in zip(descs, qtys, prices, item_ids, taxables):
         if not d.strip():
             continue
         out.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p),
-                    int(iid) if (iid and iid.strip()) else None))
+                    int(iid) if (iid and iid.strip()) else None,
+                    1 if str(tx).strip() in ("1", "on", "true", "True") else 0))
     return out
 
 
 def _insert_line_items(con, invoice_id, items):
-    """Insert parsed (desc, qty, unit_cents, item_id) rows for an invoice/estimate."""
-    for d, q, u, iid in items:
-        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id) VALUES(?,?,?,?,?)",
-                    (invoice_id, d, q, u, iid))
+    """Insert parsed (desc, qty, unit_cents, item_id, taxable) rows for an invoice/estimate."""
+    for d, q, u, iid, tx in items:
+        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id,taxable) VALUES(?,?,?,?,?,?)",
+                    (invoice_id, d, q, u, iid, tx))
 
 
 @app.post("/invoices/new")
@@ -3743,6 +3750,7 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
 
         return templates.TemplateResponse(request, "invoice_view.html", ctx(
             request, con, inv=inv, items=items, total=total, banks=banks, income=income,
+            subtotal=invoicing.invoice_subtotal(con, invoice_id), tax=invoicing.invoice_tax(con, invoice_id),
             candidates=candidates, matched=matched, matched_entries=matched_entries,
             matched_entry_ids=matched_entry_ids, available_deposits=available_deposits,
             payments_total=payments_total, outstanding_balance=outstanding_balance,
@@ -4028,9 +4036,18 @@ def invoice_pay(invoice_id: int, paid_date: str = Form(...), bank_id: int = Form
             return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
 
         d = ledger.normalize_date(paid_date)
+        # Split the payment so collected sales tax lands in the Sales Tax Payable liability, not income
+        # (proportional to the invoice's tax on a partial payment).
+        sub = invoicing.invoice_subtotal(con, invoice_id)
+        tax = invoicing.invoice_tax(con, invoice_id)
+        inc_part, tax_part = invoicing.tax_allocation(sub, tax, outstanding)
+        tax_acct = invoicing.sales_tax_account_id(con)
+        if tax_part and tax_acct:
+            legs = [(bank_id, outstanding), (income_id, -inc_part), (tax_acct, -tax_part)]
+        else:  # no tax (or account missing) → the whole payment is income
+            legs = [(bank_id, outstanding), (income_id, -outstanding)]
         entry_id = ledger.post_entry(con, d, f"Invoice {inv['number']} - {inv['customer']}",
-                                     [(bank_id, outstanding), (income_id, -outstanding)],
-                                     memo=f"invoice #{inv['number']}",
+                                     legs, memo=f"invoice #{inv['number']}",
                                      customer_id=inv["customer_id"])
         con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
                     (d, entry_id, invoice_id))
@@ -4305,6 +4322,7 @@ def estimate_view(request: Request, estimate_id: int, msg: str = "", err: str = 
                                     (est["converted_invoice_id"],)).fetchone()
         return templates.TemplateResponse(request, "estimate_view.html", ctx(
             request, con, inv=est, items=items, total=total, converted=converted, msg=msg, err=err,
+            subtotal=invoicing.invoice_subtotal(con, estimate_id), tax=invoicing.invoice_tax(con, estimate_id),
             email_on=invoicing.email_configured(con),
             biz_address=db.get_setting(con, "business_address", ""),
             biz_email=db.get_setting(con, "business_email", ""),
@@ -4388,8 +4406,8 @@ def estimate_convert(estimate_id: int):
              est["memo"]))
         inv_id = cur.lastrowid
         for it in items:
-            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id) VALUES(?,?,?,?,?)",
-                        (inv_id, it["description"], it["qty"], it["unit_cents"], it["item_id"]))
+            con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id,taxable) VALUES(?,?,?,?,?,?)",
+                        (inv_id, it["description"], it["qty"], it["unit_cents"], it["item_id"], it["taxable"]))
         con.execute("UPDATE invoices SET status='accepted', converted_invoice_id=? WHERE id=?",
                     (inv_id, estimate_id))
         con.commit()
@@ -5192,6 +5210,14 @@ async def settings_save(request: Request):
         for k in plain:
             if k in form:
                 db.set_setting(con, k, str(form[k]).strip())
+        # sales tax rate: sanitize to a non-negative number (accepts "8.25" or "8.25%")
+        if "sales_tax_rate" in form:
+            raw = str(form["sales_tax_rate"]).strip().rstrip("%").strip()
+            try:
+                rate = max(0.0, float(raw or 0))
+            except ValueError:
+                rate = 0.0
+            db.set_setting(con, "sales_tax_rate", str(rate))
         # secrets: blank = keep current, "CLEAR" = remove
         for k in ("anthropic_api_key", "smtp_password"):
             v = str(form.get(k, "")).strip()

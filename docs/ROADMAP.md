@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-06 — Sales tax on invoices
+- Each product/service and each invoice/estimate line has a **taxable** checkbox; a single
+  business-wide **Sales tax rate** (Settings) applies. Invoices/estimates add a **Sales Tax line**
+  (Subtotal → Sales Tax (rate%) → Total) on screen and in the PDF; taxable lines are marked "(tax)".
+- Totals are now **tax-inclusive** (`invoice_total = subtotal + tax`), so balances, AR aging, and
+  payment reconciliation all account for the tax owed. Picking a catalog item auto-fills its taxable
+  flag onto the line (per-row hidden field keeps form alignment).
+- **Collected tax is booked as a liability, not income.** Recording a payment splits it
+  `[(bank, +P), (income, −subtotal share), (Sales Tax Payable, −tax share)]` (proportional on partial
+  payments); `invoice_payments_total`/`invoice_payment_entries` count the tax leg so tax-inclusive
+  invoices still reconcile. A "Sales Tax Payable" account is seeded and ensured on every launch.
+  Non-taxed invoices are unchanged (single income leg).
+- Schema: `items.taxable`, `invoice_items.taxable`, `sales_tax_rate` setting (guarded migrations).
+  New committed `test_sales_tax.py`; full invoicing/customer/items regression suite passes.
+  Limitation: matching an already-booked deposit doesn't retroactively split tax (documented).
+
+
 ### 2026-07-06 — Harden item linkage when a catalog item is deactivated
 - Edge case from the item_id wiring: if a product/service was **deactivated** after being used on an
   invoice, it dropped out of the (active-only) line dropdown, so editing the invoice re-posted an

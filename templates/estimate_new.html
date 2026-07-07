@@ -19,14 +19,14 @@
 
   <h2>Line items</h2>
   <table id="items" style="max-width:720px">
-    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th></tr>
+    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th><th style="width:48px" title="Charge sales tax on this line">Tax</th></tr>
     <tr>
       <td>
         {% if standard_items %}
         <select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom: 4px;">
           <option value="">-- Choose a Product/Service --</option>
           {% for item in standard_items %}
-            <option value="{{ item.id }}" data-desc="{{ item.description }}" data-price="{{ item.unit_cents|money }}">{{ item.name }}</option>
+            <option value="{{ item.id }}" data-desc="{{ item.description }}" data-price="{{ item.unit_cents|money }}" data-taxable="{{ 1 if item.taxable else 0 }}">{{ item.name }}</option>
           {% endfor %}
         </select>
         {% endif %}
@@ -34,6 +34,10 @@
       </td>
       <td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>
       <td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>
+      <td style="text-align:center">
+        <input type="checkbox" class="tax-check" onchange="syncTax(this)">
+        <input type="hidden" name="item_taxable" value="0">
+      </td>
     </tr>
   </table>
   <div class="toolbar">
@@ -44,22 +48,25 @@
 <script>
 const standardItems = [
   {% for item in standard_items %}
-    { id: {{ item.id }}, name: {{ item.name|tojson }}, description: {{ item.description|tojson }}, price: "{{ item.unit_cents|money }}" },
+    { id: {{ item.id }}, name: {{ item.name|tojson }}, description: {{ item.description|tojson }}, price: "{{ item.unit_cents|money }}", taxable: {{ 1 if item.taxable else 0 }} },
   {% endfor %}
 ];
+
+function syncTax(cb) {
+  const h = cb.parentNode.querySelector('input[name="item_taxable"]');
+  if (h) h.value = cb.checked ? '1' : '0';
+}
 
 function onItemSelect(sel) {
   const opt = sel.options[sel.selectedIndex];
   if (!opt || !sel.value) return;
-  const desc = opt.getAttribute("data-desc") || "";
-  const price = opt.getAttribute("data-price") || "";
-  
   const row = sel.closest("tr");
   const descInput = row.querySelector('input[name="item_desc"]');
   const priceInput = row.querySelector('input[name="item_price"]');
-  
-  if (descInput) descInput.value = desc;
-  if (priceInput) priceInput.value = price;
+  if (descInput) descInput.value = opt.getAttribute("data-desc") || "";
+  if (priceInput) priceInput.value = opt.getAttribute("data-price") || "";
+  const cb = row.querySelector('.tax-check');
+  if (cb) { cb.checked = opt.getAttribute("data-taxable") === "1"; syncTax(cb); }
 }
 
 function escapeHtml(str) {
@@ -70,20 +77,20 @@ function escapeHtml(str) {
 function addRow() {
   const t = document.getElementById('items');
   const r = t.insertRow(-1);
-  
+
   let selectHtml = '';
   if (standardItems.length > 0) {
     let optionsHtml = '<option value="">-- Choose a Product/Service --</option>';
     for (const item of standardItems) {
-      optionsHtml += `<option value="${item.id}" data-desc="${escapeHtml(item.description)}" data-price="${item.price}">${escapeHtml(item.name)}</option>`;
+      optionsHtml += `<option value="${item.id}" data-desc="${escapeHtml(item.description)}" data-price="${item.price}" data-taxable="${item.taxable}">${escapeHtml(item.name)}</option>`;
     }
     selectHtml = `<select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom:4px;">${optionsHtml}</select>`;
   }
-  
+
   r.innerHTML = '<td>' + selectHtml + '<input type="text" name="item_desc" style="width:100%" placeholder="Line description"></td>' +
     '<td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>' +
     '<td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>' +
-    (t.rows[0].cells.length > 3 ? '<td><button type="button" class="small danger" onclick="deleteRow(this)">✕</button></td>' : '');
+    '<td style="text-align:center"><input type="checkbox" class="tax-check" onchange="syncTax(this)"><input type="hidden" name="item_taxable" value="0"></td>';
 }
 </script>
 {% endif %}

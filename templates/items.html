@@ -56,6 +56,10 @@
           {% endfor %}
         </select>
       </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="add-taxable" name="taxable" value="1" style="width:auto;">
+        <label for="add-taxable" style="font-weight: 500; font-size: 0.9rem;">Charge sales tax on this item</label>
+      </div>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
         <button type="button" class="btn ghost" onclick="toggleAddPanel()">Cancel</button>
         <button type="submit" class="btn">Save Product/Service</button>
@@ -84,6 +88,7 @@
       <th>SKU</th>
       <th>Description</th>
       <th class="num">Standard Rate</th>
+      <th>Taxable</th>
       <th>Income Account</th>
       <th>Status</th>
       <th style="width: 80px;"></th>
@@ -96,6 +101,7 @@
       <td>{{ it.sku or '—' }}</td>
       <td class="muted">{{ it.description or '—' }}</td>
       <td class="num">${{ it.unit_cents|money }}</td>
+      <td>{{ 'Yes' if it.taxable else '—' }}</td>
       <td>{{ it.account_name or '—' }}</td>
       <td>
         {% if it.active %}
@@ -112,7 +118,8 @@
           "description": it.description or "",
           "price": it.unit_cents|money,
           "income_account_id": it.income_account_id or "",
-          "active": it.active
+          "active": it.active,
+          "taxable": it.taxable
         }|tojson|safe }})'>Edit</button>
       </td>
     </tr>
@@ -165,8 +172,13 @@
     </div>
     
     <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-      <input type="checkbox" id="edit-active" name="active" value="1">
+      <input type="checkbox" id="edit-active" name="active" value="1" style="width:auto;">
       <label for="edit-active" style="font-weight:500; font-size:0.9rem;">Product/Service is active</label>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:8px;">
+      <input type="checkbox" id="edit-taxable" name="taxable" value="1" style="width:auto;">
+      <label for="edit-taxable" style="font-weight:500; font-size:0.9rem;">Charge sales tax on this item</label>
     </div>
     
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
@@ -190,7 +202,8 @@ function openEditDrawer(item) {
   document.getElementById("edit-description").value = item.description;
   document.getElementById("edit-account").value = item.income_account_id;
   document.getElementById("edit-active").checked = (item.active === 1 || item.active === true);
-  
+  document.getElementById("edit-taxable").checked = (item.taxable === 1 || item.taxable === true);
+
   document.getElementById("edit-overlay").style.display = "block";
   document.getElementById("edit-drawer").style.display = "block";
 }

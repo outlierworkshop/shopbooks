@@ -261,7 +261,8 @@ CREATE TABLE IF NOT EXISTS items(
   description TEXT DEFAULT '',
   unit_cents INTEGER NOT NULL DEFAULT 0,
   income_account_id INTEGER REFERENCES accounts(id),
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  taxable INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS invoice_items(
   id INTEGER PRIMARY KEY,
@@ -269,7 +270,8 @@ CREATE TABLE IF NOT EXISTS invoice_items(
   item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
   description TEXT NOT NULL,
   qty REAL NOT NULL DEFAULT 1,
-  unit_cents INTEGER NOT NULL
+  unit_cents INTEGER NOT NULL,
+  taxable INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS invoice_entry_links(
   invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
@@ -395,6 +397,7 @@ SEED_ACCOUNTS = [
     ("Utilities", "expense", "category"),
     ("Vehicle Expenses", "expense", "category"),
     ("Uncategorized Expense", "expense", "category"),
+    ("Sales Tax Payable", "liability", "category"),  # sales tax collected on invoices, owed to the state
 ]
 
 SEED_RULES = [
@@ -453,6 +456,7 @@ DEFAULT_SETTINGS = {
                       "was due {due_date} and is still open. The invoice is attached again for your "
                       "convenience.\n\nThank you!\n{business}"),
     "estimated_income_tax_rate": "15",
+    "sales_tax_rate": "0",  # percent charged on taxable invoice lines; 0 = no sales tax
 }
 
 
@@ -609,6 +613,12 @@ def _column_migrations(con):
     inv_items = {r["name"] for r in con.execute("PRAGMA table_info(invoice_items)").fetchall()}
     if "item_id" not in inv_items:
         con.execute("ALTER TABLE invoice_items ADD COLUMN item_id INTEGER REFERENCES items(id) ON DELETE SET NULL")
+    if "taxable" not in inv_items:
+        con.execute("ALTER TABLE invoice_items ADD COLUMN taxable INTEGER NOT NULL DEFAULT 0")
+
+    item_cols = {r["name"] for r in con.execute("PRAGMA table_info(items)").fetchall()}
+    if "taxable" not in item_cols:
+        con.execute("ALTER TABLE items ADD COLUMN taxable INTEGER NOT NULL DEFAULT 0")
 
 
 def init():
@@ -625,6 +635,9 @@ def init():
                 con.execute("INSERT INTO rules(pattern,account_id) VALUES(?,?)", (pattern, row["id"]))
     for k, v in DEFAULT_SETTINGS.items():
         con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
+    # Ensure the Sales Tax Payable liability exists on existing books too (SEED_ACCOUNTS only runs on
+    # a fresh DB). accounts.name is UNIQUE, so this is idempotent.
+    con.execute("INSERT OR IGNORE INTO accounts(name,type,kind) VALUES('Sales Tax Payable','liability','category')")
     con.commit()
     con.close()
 
