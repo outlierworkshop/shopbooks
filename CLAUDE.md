@@ -1,7 +1,8 @@
 # ShopBooks — agent guide
 
 Local double-entry accounting app for a one-person business (the owner's QuickBooks Online
-replacement). Python 3.14 + FastAPI + SQLite + Jinja2, runs at http://127.0.0.1:8765.
+replacement). Python 3.9+ (the mac venv is the system 3.9; CI runs 3.13) + FastAPI + SQLite +
+Jinja2, runs at http://127.0.0.1:8765.
 **This is a long-lived project maintained by many agents over time. Read this file fully
 before changing anything; read `docs/ARCHITECTURE.md` before touching the ledger, importer,
 or AI modules.**
@@ -20,6 +21,12 @@ or AI modules.**
 ```
 On Apple Silicon, native wheels are arm64; run Python as `arch -arm64 .venv/bin/python …` if a
 launcher (LaunchServices/Rosetta terminal) starts it as x86_64. `run-mac.command` handles this.
+
+**Run the whole suite with `python run_tests.py`** (each file in its own process; ~25s; exits
+nonzero on any failure and REFUSES a test file that doesn't set `SHOPBOOKS_DATA_DIR`). CI runs it
+on every push/PR (`.github/workflows/tests.yml`). In tests use `from testutil import ok` for
+checks — it prints PASS/FAIL **and forces a nonzero exit if any check failed**. Never hand-roll a
+print-only `ok = lambda ...`: that pattern let failing tests exit 0 and look green.
 
 `test_safety.py` is the committed canonical test and shows the **mandatory** pattern: set
 `SHOPBOOKS_DATA_DIR` to a temp dir **before importing `db`/`app`**, so a test can never touch

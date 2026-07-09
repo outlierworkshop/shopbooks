@@ -292,5 +292,14 @@ The user's books are irreplaceable, so location and backups are first-class conc
 pattern for every test: set `SHOPBOOKS_DATA_DIR` to a temp dir **before importing `db`/`app`**,
 so tests run against a throwaway database and can never read, write, or delete real books.
 Flow tests use `fastapi.testclient.TestClient` over the full happy path and assert the ledger
-zero-sum invariant; they may be throwaway but must set the env var first. Future work: fold the
-throwaway flow scripts into a committed pytest suite sharing a tmp-dir fixture.
+zero-sum invariant; they may be throwaway but must set the env var first.
+
+**Harness** (`run_tests.py` + `testutil.py`): the suite is script-style on purpose (each file is a
+self-contained scenario that controls its env before importing the app), so the runner executes
+each `test_*.py` in its own subprocess and fails on a nonzero exit OR a `FAIL` line in the output.
+It also refuses any test file that doesn't mention `SHOPBOOKS_DATA_DIR` — the safety rule is
+enforced mechanically, not just documented. In-test checks use `testutil.ok(cond, msg)`, which
+prints PASS/FAIL and, via an atexit hook, forces exit code 1 if anything failed (the historical
+`ok = lambda: print(...)` pattern reported failures but still exited 0 — a failing suite could
+look green). CI (`.github/workflows/tests.yml`) runs the runner on every push/PR; no secrets are
+needed because AI tests force the AI-off path and feed tests monkeypatch HTTP.

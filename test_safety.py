@@ -15,7 +15,7 @@ os.environ["SHOPBOOKS_DATA_DIR"] = str(TMP)
 import db  # noqa: E402  (import after env var is set)
 import backup  # noqa: E402
 
-ok = lambda cond, what: print(("PASS" if cond else "FAIL"), what)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 
 # 1. isolation: every path must be under the temp dir, not the repo or AppData
 ok(db.DATA == TMP, f"DATA points at temp dir ({db.DATA})")

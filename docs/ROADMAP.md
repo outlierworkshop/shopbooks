@@ -34,6 +34,20 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-09 — Test harness that can actually fail + CI
+- From the code-quality review: all 48 script-style test files reported failures with a print-only
+  `ok = lambda ...` and **exited 0 regardless** — a failing suite could look green to any runner.
+- New `testutil.ok()` keeps the exact PASS/FAIL output but remembers failures and forces exit code 1
+  (atexit). Every test file migrated mechanically (`from testutil import ok`); the 8 assert-style
+  files already failed correctly and are unchanged.
+- New `run_tests.py` runs each `test_*.py` in its own subprocess (preserving the set-env-before-
+  import isolation), fails on nonzero exit or a `FAIL` line, and **refuses any test file that
+  doesn't set `SHOPBOOKS_DATA_DIR`** — the data-safety rule is now enforced mechanically. Full
+  suite: 56 files in ~25s.
+- GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push/PR; no secrets needed
+  (AI tests force the AI-off path, feed tests monkeypatch HTTP). Also corrected CLAUDE.md's Python
+  claim (the mac venv is the system 3.9, not 3.14; CI runs 3.13 — the suite passes on both).
+
 ### 2026-07-07 — Global search: live type-ahead
 - Added a debounced type-ahead dropdown to the nav search box. New `search.suggest(con,q,cap)` (a
   lighter, small-LIMIT flat list; text-only invoice match so it is cheap per keystroke) served by a

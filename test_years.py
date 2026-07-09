@@ -6,7 +6,7 @@ from datetime import date
 os.environ["SHOPBOOKS_DATA_DIR"] = tempfile.mkdtemp(prefix="shopbooks_years_")
 import importer  # noqa: E402
 
-ok = lambda c, w: print(("PASS" if c else "FAIL"), w)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 TODAY = date(2026, 6, 11)
 
 

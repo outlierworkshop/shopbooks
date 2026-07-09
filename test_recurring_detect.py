@@ -18,7 +18,7 @@ import ledger      # noqa: E402
 import recurring   # noqa: E402
 import importer    # noqa: E402
 
-ok = lambda cond, what: print(("PASS" if cond else "FAIL"), what)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 
 TODAY = date.today()  # relative dates so the HTTP route (which uses real today) agrees
 def ago(days):

@@ -13,7 +13,7 @@ import invoicing  # noqa: E402
 import app as appmod  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-ok = lambda c, w: print(("PASS" if c else "FAIL"), w)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 client = TestClient(appmod.app)
 
 con = db.connect()

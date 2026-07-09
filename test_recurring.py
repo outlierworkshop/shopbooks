@@ -14,7 +14,7 @@ import db          # noqa: E402
 import ledger      # noqa: E402
 import recurring   # noqa: E402
 
-ok = lambda cond, what: print(("PASS" if cond else "FAIL"), what)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 
 # --- advance(): frequency math + month/year clamping --------------------------
 ok(recurring.advance("2026-01-15", "weekly") == "2026-01-22", "weekly = +7 days")
