@@ -117,7 +117,10 @@ existing example). Existing user data must always survive an upgrade.
 
 | File | Role |
 |---|---|
-| `app.py` | All FastAPI routes (thin; logic lives in modules) |
+| `app.py` | Composition root ONLY (~80 lines): app creation, launch sequence, router includes, compat re-exports. **Add routes to the matching `routes_*` module, not here** |
+| `routes_*.py` | One APIRouter per domain (review, entries, receipts, invoices, estimates, customers, items, taxes, settings, …). Routes stay thin; logic lives in modules |
+| `webutil.py` | Shared web glue: templates env, `ctx()` per-page context, `categories()` option lists. Never imports staging or a router (keeps the import graph acyclic) |
+| `staging.py` | The ingest→match→post engine shared by review/receipts/watchers/feeds: `_post_staged`, receipt & invoice matching, folder-watcher callbacks. No web imports |
 | `db.py` | Connection, schema, seeds, settings helpers, `DEFAULT_SETTINGS` |
 | `ledger.py` | Double-entry core: post/delete entries, balances, registers, P&L, balance sheet. Year-end close: `assert_unlocked` guards every write (post/delete/edit) against the `books_locked_through` date; raises `LockedPeriodError(ValueError)` |
 | `insights.py` | Read-only "book query" layer: deterministic P&L/growth/trend/cash/health figures for reports and AI tools (reuses `ledger.py`). Numbers are computed here — never by the model |

@@ -27,17 +27,30 @@ Audience: developers and AI agents extending the app. For day-to-day usage see
 ## Module map
 
 ```
-app.py          routes only (thin); every route opens/closes its own sqlite connection
-├── db.py        connect(), SCHEMA, seed data, settings get/set, DEFAULT_SETTINGS
-├── ledger.py    the accounting core (no FastAPI imports — pure functions on a connection)
-├── importer.py  statement ingestion: CSV/PDF → staged rows; rules; duplicate detection
-├── ai.py        Claude API wrappers (statement extraction, receipt vision, categorization)
-├── invoicing.py invoices: totals/queries, fpdf2 PDF, SMTP send
-├── migrate.py   QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances)
-├── backup.py    startup snapshots, retention, OneDrive mirror, full-ZIP download
-├── templates/   Jinja2 pages, all extend base.html
-└── static/      style.css (CSS variables at top define the palette)
+app.py            composition root ONLY (~80 lines): FastAPI app, launch sequence, router includes,
+                  watcher wiring, favicon, and compat re-exports for names tests import from `app`
+├── routes_*.py   one APIRouter per domain (dashboard, review, entries, receipts, time, reconcile,
+│                 reports, migrate, customers, items, invoices, estimates, recurring, feeds,
+│                 taxes, settings); every route opens/closes its own sqlite connection
+├── webutil.py    shared web glue: templates env, ctx() per-page context, categories()/option lists
+├── staging.py    the ingest→match→post engine shared by review/receipts/watchers/feeds:
+│                 _post_staged, receipt & invoice matching, folder-watcher callbacks
+├── db.py         connect(), SCHEMA, seed data, settings get/set, DEFAULT_SETTINGS
+├── ledger.py     the accounting core (no FastAPI imports — pure functions on a connection)
+├── importer.py   statement ingestion: CSV/PDF → staged rows; rules; duplicate detection
+├── ai.py         Claude API wrappers (statement extraction, receipt vision, categorization)
+├── invoicing.py  invoices: totals/queries, fpdf2 PDF, SMTP send
+├── migrate.py    QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances)
+├── backup.py     startup snapshots, retention, OneDrive mirror, full-ZIP download
+├── templates/    Jinja2 pages, all extend base.html
+└── static/       style.css (CSS variables at top define the palette)
 ```
+
+Web-layer import graph is acyclic: `webutil` ← `staging` ← `routes_*` ← `app.py` (webutil imports
+neither staging nor routers; staging never imports a router; only `routes_estimates` imports from
+a sibling router — the line-item helpers in `routes_invoices`). Add new routes to the matching
+`routes_*` module; new cross-domain posting/matching logic belongs in `staging.py` or a domain
+module, never in a router another router would have to import.
 
 Dependency direction: `app.py` → everything; modules don't import `app.py`;
 `ledger.py` imports nothing internal; `ai.py`/`invoicing.py` import `db`;
