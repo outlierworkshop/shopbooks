@@ -35,7 +35,10 @@ per the issue.) The two items below remain.
   Error-path tests (`test_bulk_actions`, `test_period_lock`) must still pass.
 - Payoff: ~−300 lines, one definition of how a route gets a connection. Verify: suite green after each module.
 
-### 3 — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
+### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
+Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
+before the silent swallows in ai.py/staging.py/routes_receipts.py/watcher.py/sync.py/routes_review.py/
+chat.py. `test_logutil.py` added. Optional Settings log-viewer left for later. Original spec below.
 - Tiny **`logutil.py`**: stdlib `logging` + `RotatingFileHandler` → `<datadir>/logs/shopbooks.log`
   (~1MB × 3), INFO, plus console. **Resolve the data dir exactly like `db.py`** (`SHOPBOOKS_DATA_DIR`
   first) so tests never write logs into the real data dir.
