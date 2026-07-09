@@ -34,6 +34,14 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-09 — Code-quality: dedupe line-item JS + fold dashboard CSS (#72)
+- Extracted the triplicated invoice/estimate line-item editor into one `static/line-items.js` (loaded
+  via base.html); the templates keep only the Jinja `window.standardItems` bootstrap. `addRow()` is
+  column-aware (adds the delete cell only on the edit page). Behavior unchanged.
+- Moved dashboard.html's inline `<style>` block into `style.css` (`/* dashboard widgets */`) and
+  fixed the rogue undefined `var(--text)` -> `var(--ink)` everywhere it appeared (dashboard + inline
+  styles on customers/customer_detail/items) so text themes correctly in dark mode.
+
 ### 2026-07-09 — Carve app.py into domain routers (restores "thin routes")
 - Fix #2 from the code-quality review: app.py had grown to 5,296 lines / 153 routes, contradicting
   the documented "routes only (thin)" architecture. It is now a **79-line composition root** —
