@@ -53,61 +53,12 @@
   </div>
 </form>
 <script>
-const standardItems = [
+/* Catalog bootstrap for the shared line-item editor (behavior in static/line-items.js). This page's
+   items table has a trailing delete column, so addRow() adds a delete button to new rows too. */
+window.standardItems = [
   {% for item in standard_items %}
     { id: {{ item.id }}, name: {{ item.name|tojson }}, description: {{ item.description|tojson }}, price: "{{ item.unit_cents|money }}", taxable: {{ 1 if item.taxable else 0 }} },
   {% endfor %}
 ];
-
-function syncTax(cb) {
-  const h = cb.parentNode.querySelector('input[name="item_taxable"]');
-  if (h) h.value = cb.checked ? '1' : '0';
-}
-
-function onItemSelect(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  if (!opt || !sel.value) return;
-  const row = sel.closest("tr");
-  const descInput = row.querySelector('input[name="item_desc"]');
-  const priceInput = row.querySelector('input[name="item_price"]');
-  if (descInput) descInput.value = opt.getAttribute("data-desc") || "";
-  if (priceInput) priceInput.value = opt.getAttribute("data-price") || "";
-  const cb = row.querySelector('.tax-check');
-  if (cb) { cb.checked = opt.getAttribute("data-taxable") === "1"; syncTax(cb); }
-}
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-}
-
-function addRow() {
-  const t = document.getElementById('items');
-  const r = t.insertRow(-1);
-
-  let selectHtml = '';
-  if (standardItems.length > 0) {
-    let optionsHtml = '<option value="">-- Choose a Product/Service --</option>';
-    for (const item of standardItems) {
-      optionsHtml += `<option value="${item.id}" data-desc="${escapeHtml(item.description)}" data-price="${item.price}" data-taxable="${item.taxable}">${escapeHtml(item.name)}</option>`;
-    }
-    selectHtml = `<select name="item_id" class="item-select" onchange="onItemSelect(this)" style="width:100%; margin-bottom:4px;">${optionsHtml}</select>`;
-  }
-
-  r.innerHTML = '<td>' + selectHtml + '<input type="text" name="item_desc" style="width:100%" placeholder="Line description"></td>' +
-    '<td><input type="number" name="item_qty" value="1" step="0.25" min="0" style="width:70px"></td>' +
-    '<td><input type="text" name="item_price" placeholder="0.00" style="width:100px"></td>' +
-    '<td style="text-align:center"><input type="checkbox" class="tax-check" onchange="syncTax(this)"><input type="hidden" name="item_taxable" value="0"></td>' +
-    '<td><button type="button" class="small danger" onclick="deleteRow(this)">✕</button></td>';
-}
-function deleteRow(btn) {
-  const r = btn.parentNode.parentNode;
-  // Don't delete if it's the last row
-  if (r.parentNode.rows.length > 2) {
-    r.parentNode.removeChild(r);
-  } else {
-    alert("An invoice or estimate must have at least one line item.");
-  }
-}
 </script>
 {% endblock %}
