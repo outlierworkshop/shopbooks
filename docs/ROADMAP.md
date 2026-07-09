@@ -905,6 +905,9 @@ boring tech, built for exactly one user.
 
 ## Engineering debt (do these opportunistically)
 
+> **Active queue:** the next fixes (incl. the remaining 2026-07-09 code-quality review items #72/#73/#74)
+> are tracked in [docs/next-fixes.md](next-fixes.md).
+
 1. **Test suite**: partially done — `test_safety.py` is committed and the `SHOPBOOKS_DATA_DIR`
    isolation pattern is established. Remaining: fold the throwaway flow scripts
    (import/review/post, invoicing, QBO migrate) into a committed pytest suite with a shared
