@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-09 — Carve app.py into domain routers (restores "thin routes")
+- Fix #2 from the code-quality review: app.py had grown to 5,296 lines / 153 routes, contradicting
+  the documented "routes only (thin)" architecture. It is now a **79-line composition root** —
+  app creation, launch sequence (db.init → sync → snapshot), router includes, watcher wiring, and
+  compat re-exports for the names tests import from `app`.
+- **16 domain routers** (`routes_*.py`; largest is invoices at 864 lines), plus two shared layers:
+  `webutil.py` (templates env, `ctx()`, `categories()`) and `staging.py` (the ingest→match→post
+  engine used by review, receipts, the folder watchers, and bank feeds). Import graph is acyclic:
+  webutil ← staging ← routes_* ← app; only routes_estimates imports from a sibling
+  (routes_invoices' line-item helpers).
+- Purely mechanical: blocks moved verbatim by a decorator-aware splitter; `@app.` → `@router.`;
+  per-file imports generated from an AST walk of what each file actually uses. **No route paths,
+  handler bodies, or behavior changed.** 56/56 test files pass; all 25 pages render.
+- CLAUDE.md "Where things live" + ARCHITECTURE module map updated: add new routes to the matching
+  `routes_*` module; cross-domain posting/matching logic goes in `staging.py`, never in a router
+  another router would import.
+
 ### 2026-07-09 — Test harness that can actually fail + CI
 - From the code-quality review: all 48 script-style test files reported failures with a print-only
   `ok = lambda ...` and **exited 0 regardless** — a failing suite could look green to any runner.
