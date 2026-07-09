@@ -18,6 +18,16 @@
     } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
   })();
 </script>
+<script>
+  (function () {
+    try {
+      var w = localStorage.getItem('sb-main-width');
+      if (w) {
+        document.documentElement.style.setProperty('--main-max-width', w);
+      }
+    } catch (e) {}
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -129,5 +139,55 @@
 <div class="toast" id="savedToast">Saved ✓ restore point created</div>
 <script>setTimeout(function(){var t=document.getElementById('savedToast'); if(t) t.style.display='none';}, 2500);</script>
 {% endif %}
+<script>
+(function () {
+  var main = document.querySelector('main');
+  if (!main) return;
+
+  function createHandle(side) {
+    var h = document.createElement('div');
+    h.className = 'main-resize-handle ' + side + '-handle';
+    h.title = 'Drag to resize page width (double-click to reset)';
+    main.appendChild(h);
+    
+    h.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var cx = window.innerWidth / 2;
+      
+      function move(ev) {
+        var diffX = Math.abs(ev.pageX - cx);
+        var newWidth = Math.round(diffX * 2);
+        newWidth = Math.max(600, Math.min(newWidth, window.innerWidth - 10));
+        main.style.maxWidth = newWidth + 'px';
+        document.documentElement.style.setProperty('--main-max-width', newWidth + 'px');
+      }
+      
+      function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.body.style.cursor = '';
+        try {
+          localStorage.setItem('sb-main-width', main.style.maxWidth);
+        } catch (err) {}
+      }
+      
+      document.body.style.cursor = 'col-resize';
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+    
+    h.addEventListener('dblclick', function () {
+      main.style.maxWidth = '';
+      document.documentElement.style.removeProperty('--main-max-width');
+      try {
+        localStorage.removeItem('sb-main-width');
+      } catch (err) {}
+    });
+  }
+
+  createHandle('left');
+  createHandle('right');
+})();
+</script>
 </body>
 </html>

@@ -119,7 +119,28 @@ nav a:hover { color: var(--nav-ink-hi); background: rgba(255, 255, 255, 0.09); }
 .nav-btn:hover { background: var(--accent-2) !important; }
 
 /* ---------- layout & headings ---------- */
-main { width: 100%; max-width: 1180px; margin: 26px auto; padding: 0 22px; }
+main {
+  width: 100%;
+  max-width: var(--main-max-width, 1180px);
+  margin: 26px auto;
+  padding: 0 22px;
+  position: relative;
+}
+.main-resize-handle {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 999;
+  user-select: none;
+}
+.main-resize-handle.right-handle { right: 0; }
+.main-resize-handle.left-handle { left: 0; }
+.main-resize-handle:hover,
+.main-resize-handle:active {
+  background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+}
 h1 { font-size: 24px; margin: 0 0 18px; font-weight: 800; letter-spacing: -0.02em; }
 h2 { font-size: 17px; margin: 24px 0 10px; font-weight: 700; letter-spacing: -0.01em; }
 
