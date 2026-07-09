@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 import db
+from logutil import log
 
 DEFAULT_INTERVAL = 60  # seconds between ticks while the server is running
 
@@ -62,6 +63,7 @@ def scan_folder(con, folder, kind, exts, process_fn):
             data = f.read_bytes()
             status, note = process_fn(con, f, data)
         except Exception as e:
+            log.warning("watcher: processing %s failed: %s", f.name, e)
             status, note = "error", str(e)[:300]
             errors.append(f"{f.name}: {note}")
         con.execute(
@@ -97,8 +99,8 @@ def _loop(statement_fn, receipt_fn, interval):
         try:
             run_once(con, statement_fn, receipt_fn)
             con.commit()
-        except Exception:
-            pass  # a watcher tick must never crash the background thread
+        except Exception as e:
+            log.warning("watcher tick failed: %s", e)  # a tick must never crash the background thread
         finally:
             con.close()
         _stop.wait(interval)

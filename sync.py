@@ -43,6 +43,7 @@ from pathlib import Path
 
 import backup
 import db
+from logutil import log
 
 SYNC_DB = "_sync.db"
 SYNC_MANIFEST = "_sync.json"
@@ -376,6 +377,7 @@ def _import(cdir, attempts, delay):
         _LAST = p
         return p
     except Exception as e:
+        log.warning("cloud sync import failed: %s", e)
         _LAST = {"status": "error", "error": str(e)}
         return _LAST
 
@@ -429,6 +431,7 @@ def export_on_close(cdir=None, force=False):
         _adopt(version, local_sha)
         return {"status": "exported", "version": version}
     except Exception as e:
+        log.warning("cloud sync export failed: %s", e)
         return {"status": "error", "error": str(e)}
 
 

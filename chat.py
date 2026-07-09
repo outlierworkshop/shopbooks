@@ -20,6 +20,7 @@ import ai
 import db
 import insights
 import timetracking
+from logutil import log
 
 MAX_TOOL_ROUNDS = 8       # safety cap on the tool-use loop
 MAX_TURNS = 24            # cap transcript length sent to the model
@@ -259,4 +260,5 @@ def ask(con, history):
             return (text or "I'm not sure how to answer that."), None
         return "I had to look up too many things to finish that — try asking something narrower.", None
     except Exception as e:
+        log.warning("chat assistant failed: %s", e)
         return None, f"The assistant hit an error: {e}"

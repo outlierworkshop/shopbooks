@@ -9,6 +9,7 @@ import db
 import importer
 import insights
 import ledger
+from logutil import log
 from staging import RECEIPT_EXTS, _categorize_from_receipts, _ingest_amazon_order, _ingest_receipt, _post_staged, _recategorize_from_receipts, match_combined_amazon_receipts, receipt_candidates, resolve_receipt_match
 from webutil import _INLINE_MEDIA, ctx, templates
 
@@ -335,8 +336,8 @@ async def save_staged_matches(request: Request):
         # Try to run AI categorization first on the newly matched staged transactions
         try:
             _categorize_from_receipts(con)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("post-match receipt categorization failed: %s", e)
         
         # Auto-post all matched pending staged transactions
         for sid in staged_ids:

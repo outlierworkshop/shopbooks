@@ -17,6 +17,7 @@ import os
 
 import db
 import importer
+from logutil import log
 
 MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -165,7 +166,8 @@ def _history_examples(con, limit=40):
         hist = importer.history_map(con)
         names = {r["id"]: r["name"] for r in con.execute("SELECT id, name FROM accounts").fetchall()}
         return [(k, names[a]) for k, a in hist.items() if a in names][:limit]
-    except Exception:
+    except Exception as e:
+        log.warning("history few-shot examples failed: %s", e)
         return []
 
 
@@ -201,7 +203,8 @@ def _claude_statement(con, text, account_name):
     try:
         data = _claude_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA)
         return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
-    except Exception:
+    except Exception as e:
+        log.warning("Claude statement extraction failed: %s", e)
         return None
 
 
@@ -214,7 +217,8 @@ def _claude_statement_pdf(con, pdf_path, account_name):
     try:
         data = _claude_json(con, content, STATEMENT_SCHEMA)
         return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
-    except Exception:
+    except Exception as e:
+        log.warning("Claude statement-PDF extraction failed: %s", e)
         return None
 
 
@@ -231,7 +235,8 @@ def _claude_receipt(con, path):
     try:
         # generous cap (not a spend): leaves room for models whose thinking tokens count against max_tokens
         return _claude_json(con, [block, {"type": "text", "text": RECEIPT_PROMPT}], RECEIPT_SCHEMA, max_tokens=2000)
-    except Exception:
+    except Exception as e:
+        log.warning("Claude receipt extraction failed: %s", e)
         return None
 
 
@@ -240,7 +245,8 @@ def _claude_categorize(con, txns, names, examples=None):
         cats = _claude_json(con, _categorize_prompt(txns, names, examples), CATEGORIZE_SCHEMA,
                             model=_claude_model(con, "categorize")).get("categories", [])
         return cats if len(cats) == len(txns) else None
-    except Exception:
+    except Exception as e:
+        log.warning("Claude categorization failed: %s", e)
         return None
 
 
@@ -280,7 +286,8 @@ def _ollama_statement(con, text, account_name):
     try:
         data = _ollama_chat_json(con, _statement_prompt(text, account_name), STATEMENT_SCHEMA)
         return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
-    except Exception:
+    except Exception as e:
+        log.warning("Ollama statement extraction failed: %s", e)
         return None
 
 
@@ -294,7 +301,8 @@ def _ollama_receipt(con, path):
         return None  # local vision path takes images, not PDFs
     try:
         return _ollama_chat_json(con, RECEIPT_PROMPT, RECEIPT_SCHEMA, image_bytes=open(path, "rb").read())
-    except Exception:
+    except Exception as e:
+        log.warning("Ollama receipt extraction failed: %s", e)
         return None
 
 
@@ -303,7 +311,8 @@ def _ollama_categorize(con, txns, names, examples=None):
         data = _ollama_chat_json(con, _categorize_prompt(txns, names, examples), CATEGORIZE_SCHEMA)
         cats = data.get("categories", [])
         return cats if len(cats) == len(txns) else None
-    except Exception:
+    except Exception as e:
+        log.warning("Ollama categorization failed: %s", e)
         return None
 
 
@@ -360,7 +369,8 @@ def analyze(con, facts):
             model=_claude_model(con), max_tokens=4000,  # cap, not a spend; headroom for thinking-always-on models
             messages=[{"role": "user", "content": prompt}])
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
-    except Exception:
+    except Exception as e:
+        log.warning("Claude insights analysis failed: %s", e)
         return None
 
 
@@ -387,7 +397,8 @@ def extract_reconcile_metadata(con, text, account_name):
         if _task_backend(con, "statement") == "ollama":
             return _ollama_chat_json(con, prompt + "\n\n" + text[:150000], RECONCILE_METADATA_SCHEMA)
         return _claude_json(con, prompt + "\n\n" + text[:150000], RECONCILE_METADATA_SCHEMA)
-    except Exception:
+    except Exception as e:
+        log.warning("reconcile metadata extraction failed: %s", e)
         return None
 
 
@@ -406,5 +417,6 @@ def extract_reconcile_metadata_pdf(con, pdf_path, account_name):
             text = importer.pdf_text(pdf_path)
             return extract_reconcile_metadata(con, text, account_name)
         return _claude_json(con, content, RECONCILE_METADATA_SCHEMA)
-    except Exception:
+    except Exception as e:
+        log.warning("reconcile metadata (PDF) extraction failed: %s", e)
         return None

@@ -9,6 +9,7 @@ import db
 import feeds
 import importer
 import ledger
+from logutil import log
 from staging import _categorize_from_receipts, _post_staged, match_combined_amazon_receipts, resolve_receipt_match, staged_invoice_matches, staged_receipt_matches
 from webutil import categories, ctx, templates
 
@@ -187,6 +188,7 @@ async def do_import_confirm(
         return RedirectResponse("/review?note=" + quote(note), status_code=303)
         
     except Exception as e:
+        log.warning("statement import failed: %s", e)
         if "temp_stmt_" in temp_file_path:
             p = Path(temp_file_path)
             if p.exists():

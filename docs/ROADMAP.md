@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-09 — Logging baseline (#74)
+- New `logutil.py`: one `shopbooks` logger -> rotating `<datadir>/logs/shopbooks.log` (1MB x 3) +
+  console. The log dir follows `db.DATA` (so `SHOPBOOKS_DATA_DIR` isolates it — tests never write
+  logs into real books; `test_logutil.py` proves it).
+- Added `log.warning(..., e)` before the silent fallbacks so a broken AI/feed/sync/watcher path is
+  observable instead of indistinguishable from success: all 11 `return None`/`[]` swallows in ai.py,
+  the receipt-AI read in staging.py, post-match categorization in routes_receipts.py, the watcher
+  tick + per-file errors, cloud sync import/export failures, the statement-import handler, and chat.
+  Observability only — no fallback behavior changed; ai.py still returns None, never raises. Harmless
+  swallows (temp-file cleanup, date-sort fallbacks, feeds re-raising to the user) were left as-is.
+  (Optional Settings log viewer left as a later nice-to-have.)
+
 ### 2026-07-09 — Code-quality: dedupe line-item JS + fold dashboard CSS (#72)
 - Extracted the triplicated invoice/estimate line-item editor into one `static/line-items.js` (loaded
   via base.html); the templates keep only the Jinja `window.standardItems` bootstrap. `addRow()` is

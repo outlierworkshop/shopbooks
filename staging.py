@@ -7,6 +7,7 @@ import db
 import importer
 import invoicing
 import ledger
+from logutil import log
 from webutil import categories
 
 def _link_staged_receipt(con, staged_id, entry_id):
@@ -250,7 +251,8 @@ def _ingest_receipt(con, data: bytes, original_name: str):
     vendor, ddate, cents = "", "", None
     try:
         info = ai.extract_receipt(con, str(dest))
-    except Exception:
+    except Exception as e:
+        log.warning("receipt AI read failed for %s: %s", dest.name, e)
         info = None
     if info:
         vendor = info.get("vendor", "")
