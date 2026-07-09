@@ -63,19 +63,37 @@
 <div class="table-responsive">
 <table class="sortable review-table resizable">
   <colgroup>
-    <col style="width:26px">
-    <col style="width:92px"><col style="width:80px"><col style="width:118px"><col style="width:240px">
-    <col style="width:120px"><col style="width:95px"><col style="width:320px"><col style="width:160px">
+    <col style="width:30px">
+    <col style="width:90px">
+    <col style="width:200px">
+    <col style="width:260px">
+    <col style="width:120px">
+    <col style="width:85px">
+    <col style="width:300px">
+    <col style="width:160px">
   </colgroup>
-  <tr><th><input type="checkbox" id="reviewSelectAll" onclick="document.querySelectorAll('.sel-review').forEach(function(cb){cb.checked=this.checked;}, this)" title="Select all"></th><th>Date</th><th>Remember</th><th></th><th>Description</th><th>Source</th><th class="num">Amount</th><th>Category</th><th>Memo</th></tr>
+  <tr>
+    <th><input type="checkbox" id="reviewSelectAll" onclick="document.querySelectorAll('.sel-review').forEach(function(cb){cb.checked=this.checked;}, this)" title="Select all"></th>
+    <th>Date</th>
+    <th>Action</th>
+    <th>Description</th>
+    <th>Source</th>
+    <th class="num">Amount</th>
+    <th>Category</th>
+    <th>Memo</th>
+  </tr>
   {% for it in items %}
   <tr class="{{ 'row-dup' if (it.dup or it.transfer_booked) else '' }}">
     <td><input type="checkbox" name="sel" value="{{ it.id }}" class="sel-review"></td>
     <td>{{ it.date }}</td>
-    <td><input type="checkbox" name="remember_{{ it.id }}" title="Create a rule from this payee"></td>
     <td>
-      <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
-      <button class="small ghost" type="submit" name="skip_one" value="{{ it.id }}">Skip</button>
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
+        <button class="small" type="submit" name="post_one" value="{{ it.id }}">Post</button>
+        <button class="small ghost" type="submit" name="skip_one" value="{{ it.id }}">Skip</button>
+        <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; color: var(--text-muted); margin: 0; white-space: nowrap;" title="Create a rule from this payee">
+          <input type="checkbox" name="remember_{{ it.id }}" style="margin: 0; transform: scale(0.9);"> Remember
+        </label>
+      </div>
     </td>
     <td>
       {% for rcpt in it.receipts %}
