@@ -16,7 +16,7 @@ import ledger    # noqa: E402
 import importer  # noqa: E402
 import ai        # noqa: E402
 
-ok = lambda cond, what: print(("PASS" if cond else "FAIL"), what)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 
 db.init()
 con = db.connect()

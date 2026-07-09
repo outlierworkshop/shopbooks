@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run test suite
+        # Every test file sets SHOPBOOKS_DATA_DIR to a temp dir before importing db/app
+        # (run_tests.py refuses any file that doesn't), so CI can never touch real books —
+        # and there are no real books on a runner anyway. No secrets are needed: AI tests
+        # force the AI-off path and the bank-feed tests monkeypatch HTTP.
+        run: python run_tests.py

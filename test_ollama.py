@@ -10,7 +10,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)  # don't let a real env key affect ava
 import ai  # noqa: E402
 import db  # noqa: E402
 
-ok = lambda c, w: print(("PASS" if c else "FAIL"), w)
+from testutil import ok  # prints PASS/FAIL and forces a nonzero exit if any check failed
 db.init()
 con = db.connect()
 
