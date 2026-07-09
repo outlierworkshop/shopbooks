@@ -7,9 +7,12 @@ pick up without digging. Per CLAUDE.md, **never run the app/tests against real b
 
 ## Code-quality review (2026-07-09) — remaining items
 The 5-item review's first two are done: **#1** failing-test harness → PR #70, **#2** `app.py` carve into
-`routes_*.py` → PR #71 (both merged). These three remain, in order:
+`routes_*.py` → PR #71 (both merged). Remaining:
 
-### 1 — Dedupe line-item JS + fold dashboard CSS · [#72](https://github.com/outlierworkshop/shopbooks/issues/72)
+### 1 — ✅ DONE (2026-07-09) — Dedupe line-item JS + fold dashboard CSS · [#72](https://github.com/outlierworkshop/shopbooks/issues/72)
+Shipped: `static/line-items.js` replaces the triplicated editor JS; dashboard `<style>` moved into
+`style.css`; rogue `var(--text)` → `var(--ink)` everywhere. (Optional inline-style utility pass skipped
+per the issue.) The two items below remain.
 - Extract one **`static/line-items.js`** (load in `base.html` with `?v={{ static_v() }}`) to replace the
   copy-pasted `standardItems` / `onItemSelect()` / `escapeHtml()` / `addRow()` / `syncTax()` in
   `templates/invoice_new.html`, `invoice_edit.html`, `estimate_new.html`. Templates keep only the
