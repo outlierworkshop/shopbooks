@@ -25,15 +25,22 @@ per the issue.) The two items below remain.
 - Verify: suite green; add rows / pick catalog items / tax-checkbox auto-sets on invoice-new/edit &
   estimate-new; dashboard renders in both themes.
 
-### 2 — Route plumbing: connection dependency + `safe_redirect` · [#73](https://github.com/outlierworkshop/shopbooks/issues/73)
-- Add to **`webutil.py`**: `get_con()` (a FastAPI `Depends` generator that yields a connection and
-  closes it in `finally`) and `safe_redirect(back, fallback="/", msg=None, err=None)` (the
-  `startswith("/")` guard + quoted `msg`/`err`). Handlers still call `con.commit()` explicitly — that's
-  intentional, not boilerplate.
-- Migrate the ~145 hand-rolled `db.connect()/try/finally` + copy-pasted redirect guards **one
-  `routes_*` module per commit**. Do NOT change commit placement/semantics — plumbing swap only.
-  Error-path tests (`test_bulk_actions`, `test_period_lock`) must still pass.
-- Payoff: ~−300 lines, one definition of how a route gets a connection. Verify: suite green after each module.
+### 2 — ⏳ IN PROGRESS — Route plumbing: connection dependency + `safe_redirect` · [#73](https://github.com/outlierworkshop/shopbooks/issues/73)
+**Pattern established (2026-07-09, commit 544f6f0):** `webutil.get_con()` + `webutil.safe_redirect()`
+exist and `routes_entries.py` is migrated as the reference example — copy its style. Notes learned:
+- `db.connect()` now uses `check_same_thread=False` (FastAPI runs sync deps + handlers on different
+  threads); connections stay short-lived/sequential, so this is safe. Already committed.
+- Add `con=Depends(get_con)` as the LAST route param; drop the `db.connect()/try/finally` wrapper but
+  KEEP `try/except ValueError` blocks and the explicit `con.commit()` calls exactly where they were.
+- `safe_redirect(back)` for plain guarded redirects; `safe_redirect(back, msg=…)`/`err=…` replaces the
+  quote() + sep math. Watch for handlers that redirect to a fixed path (pass it as `back`).
+- Migrate **one module per commit**, `python run_tests.py` green after each. Plumbing swap only — do
+  not change commit placement/semantics.
+
+**Remaining modules (by size):** routes_invoices (23 connects) · routes_receipts (16) ·
+routes_settings (15) · routes_time (10) · routes_estimates (10) · routes_customers (10) ·
+routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_reconcile (6) ·
+routes_migrate (6) · routes_review (5) · routes_items (4) · routes_feeds (4) · routes_dashboard (3).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
