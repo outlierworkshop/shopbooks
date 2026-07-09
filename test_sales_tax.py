@@ -29,7 +29,7 @@ con.close()
 # ---- tax_allocation math ----
 ok(invoicing.tax_allocation(15000, 1000, 16000) == (15000, 1000), "full payment splits into subtotal + tax")
 ok(invoicing.tax_allocation(15000, 1000, 8000) == (7500, 500), "partial payment splits proportionally")
-ok(invoicing.tax_allocation(15000, 0, 15000) == (15000, 0), "no tax → all income")
+ok(invoicing.tax_allocation(15000, 0, 15000) == (15000, 0), "no tax -> all income")
 
 # ---- item taxable persists via the form ----
 client.post("/items", data={"name": "Widget", "unit_price": "100.00", "taxable": "1"})
