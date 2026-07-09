@@ -1,10 +1,13 @@
-"""Shared web-layer glue: templates env, per-page context, account/category option lists.
+"""Shared web-layer glue: templates env, per-page context, account/category option lists, and the
+route plumbing helpers (get_con dependency, safe_redirect).
 Imported by every routes_* module (and staging); must never import staging or a routes_* module,
 keeping the web-layer import graph acyclic: webutil ← staging ← routes_* ← app. Startup side
 effects (db.init, sync, backup snapshot) live in app.py, the composition root — not here."""
 from datetime import date as date_cls
 from pathlib import Path
+from urllib.parse import quote
 
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 import ai
@@ -28,6 +31,33 @@ def _static_v():
 
 
 templates.env.globals["static_v"] = _static_v  # usable in any template as {{ static_v() }}
+
+
+def get_con():
+    """FastAPI dependency: one DB connection per request, always closed. Use as
+    `con=Depends(get_con)` in a route signature instead of hand-rolling
+    `con = db.connect() / try / finally: con.close()`. Handlers still call `con.commit()`
+    explicitly — with SQLite and cash-basis writes, the explicit commit is a feature, not
+    boilerplate: nothing persists unless the handler says so."""
+    con = db.connect()
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def safe_redirect(back, fallback="/", msg=None, err=None):
+    """303 redirect to an in-app path only. `back` usually comes from a form field, so an absolute
+    URL (open-redirect) falls back to `fallback`. Optional msg/err are appended as query params,
+    URL-quoted — replaces the copy-pasted `back if back.startswith("/") else "/"` +
+    inline `quote()` imports scattered across the route modules."""
+    dest = back if (back or "").startswith("/") else fallback
+    if msg:
+        dest += ("&" if "?" in dest else "?") + "msg=" + quote(str(msg))
+    if err:
+        dest += ("&" if "?" in dest else "?") + "err=" + quote(str(err))
+    return RedirectResponse(dest, status_code=303)
+
 
 def ctx(request, con, **kw):
     pending = con.execute("SELECT COUNT(*) c FROM staged WHERE status='pending'").fetchone()["c"]

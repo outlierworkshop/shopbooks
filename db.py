@@ -463,7 +463,11 @@ DEFAULT_SETTINGS = {
 def connect():
     DATA.mkdir(parents=True, exist_ok=True)
     DOCS.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
+    # check_same_thread=False: FastAPI runs a sync dependency (webutil.get_con) and the route
+    # handler on different threads (threadpool vs event loop), so a per-request connection crosses
+    # threads. That's safe — every connection here is short-lived and used sequentially by one
+    # request / one watcher tick, never concurrently — SQLite only forbids *simultaneous* use.
+    con = sqlite3.connect(DB_PATH, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=5000")  # the folder watcher runs on its own thread; wait

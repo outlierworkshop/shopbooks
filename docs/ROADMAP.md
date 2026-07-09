@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-09 — Route plumbing, part 1: get_con dependency + safe_redirect (#73)
+- `webutil.get_con()` (FastAPI `Depends` generator: one connection per request, closed in finally)
+  and `webutil.safe_redirect(back, fallback, msg=, err=)` (in-app-path guard + URL-quoted msg/err)
+  replace the hand-rolled `db.connect()/try/finally` and copy-pasted redirect guards. Handlers keep
+  calling `con.commit()` explicitly — that is intentional.
+- `db.connect()` now passes `check_same_thread=False`: FastAPI runs a sync dependency and the route
+  handler on different threads; connections stay short-lived and sequential, so this is safe.
+- First module migrated: `routes_entries.py` (12 connect blocks, 9 redirect guards). Also fixes two
+  latent bugs there for free: entry_delete redirected to `back` unguarded on success (open
+  redirect), and entry_edit did not URL-quote its error message. Full suite 57/57; remaining 15
+  routes_* modules migrate one commit each.
+
 ### 2026-07-09 — Logging baseline (#74)
 - New `logutil.py`: one `shopbooks` logger -> rotating `<datadir>/logs/shopbooks.log` (1MB x 3) +
   console. The log dir follows `db.DATA` (so `SHOPBOOKS_DATA_DIR` isolates it — tests never write
