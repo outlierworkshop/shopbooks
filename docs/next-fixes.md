@@ -59,8 +59,16 @@ unquoted f-string (literal space, no `quote()`) — malformed URL on any SMTP er
 `routes_estimates.py`'s cross-module import of `_active_items`/`_insert_line_items`/`_parse_line_items`
 still works.
 
-**Remaining modules (by size):** routes_receipts (16 connects) · routes_settings (15) ·
-routes_time (10) · routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_review (5).
+**Progress (2026-07-10, commit d4e74bf):** routes_receipts + routes_settings done — 11 of 16 modules
+(~98 of ~145 connects). Free cleanup: `backup_restore` had a dead `db.connect()`/`close()` pair it
+never used (`backup.looks_fresh`/`backup.restore` work at the file level) — removed. **Caution note
+for future live smoke tests:** a POST smoke test against the real running server actually mutates the
+real books (we added+deleted two throwaway test accounts to exercise an IntegrityError path, then
+cleaned up and confirmed via `/sync/now` that the round-trip left no drift). Prefer GET-only smoke
+tests against the real server; if a POST must be tested live, clean up immediately and verify via sync.
+
+**Remaining modules (by size):** routes_time (10 connects) · routes_taxes (7) · routes_reports (7) ·
+routes_recurring (7) · routes_review (5).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
