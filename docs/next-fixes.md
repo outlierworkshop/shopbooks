@@ -5,9 +5,10 @@ GitHub issues; this file is the at-a-glance order of work so either machine (or 
 pick up without digging. Per CLAUDE.md, **never run the app/tests against real books** — set
 `SHOPBOOKS_DATA_DIR` to a temp dir. Suite: `python run_tests.py` (must stay green).
 
-## Code-quality review (2026-07-09) — remaining items
-The 5-item review's first two are done: **#1** failing-test harness → PR #70, **#2** `app.py` carve into
-`routes_*.py` → PR #71 (both merged). Remaining:
+## Code-quality review (2026-07-09) — ALL 5 ITEMS DONE
+**#1** failing-test harness → PR #70, **#2** `app.py` carve into `routes_*.py` → PR #71, **#72**
+(line-item JS + dashboard CSS), **#73** (route plumbing), **#74** (logging baseline) — all merged.
+Kept below for the implementation notes/lessons; nothing left to do here.
 
 ### 1 — ✅ DONE (2026-07-09) — Dedupe line-item JS + fold dashboard CSS · [#72](https://github.com/outlierworkshop/shopbooks/issues/72)
 Shipped: `static/line-items.js` replaces the triplicated editor JS; dashboard `<style>` moved into
@@ -25,50 +26,34 @@ per the issue.) The two items below remain.
 - Verify: suite green; add rows / pick catalog items / tax-checkbox auto-sets on invoice-new/edit &
   estimate-new; dashboard renders in both themes.
 
-### 2 — ⏳ IN PROGRESS — Route plumbing: connection dependency + `safe_redirect` · [#73](https://github.com/outlierworkshop/shopbooks/issues/73)
-**Pattern established (2026-07-09, commit 544f6f0):** `webutil.get_con()` + `webutil.safe_redirect()`
-exist and `routes_entries.py` is migrated as the reference example — copy its style. Notes learned:
-- `db.connect()` now uses `check_same_thread=False` (FastAPI runs sync deps + handlers on different
-  threads); connections stay short-lived/sequential, so this is safe. Already committed.
-- Add `con=Depends(get_con)` as the LAST route param; drop the `db.connect()/try/finally` wrapper but
-  KEEP `try/except ValueError` blocks and the explicit `con.commit()` calls exactly where they were.
-- `safe_redirect(back)` for plain guarded redirects; `safe_redirect(back, msg=…)`/`err=…` replaces the
-  quote() + sep math. Watch for handlers that redirect to a fixed path (pass it as `back`).
-- Migrate **one module per commit**, `python run_tests.py` green after each. Plumbing swap only — do
-  not change commit placement/semantics.
+### 2 — ✅ DONE (2026-07-10) — Route plumbing: connection dependency + `safe_redirect` · [#73](https://github.com/outlierworkshop/shopbooks/issues/73)
+Shipped across 7 commits (544f6f0 → ed4d8d1): `webutil.get_con()` (a `Depends` connection-per-request
+generator) and `webutil.safe_redirect(back, fallback, msg=, err=)` replace ~145 hand-rolled
+`db.connect()/try/finally` blocks and copy-pasted redirect-quoting logic across **all 16 of 16**
+`routes_*.py` modules. Handlers kept their explicit `con.commit()` calls and `try/except` structure —
+plumbing swap only, no behavior changes intended. `db.connect()` gained `check_same_thread=False`
+(FastAPI runs sync `Depends` generators and handlers on different threads; connections stay short-lived
+and sequential, so this is safe — `test_splits.py` caught the cross-thread error before this fix).
 
-**Progress (2026-07-10, commit ccc6999):** routes_dashboard, routes_feeds, routes_items done too — 4 of
-16 modules migrated (~12 of ~145 connects). Free fix found: routes_items.py built redirect URLs with
-raw f-string interpolation (unquoted err/msg) — a real query-string-corruption bug, now fixed by
-`safe_redirect`'s `quote()`. Worth re-grepping other modules for the same `f"...?err={e}"` pattern
-while migrating them.
+**Free fixes found along the way** (real latent bugs the migration incidentally corrected):
+- `routes_entries.py`: `entry_delete` redirected to an unguarded `back` on success (open-redirect); `entry_edit` didn't quote its error message.
+- `routes_items.py`: built redirect URLs with raw unquoted f-string interpolation (`f"/items?err={e}"`) — query-string corruption if the message had `&`/`#`.
+- `routes_invoices.py`: `invoice_email`'s error redirect was entirely unquoted with a literal space in it — a malformed URL on any SMTP failure.
+- `routes_settings.py`: `backup_restore` held a dead, unused `db.connect()`/`close()` pair — removed.
+- Caught during migration (not shipped): dropping `import db` from `routes_review.py` broke `db.DOCS`
+  at runtime — invisible to `import app`/compilation, only surfaced on an actual statement upload.
+  Found by running `pyflakes` across all 16 migrated modules + `webutil.py` (only other finding: one
+  pre-existing, unrelated unused-variable warning in `routes_settings.py`).
+- `routes_migrate.py` and `routes_reconcile.py`/`routes_review.py`'s internal helpers kept their own
+  already-correct redirect logic rather than force-fitting `safe_redirect` everywhere — a deliberate
+  minimal-footprint call, not every route needs the shared helper if it already does the right thing.
 
-**Progress (2026-07-10, commit 9370e40):** routes_reconcile + routes_migrate done — 6 of 16 modules
-(~24 of ~145 connects). Note: routes_migrate.py kept its own `_migrate_redirect()` helper rather than
-switching to `safe_redirect` — it already quotes correctly, so this was a deliberate minimal-footprint
-call, not every module needs to use `safe_redirect` literally if it already has an equivalent.
-
-**Progress (2026-07-10, commit 4893e77):** routes_customers + routes_estimates done — 8 of 16 modules
-(~44 of ~145 connects). `routes_estimates.py` imports helpers from `routes_invoices` (`_active_items`,
-`_insert_line_items`, `_parse_line_items`) — no issue, just note the two are coupled; migrate
-`routes_invoices` with extra care since `routes_estimates` depends on its module-level functions.
-
-**Progress (2026-07-10, commit 92897bc):** routes_invoices done — the biggest module (23 connects), 9 of
-16 total (~67 of ~145 connects). Free fix: `invoice_email`'s error redirect was a raw, entirely
-unquoted f-string (literal space, no `quote()`) — malformed URL on any SMTP error message. Confirmed
-`routes_estimates.py`'s cross-module import of `_active_items`/`_insert_line_items`/`_parse_line_items`
-still works.
-
-**Progress (2026-07-10, commit d4e74bf):** routes_receipts + routes_settings done — 11 of 16 modules
-(~98 of ~145 connects). Free cleanup: `backup_restore` had a dead `db.connect()`/`close()` pair it
-never used (`backup.looks_fresh`/`backup.restore` work at the file level) — removed. **Caution note
-for future live smoke tests:** a POST smoke test against the real running server actually mutates the
-real books (we added+deleted two throwaway test accounts to exercise an IntegrityError path, then
-cleaned up and confirmed via `/sync/now` that the round-trip left no drift). Prefer GET-only smoke
-tests against the real server; if a POST must be tested live, clean up immediately and verify via sync.
-
-**Remaining modules (by size):** routes_time (10 connects) · routes_taxes (7) · routes_reports (7) ·
-routes_recurring (7) · routes_review (5).
+**Verification method that worked well:** compile-check → `import app` → `pyflakes` (catches
+runtime-only NameErrors that compilation/import miss) → full suite (`python run_tests.py`, 57/57 every
+time) → live GET smoke test of every touched route. **Caution:** a POST smoke test against the real
+running server mutates the real books — we once added+deleted two throwaway test accounts to exercise
+an IntegrityError path; cleaned up and confirmed via `/sync/now` that the round-trip left no drift.
+Prefer GET-only smoke tests; if a POST must be tested live, clean up immediately and verify via sync.
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
