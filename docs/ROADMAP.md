@@ -34,6 +34,15 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, part 2: routes_dashboard, routes_feeds, routes_items (#73)
+- Migrated the three smallest modules to `get_con`/`safe_redirect` per the established pattern
+  (dashboard + global search routes, bank feeds, products/services catalog).
+- Free fixes along the way: `routes_items.py` built redirect URLs with raw f-string interpolation
+  (`f"/items?err={str(e)}"`), so an error message containing `&` or `#` could corrupt the query
+  string or silently drop `msg=`; now goes through `safe_redirect`'s `quote()`.
+- 12 of ~145 connect blocks migrated across 4 of 16 modules so far. Full suite 57/57; live pages
+  smoke-tested (dashboard incl. period-comparison + AI-brief branches, search, items, feeds/settings).
+
 ### 2026-07-09 — Route plumbing, part 1: get_con dependency + safe_redirect (#73)
 - `webutil.get_con()` (FastAPI `Depends` generator: one connection per request, closed in finally)
   and `webutil.safe_redirect(back, fallback, msg=, err=)` (in-app-path guard + URL-quoted msg/err)
