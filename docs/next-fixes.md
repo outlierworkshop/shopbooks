@@ -48,9 +48,14 @@ while migrating them.
 switching to `safe_redirect` — it already quotes correctly, so this was a deliberate minimal-footprint
 call, not every module needs to use `safe_redirect` literally if it already has an equivalent.
 
+**Progress (2026-07-10, commit 4893e77):** routes_customers + routes_estimates done — 8 of 16 modules
+(~44 of ~145 connects). `routes_estimates.py` imports helpers from `routes_invoices` (`_active_items`,
+`_insert_line_items`, `_parse_line_items`) — no issue, just note the two are coupled; migrate
+`routes_invoices` with extra care since `routes_estimates` depends on its module-level functions.
+
 **Remaining modules (by size):** routes_invoices (23 connects) · routes_receipts (16) ·
-routes_settings (15) · routes_time (10) · routes_estimates (10) · routes_customers (10) ·
-routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_review (5).
+routes_settings (15) · routes_time (10) · routes_taxes (7) · routes_reports (7) ·
+routes_recurring (7) · routes_review (5).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
