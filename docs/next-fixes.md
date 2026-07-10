@@ -43,10 +43,14 @@ raw f-string interpolation (unquoted err/msg) — a real query-string-corruption
 `safe_redirect`'s `quote()`. Worth re-grepping other modules for the same `f"...?err={e}"` pattern
 while migrating them.
 
+**Progress (2026-07-10, commit 9370e40):** routes_reconcile + routes_migrate done — 6 of 16 modules
+(~24 of ~145 connects). Note: routes_migrate.py kept its own `_migrate_redirect()` helper rather than
+switching to `safe_redirect` — it already quotes correctly, so this was a deliberate minimal-footprint
+call, not every module needs to use `safe_redirect` literally if it already has an equivalent.
+
 **Remaining modules (by size):** routes_invoices (23 connects) · routes_receipts (16) ·
 routes_settings (15) · routes_time (10) · routes_estimates (10) · routes_customers (10) ·
-routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_reconcile (6) ·
-routes_migrate (6) · routes_review (5).
+routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_review (5).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
