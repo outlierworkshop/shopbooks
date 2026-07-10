@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, part 5: routes_invoices (#73)
+- Migrated `routes_invoices.py` (23 connects, the largest module) to `get_con`/`safe_redirect`.
+  Module-level helpers (`_active_items`, `_parse_line_items`, `_insert_line_items`, etc.) keep their
+  exact signatures since `routes_estimates.py` imports three of them — verified the cross-module
+  import + estimate pages still work after the migration.
+- Free fix: `invoice_email` built its error redirect with a raw, entirely unquoted f-string
+  (`f"/invoices/{invoice_id}?err=Email failed: {e}"` — a literal space and no `quote()` at all), so
+  any SMTP error message would produce a malformed URL. Now goes through `safe_redirect`.
+- 9 of 16 modules migrated (~67 of ~145 connects). Full suite 57/57; live smoke test on invoices,
+  invoice detail/edit/pdf/summary, invoice-new, and estimates (cross-module check).
+
 ### 2026-07-10 — Route plumbing, part 4: routes_customers, routes_estimates (#73)
 - Migrated `routes_customers.py` (10 connects) and `routes_estimates.py` (10 connects) to `get_con`.
   Hardcoded pre-encoded redirect strings (`?err=Customer+not+found`) now go through
