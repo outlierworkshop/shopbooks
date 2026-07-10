@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, final batch: closes #73
+- Migrated the last 5 modules to `get_con`/`safe_redirect`: `routes_time.py` (mileage/time/jobs, 10
+  connects), `routes_taxes.py` (7), `routes_reports.py` (7), `routes_recurring.py` (7),
+  `routes_review.py` (5, the statement-import + Review-queue engine — the most intricate remaining
+  file, with three internal helper functions that already took `con` as a parameter and needed no
+  changes beyond their `back()` closures switching to `safe_redirect`).
+- Caught during migration (not shipped): dropping the `import db` line from `routes_review.py` broke
+  `db.DOCS` at runtime in `do_import` — a `NameError` invisible to `import app` or compilation, only
+  triggered on an actual statement upload. Found and fixed via `pyflakes`, which was then run across
+  all 16 migrated `routes_*` modules + `webutil.py` and found nothing else (one pre-existing, unrelated
+  unused-variable warning in `routes_settings.py`, not a regression).
+- **All 16 of 16 route modules migrated — #73 is done.** ~145 hand-rolled `db.connect()/try/finally`
+  blocks and their copy-pasted redirect-quoting logic are now `get_con` + `safe_redirect` in
+  `webutil.py`. Full suite 57/57; live GET smoke test across mileage, time, jobs (+ detail), taxes
+  (+ package.zip), reports (+ pnl.csv), insights, forecast, chat, recurring, review, import — 14/14 200.
+
 ### 2026-07-10 — Route plumbing, part 6: routes_receipts, routes_settings (#73)
 - Migrated `routes_receipts.py` (16 connects) and `routes_settings.py` (15 connects) to
   `get_con`/`safe_redirect`.
