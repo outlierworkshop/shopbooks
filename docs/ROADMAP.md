@@ -34,6 +34,15 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, part 3: routes_reconcile, routes_migrate (#73)
+- Migrated `routes_reconcile.py` (6 connects) and `routes_migrate.py` (6 connects) to `get_con`.
+  `routes_reconcile.py`'s per-account redirects (`f"/reconcile/{account_id}?msg=..."`) now go
+  through `safe_redirect(back, msg=...)`. `routes_migrate.py` keeps its own `_migrate_redirect()`
+  helper as-is (already quotes correctly and always emits both msg/err params) rather than swapping
+  it for `safe_redirect` — a deliberate minimal-footprint choice, not an oversight.
+- 6 of 16 modules migrated (~24 of ~145 connects). Full suite 57/57; live smoke test on /reconcile,
+  /reconcile/{id} (incl. the account-selector added earlier), /migrate.
+
 ### 2026-07-10 — Route plumbing, part 2: routes_dashboard, routes_feeds, routes_items (#73)
 - Migrated the three smallest modules to `get_con`/`safe_redirect` per the established pattern
   (dashboard + global search routes, bank feeds, products/services catalog).

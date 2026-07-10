@@ -1,7 +1,7 @@
 """Statement reconciliation routes."""
 from datetime import date as date_cls, datetime
 from pathlib import Path
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import ai
@@ -9,54 +9,46 @@ import db
 import importer
 import ledger
 import reconcile
-from webutil import categories, ctx, templates
+from webutil import categories, ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
 
 @router.get("/reconcile", response_class=HTMLResponse)
-def reconcile_page(request: Request, msg: str = ""):
-    con = db.connect()
-    try:
-        return templates.TemplateResponse(request, "reconcile.html", ctx(
-            request, con, accounts=reconcile.status(con), msg=msg))
-    finally:
-        con.close()
+def reconcile_page(request: Request, msg: str = "", con=Depends(get_con)):
+    return templates.TemplateResponse(request, "reconcile.html", ctx(
+        request, con, accounts=reconcile.status(con), msg=msg))
 
 @router.get("/reconcile/{account_id}", response_class=HTMLResponse)
-def reconcile_account(request: Request, account_id: int, date: str = "", balance: str = "", msg: str = ""):
-    con = db.connect()
-    try:
-        acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
-        if not acct or acct["kind"] not in ("bank", "card"):
-            return RedirectResponse("/reconcile", status_code=303)
-        last = reconcile.last_reconciliation(con, account_id)
-        result = txns = dups = unreconciled = None
-        cleared_begin = reconcile.cleared_balance(con, account_id)
-        if date.strip() and balance.strip():  # preview a reconciliation (no save)
-            try:
-                sd = ledger.normalize_date(date)
-                bal = ledger.parse_amount_to_cents(balance)
-                result = reconcile.compute(con, account_id, sd, bal)
-                after = last["statement_date"] if last else None
-                txns = reconcile.period_transactions(con, account_id, after, sd)
-                dups = reconcile.likely_duplicates(con, account_id, after, sd)
-                unreconciled = reconcile.unreconciled_transactions(con, account_id, sd)
-            except ValueError:
-                result = None
-        all_accounts = con.execute(
-            "SELECT id, name, kind FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
-        return templates.TemplateResponse(request, "reconcile_account.html", ctx(
-            request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
-            result=result, txns=txns, dups=dups, unreconciled=unreconciled, cleared_begin=cleared_begin,
-            date=date, balance=balance, cats=categories(con), msg=msg, all_accounts=all_accounts))
-    finally:
-        con.close()
+def reconcile_account(request: Request, account_id: int, date: str = "", balance: str = "", msg: str = "",
+                      con=Depends(get_con)):
+    acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    if not acct or acct["kind"] not in ("bank", "card"):
+        return RedirectResponse("/reconcile", status_code=303)
+    last = reconcile.last_reconciliation(con, account_id)
+    result = txns = dups = unreconciled = None
+    cleared_begin = reconcile.cleared_balance(con, account_id)
+    if date.strip() and balance.strip():  # preview a reconciliation (no save)
+        try:
+            sd = ledger.normalize_date(date)
+            bal = ledger.parse_amount_to_cents(balance)
+            result = reconcile.compute(con, account_id, sd, bal)
+            after = last["statement_date"] if last else None
+            txns = reconcile.period_transactions(con, account_id, after, sd)
+            dups = reconcile.likely_duplicates(con, account_id, after, sd)
+            unreconciled = reconcile.unreconciled_transactions(con, account_id, sd)
+        except ValueError:
+            result = None
+    all_accounts = con.execute(
+        "SELECT id, name, kind FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
+    return templates.TemplateResponse(request, "reconcile_account.html", ctx(
+        request, con, acct=acct, last=last, history=reconcile.history(con, account_id),
+        result=result, txns=txns, dups=dups, unreconciled=unreconciled, cleared_begin=cleared_begin,
+        date=date, balance=balance, cats=categories(con), msg=msg, all_accounts=all_accounts))
 
 @router.post("/reconcile")
 def reconcile_save(account_id: int = Form(...), statement_date: str = Form(...),
-                   statement_balance: str = Form(...)):
-    from urllib.parse import quote
-    con = db.connect()
+                   statement_balance: str = Form(...), con=Depends(get_con)):
+    back = f"/reconcile/{account_id}"
     try:
         sd = ledger.normalize_date(statement_date)
         bal = ledger.parse_amount_to_cents(statement_balance)
@@ -64,18 +56,16 @@ def reconcile_save(account_id: int = Form(...), statement_date: str = Form(...),
         con.commit()
         note = ("Reconciled — books match the statement." if r["reconciled"]
                 else f"Saved — off by ${ledger.fmt_cents(abs(r['difference']))}. See the transactions below to find it.")
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
+        return safe_redirect(back, msg=note)
     except ValueError as e:
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Couldn't read that: {e}"), status_code=303)
-    finally:
-        con.close()
+        return safe_redirect(back, msg=f"Couldn't read that: {e}")
 
 @router.post("/reconcile/finish")
 def reconcile_finish(account_id: int = Form(...), statement_date: str = Form(...),
-                     statement_balance: str = Form(...), cleared: list[str] = Form(default=[])):
+                     statement_balance: str = Form(...), cleared: list[str] = Form(default=[]),
+                     con=Depends(get_con)):
     """Phase 2: mark the ticked transactions cleared against the statement and record the checkpoint."""
-    from urllib.parse import quote
-    con = db.connect()
+    back = f"/reconcile/{account_id}"
     try:
         sd = ledger.normalize_date(statement_date)
         bal = ledger.parse_amount_to_cents(statement_balance)
@@ -86,15 +76,12 @@ def reconcile_finish(account_id: int = Form(...), statement_date: str = Form(...
         else:
             note = (f"Saved with {r['cleared_count']} cleared, still off by "
                     f"${ledger.fmt_cents(abs(r['difference']))}. Tick the rest or square up the difference.")
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
+        return safe_redirect(back, msg=note)
     except ValueError as e:
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Couldn't finish: {e}"), status_code=303)
-    finally:
-        con.close()
+        return safe_redirect(back, msg=f"Couldn't finish: {e}")
 
 @router.post("/reconcile/upload")
-async def reconcile_upload(request: Request, file: UploadFile = File(...)):
-    con = db.connect()
+async def reconcile_upload(request: Request, file: UploadFile = File(...), con=Depends(get_con)):
     try:
         raw = await file.read()
         name = (file.filename or "statement").lower()
@@ -136,7 +123,7 @@ async def reconcile_upload(request: Request, file: UploadFile = File(...)):
                 txns = importer.parse_csv(raw)
             elif name.endswith(".pdf"):
                 txns = importer.regex_parse_statement(text)
-            
+
             dates = [t["date"] for t in txns if t.get("date")]
             if dates:
                 statement_date = max(dates)
@@ -156,8 +143,6 @@ async def reconcile_upload(request: Request, file: UploadFile = File(...)):
     except ValueError as e:
         return templates.TemplateResponse(request, "reconcile.html", ctx(
             request, con, accounts=reconcile.status(con), msg=str(e)))
-    finally:
-        con.close()
 
 @router.post("/reconcile/adjust")
 def reconcile_adjust(
@@ -167,20 +152,20 @@ def reconcile_adjust(
     difference: int = Form(...),
     offset_account_id: int = Form(...),
     payee: str = Form(...),
-    memo: str = Form("")
+    memo: str = Form(""),
+    con=Depends(get_con)
 ):
-    from urllib.parse import quote
-    con = db.connect()
+    back = f"/reconcile/{account_id}"
     try:
         sd = ledger.normalize_date(statement_date)
         bal = ledger.parse_amount_to_cents(statement_balance)
-        
+
         acct = con.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
         if not acct:
             raise ValueError("Target account not found.")
-            
+
         acct_split_amount = -difference if acct["type"] in ("liability", "equity", "income") else difference
-        
+
         ledger.post_entry(
             con,
             sd,
@@ -188,14 +173,12 @@ def reconcile_adjust(
             [(account_id, acct_split_amount), (offset_account_id, -acct_split_amount)],
             memo=memo
         )
-        
+
         reconcile.record(con, account_id, sd, bal)
         con.commit()
-        
+
         note = f"Adjustment posted and reconciled successfully! Difference of ${ledger.fmt_cents(abs(difference))} written off."
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(note), status_code=303)
-        
+        return safe_redirect(back, msg=note)
+
     except ValueError as e:
-        return RedirectResponse(f"/reconcile/{account_id}?msg=" + quote(f"Adjustment failed: {e}"), status_code=303)
-    finally:
-        con.close()
+        return safe_redirect(back, msg=f"Adjustment failed: {e}")
