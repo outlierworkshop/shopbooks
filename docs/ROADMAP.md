@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, part 6: routes_receipts, routes_settings (#73)
+- Migrated `routes_receipts.py` (16 connects) and `routes_settings.py` (15 connects) to
+  `get_con`/`safe_redirect`.
+- Free cleanup: `backup_restore` opened and closed a DB connection it never used (`backup.looks_fresh`
+  and `backup.restore` both work at the file level, not via the passed connection) — dead code,
+  removed rather than migrated.
+- 11 of 16 modules migrated (~98 of ~145 connects). Full suite 57/57; live smoke test on receipts,
+  receipts/missing, accounts, rules, settings, and the duplicate-account error path (confirms
+  `safe_redirect` quoting matches the old `quote()` output byte-for-byte on a real IntegrityError).
+  Test accounts created during the live smoke test were deleted afterward; sync confirmed no drift
+  reached the cloud copy (add+delete round-tripped to the same content hash).
+
 ### 2026-07-10 — Route plumbing, part 5: routes_invoices (#73)
 - Migrated `routes_invoices.py` (23 connects, the largest module) to `get_con`/`safe_redirect`.
   Module-level helpers (`_active_items`, `_parse_line_items`, `_insert_line_items`, etc.) keep their
