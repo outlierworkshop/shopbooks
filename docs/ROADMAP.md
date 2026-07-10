@@ -34,6 +34,14 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-10 — Route plumbing, part 4: routes_customers, routes_estimates (#73)
+- Migrated `routes_customers.py` (10 connects) and `routes_estimates.py` (10 connects) to `get_con`.
+  Hardcoded pre-encoded redirect strings (`?err=Customer+not+found`) now go through
+  `safe_redirect(path, err=...)`, which URL-quotes with `%20` instead of literal `+` — functionally
+  identical, just a different (correct) encoding style.
+- 8 of 16 modules migrated (~44 of ~145 connects). Full suite 57/57; live smoke test on customers,
+  customer detail/report, estimates, estimate-new, and the not-found redirect path.
+
 ### 2026-07-10 — Route plumbing, part 3: routes_reconcile, routes_migrate (#73)
 - Migrated `routes_reconcile.py` (6 connects) and `routes_migrate.py` (6 connects) to `get_con`.
   `routes_reconcile.py`'s per-account redirects (`f"/reconcile/{account_id}?msg=..."`) now go
