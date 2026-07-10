@@ -53,9 +53,14 @@ call, not every module needs to use `safe_redirect` literally if it already has 
 `_insert_line_items`, `_parse_line_items`) — no issue, just note the two are coupled; migrate
 `routes_invoices` with extra care since `routes_estimates` depends on its module-level functions.
 
-**Remaining modules (by size):** routes_invoices (23 connects) · routes_receipts (16) ·
-routes_settings (15) · routes_time (10) · routes_taxes (7) · routes_reports (7) ·
-routes_recurring (7) · routes_review (5).
+**Progress (2026-07-10, commit 92897bc):** routes_invoices done — the biggest module (23 connects), 9 of
+16 total (~67 of ~145 connects). Free fix: `invoice_email`'s error redirect was a raw, entirely
+unquoted f-string (literal space, no `quote()`) — malformed URL on any SMTP error message. Confirmed
+`routes_estimates.py`'s cross-module import of `_active_items`/`_insert_line_items`/`_parse_line_items`
+still works.
+
+**Remaining modules (by size):** routes_receipts (16 connects) · routes_settings (15) ·
+routes_time (10) · routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_review (5).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
