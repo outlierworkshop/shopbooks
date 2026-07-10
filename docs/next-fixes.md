@@ -37,10 +37,16 @@ exist and `routes_entries.py` is migrated as the reference example — copy its 
 - Migrate **one module per commit**, `python run_tests.py` green after each. Plumbing swap only — do
   not change commit placement/semantics.
 
+**Progress (2026-07-10, commit ccc6999):** routes_dashboard, routes_feeds, routes_items done too — 4 of
+16 modules migrated (~12 of ~145 connects). Free fix found: routes_items.py built redirect URLs with
+raw f-string interpolation (unquoted err/msg) — a real query-string-corruption bug, now fixed by
+`safe_redirect`'s `quote()`. Worth re-grepping other modules for the same `f"...?err={e}"` pattern
+while migrating them.
+
 **Remaining modules (by size):** routes_invoices (23 connects) · routes_receipts (16) ·
 routes_settings (15) · routes_time (10) · routes_estimates (10) · routes_customers (10) ·
 routes_taxes (7) · routes_reports (7) · routes_recurring (7) · routes_reconcile (6) ·
-routes_migrate (6) · routes_review (5) · routes_items (4) · routes_feeds (4) · routes_dashboard (3).
+routes_migrate (6) · routes_review (5).
 
 ### 3 — ✅ DONE (2026-07-09) — Logging baseline (observability) · [#74](https://github.com/outlierworkshop/shopbooks/issues/74)
 Shipped: `logutil.py` (rotating `<datadir>/logs/shopbooks.log`, isolated via `db.DATA`) + `log.warning`
