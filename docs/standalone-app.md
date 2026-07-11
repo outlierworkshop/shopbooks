@@ -1,8 +1,11 @@
-# Standalone App (app-mode window) — deferred implementation guide
+# Standalone App (app-mode window) — implementation guide
 
-**Status: wishlist / not scheduled** (owner, 2026-07-07: "we will get there, but we don't need it
-yet"). Approach is decided; this doc is the ready-to-execute design so a future session can pick it
-up without re-planning. No code has been written yet.
+**Status: SHIPPED on macOS (2026-07-11)** — `desktop.py` implements the launcher below verbatim;
+`run-mac.command` now execs it; and `build-mac.sh` + `shopbooks.spec` go one step further than this
+doc scoped (it had deferred the "bundled installer" problem): a PyInstaller-built, code-signed
+`dist/ShopBooks.app` with its own bundled Python 3.13, ad-hoc signed by default and taking a
+`IDENTITY`/`NOTARIZE=1` env for Developer ID + notarization later. The Windows launcher/shortcut
+work below is still open. The original design follows.
 
 ## Goal
 Make ShopBooks feel like a **standalone desktop app** rather than a browser tab: its own chromeless

@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-11 — Signed Mac build: ShopBooks.app (+ app-mode window, shipping the standalone-app design)
+- **`desktop.py`** (new): the launcher from `docs/standalone-app.md`, implemented as specced — frees
+  port 8765, serves uvicorn in-process on a daemon thread, opens a chromeless Chrome/Edge **app-mode
+  window** with a dedicated browser profile (own dock entry, persistent theme/column widths), and on
+  window close stops the server **gracefully** so `sync.export_on_close()` still runs. Browser-tab
+  fallback when no Chromium browser exists. `run-mac.command` now execs it (venv bootstrap unchanged).
+- **`build-mac.sh` + `shopbooks.spec`** (new): PyInstaller onedir bundle → **`dist/ShopBooks.app`**,
+  arm64, bundling Python 3.13 + deps + `templates/`/`static/` (both `__file__`-relative roots —
+  `webutil.BASE`, `db.REPO_DIR` — resolve unchanged). Signed with **ad-hoc identity by default**
+  (own Macs; first launch elsewhere = right-click → Open); `IDENTITY="Developer ID …"` switches to a
+  real signature (hardened runtime + timestamp) and `NOTARIZE=1` runs notarytool + staple — the
+  upgrade path needs no script changes. Artifact zip via `ditto`. Build dirs gitignored.
+- Books stay in `~/Library/Application Support/ShopBooks`, outside the bundle — app updates never
+  touch them. New `test_desktop.py` (import side-effect-free, helper behavior; found-by-harness: the
+  first version polled the real :8765 and caught the owner's live server).
+
 ### 2026-07-10 — Route plumbing, final batch: closes #73
 - Migrated the last 5 modules to `get_con`/`safe_redirect`: `routes_time.py` (mileage/time/jobs, 10
   connects), `routes_taxes.py` (7), `routes_reports.py` (7), `routes_recurring.py` (7),
