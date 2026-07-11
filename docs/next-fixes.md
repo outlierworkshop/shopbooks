@@ -74,7 +74,16 @@ chat.py. `test_logutil.py` added. Optional Settings log-viewer left for later. O
 - Online invoice payments — [#41](https://github.com/outlierworkshop/shopbooks/issues/41)
 
 ## Also noticed (unfiled loose ends — confirm before doing)
-- `base.html` loads `/static/resizable.js?v=1.1` with a **hardcoded** cache token (not
-  `?v={{ static_v() }}` like the others), and it looks redundant with `resize.js` — reconcile the two.
+- ✅ DONE (2026-07-10) — `resizable.js` vs `resize.js`: turned out to be a genuine live bug, not just
+  redundancy. `resizable.js` was leftover pre-`resize.js` code (superseded, never removed) that ran
+  unconditionally on **every** table on every page: it added its own resize handles alongside
+  `resize.js`'s on any `.resizable` table (confirmed live on Review — every `<th>` had two overlapping
+  handles), and because its handle never calls `stopPropagation()` on click, a plain click (no drag)
+  on it bubbled up and mis-triggered `sort.js`'s column sort (reproduced via dispatchEvent). It also
+  forced `table.style.width = "100%"` after `resize.js` deliberately set `width: auto`, undermining the
+  persisted per-column-width design, and applied unwanted resize handles + auto-wrapping to plain
+  `sortable` tables that never opted in (e.g. `/register/{id}`). Deleted `static/resizable.js` and its
+  `<script>` tag in `base.html`; `resize.js` (opt-in via `class="resizable"`, localStorage-persisted,
+  sort-safe) is the one real system and needed no changes.
 - Reactivate any hidden seed accounts you actually use (e.g. **Contract Labor**, account id 12 — hidden,
   no transactions) rather than recreating them.
