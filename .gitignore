@@ -13,3 +13,7 @@ desktop.ini
 # Test-generated data dirs / stray databases (never commit real or test books)
 .test_auto_cat_data/
 *.db
+
+# Signed-.app build pipeline artifacts (build-mac.sh)
+build/
+dist/

@@ -21,6 +21,10 @@ or AI modules.**
 ```
 On Apple Silicon, native wheels are arm64; run Python as `arch -arm64 .venv/bin/python …` if a
 launcher (LaunchServices/Rosetta terminal) starts it as x86_64. `run-mac.command` handles this.
+Desktop launches: `run-mac.command` execs `desktop.py` (app-mode Chrome/Edge window, graceful stop
+on close; tab fallback). `./build-mac.sh` builds a **signed `dist/ShopBooks.app`** (PyInstaller,
+arm64, ad-hoc signed by default — set `IDENTITY`/`NOTARIZE=1` for Developer ID + notarization);
+on another Mac the first ad-hoc launch is right-click → Open. Books stay in the per-OS data dir.
 
 **Run the whole suite with `python run_tests.py`** (each file in its own process; ~25s; exits
 nonzero on any failure and REFUSES a test file that doesn't set `SHOPBOOKS_DATA_DIR`). CI runs it
