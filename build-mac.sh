@@ -28,17 +28,18 @@ if [ ! -x build/venv/bin/python ]; then
   fi
 fi
 
-# 2. Icon: static/logo.png -> build/ShopBooks.icns (sips + iconutil, no extra deps).
-if [ ! -f build/ShopBooks.icns ]; then
-  echo "== generating ShopBooks.icns =="
-  rm -rf build/icon.iconset && mkdir -p build/icon.iconset
-  for s in 16 32 64 128 256 512; do
-    sips -z "$s" "$s" static/logo.png --out "build/icon.iconset/icon_${s}x${s}.png" >/dev/null
-    d=$((s * 2))
-    sips -z "$d" "$d" static/logo.png --out "build/icon.iconset/icon_${s}x${s}@2x.png" >/dev/null
-  done
-  iconutil -c icns build/icon.iconset -o build/ShopBooks.icns
-fi
+# 2. Icon: static/app-icon.png (the ShopBooks "$" mark) -> build/ShopBooks.icns
+#    (sips + iconutil, no extra deps). Always regenerated so a changed source icon can never
+#    leave a stale .icns behind.
+echo "== generating ShopBooks.icns =="
+rm -f build/ShopBooks.icns
+rm -rf build/icon.iconset && mkdir -p build/icon.iconset
+for s in 16 32 64 128 256 512; do
+  sips -z "$s" "$s" static/app-icon.png --out "build/icon.iconset/icon_${s}x${s}.png" >/dev/null
+  d=$((s * 2))
+  sips -z "$d" "$d" static/app-icon.png --out "build/icon.iconset/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns build/icon.iconset -o build/ShopBooks.icns
 
 # 3. Bundle.
 echo "== running PyInstaller =="

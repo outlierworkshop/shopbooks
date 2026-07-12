@@ -45,8 +45,10 @@ boring tech, built for exactly one user.
   (`windows-latest`) that builds it — PyInstaller/Inno can't cross-compile from macOS. Run it from
   the Actions tab or push a `v*` tag (attaches the installer to the Release). **Unsigned for now**
   (SmartScreen "More info → Run anyway"), signing left as a documented hook for a future cert. Also
-  added a proper square ShopBooks app icon (`static/app-icon.png` → `build/ShopBooks.ico`) instead
-  of squishing the Outlier Workshop wordmark.
+  added a proper square ShopBooks "$" app icon (`static/app-icon.png`), now used by **both**
+  builds — `build/ShopBooks.ico` on Windows, and `build-mac.sh` regenerates `build/ShopBooks.icns`
+  from it too (always regenerated, no stale-icon guard) — instead of squishing the Outlier
+  Workshop wordmark.
 
 ### 2026-07-12 — Folder picker for the Receipts "import a whole folder" field
 - The Receipts page's whole-folder import still made you type a path by hand. Gave it the same
