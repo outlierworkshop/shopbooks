@@ -1,0 +1,57 @@
+name: Build Windows installer
+
+# Builds the double-click Windows installer (dist/ShopBooks-Setup.exe) on a Windows runner,
+# since PyInstaller + Inno Setup can't cross-compile from macOS. Run it by hand from the
+# Actions tab (workflow_dispatch) to get a fresh installer, or push a v* tag to also attach
+# the installer to a GitHub Release. Unsigned for now: users click "More info -> Run anyway".
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # for attaching the installer to a Release on tag builds
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pillow
+
+      - name: Generate app icon (.ico from static/app-icon.png)
+        run: |
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          python -c "from PIL import Image; Image.open('static/app-icon.png').save('build/ShopBooks.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Build app with PyInstaller (onedir -> dist/ShopBooks/)
+        run: pyinstaller --noconfirm shopbooks.spec
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compile installer (-> dist/ShopBooks-Setup.exe)
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShopBooks-Setup
+          path: dist/ShopBooks-Setup.exe
+          if-no-files-found: error
+
+      - name: Attach installer to Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ShopBooks-Setup.exe

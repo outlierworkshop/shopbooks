@@ -34,6 +34,20 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-12 — Windows installer (ShopBooks-Setup.exe), mirroring the Mac build
+- Windows is the primary customer channel, so it needed the same one-click install the Mac has.
+  `desktop.py` was already cross-platform (Edge/Chrome app-window, `%LOCALAPPDATA%` profile,
+  `netstat`/`taskkill` free-port), so the work was packaging: made `shopbooks.spec`
+  platform-conditional (onedir `ShopBooks.exe` on Windows, keeping the mac `.app` path and
+  single-sourcing `datas`/`hiddenimports`), added `installer.iss` (Inno Setup → per-user, no-admin
+  `dist/ShopBooks-Setup.exe` with Start-Menu + Desktop shortcuts and an uninstaller; the books in
+  `%USERPROFILE%\ShopBooks` are never touched), and a `build-windows.yml` GitHub Actions workflow
+  (`windows-latest`) that builds it — PyInstaller/Inno can't cross-compile from macOS. Run it from
+  the Actions tab or push a `v*` tag (attaches the installer to the Release). **Unsigned for now**
+  (SmartScreen "More info → Run anyway"), signing left as a documented hook for a future cert. Also
+  added a proper square ShopBooks app icon (`static/app-icon.png` → `build/ShopBooks.ico`) instead
+  of squishing the Outlier Workshop wordmark.
+
 ### 2026-07-12 — Folder picker for the Receipts "import a whole folder" field
 - The Receipts page's whole-folder import still made you type a path by hand. Gave it the same
   server-backed folder picker the Settings folder fields use (built for #78). Extracted the picker
