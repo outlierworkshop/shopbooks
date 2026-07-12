@@ -34,6 +34,14 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-12 — Folder picker for the Receipts "import a whole folder" field
+- The Receipts page's whole-folder import still made you type a path by hand. Gave it the same
+  server-backed folder picker the Settings folder fields use (built for #78). Extracted the picker
+  modal into a shared `templates/_folder_picker_modal.html` include (so Settings and Receipts share
+  one copy — no drift) and dropped a "📁 Browse…" button next to the folder input targeting
+  `receipt_import_folder`. Reuses the existing `GET /settings/browse-folder` endpoint and
+  `static/folder-picker.js` unchanged. `test_folder_picker.py` extended to cover the receipts page.
+
 ### 2026-07-12 — Dashboard: "Waiting for review" replaces "Recent activity" (issue #81)
 - The dashboard's bottom section listed the last 12 **posted** ledger entries — a backward-looking
   log that duplicated what each account's register already shows. Replaced it with **unposted
