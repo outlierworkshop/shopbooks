@@ -200,6 +200,33 @@ form.inline { display: inline; }
 }
 .formgrid label { padding-top: 7px; color: var(--muted); font-weight: 600; }
 
+/* ---------- generic modal (folder picker; reusable elsewhere) ---------- */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1000; }
+.modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg); width: min(480px, 92vw); max-height: 80vh;
+  display: flex; flex-direction: column;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.modal-header h3 { margin: 0; font-size: 15px; }
+.modal-close { background: transparent; border: none; color: var(--muted); font-size: 16px;
+  cursor: pointer; padding: 2px 6px; box-shadow: none; }
+.modal-close:hover { color: var(--ink); background: transparent; }
+.modal-body { padding: 14px 18px; overflow-y: auto; flex: 1; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
+  border-top: 1px solid var(--line); }
+
+.folder-field { display: flex; gap: 8px; align-items: center; }
+.folder-field input { flex: 1; min-width: 0; }
+.folder-picker-list { border: 1px solid var(--line); border-radius: var(--r-sm);
+  max-height: 260px; overflow-y: auto; margin-top: 10px; }
+.folder-picker-row { padding: 7px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--line); }
+.folder-picker-row:last-child { border-bottom: none; }
+.folder-picker-row:hover { background: var(--accent-soft); }
+.folder-picker-empty { padding: 12px; text-align: center; }
+
 /* ---------- callouts ---------- */
 .error { background: var(--bad-soft); color: var(--bad); padding: 11px 15px; border-radius: var(--r); margin-bottom: 14px; border-left: 4px solid var(--bad); }
 .note  { background: var(--warn-soft); color: var(--warn); padding: 11px 15px; border-radius: var(--r); margin-bottom: 14px; border-left: 4px solid var(--warn); }

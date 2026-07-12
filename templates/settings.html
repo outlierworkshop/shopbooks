@@ -76,8 +76,12 @@ console.anthropic.com - costs are typically pennies per statement. Without a key
 
 <h2>Backup folder</h2>
 <div class="formgrid">
-  <label>Extra backup folder</label><input type="text" name="backup_dir" value="{{ s.backup_dir }}"
-    placeholder="leave blank to auto-detect OneDrive">
+  <label>Extra backup folder</label>
+  <div class="folder-field">
+    <input type="text" name="backup_dir" id="backup_dir" value="{{ s.backup_dir }}"
+      placeholder="leave blank to auto-detect OneDrive">
+    <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('backup_dir')">📁 Browse…</button>
+  </div>
 </div>
 <p class="muted">A copy of every backup is also written here (in addition to the always-on backups next to
 your database). Use any folder - a OneDrive/Dropbox/Google Drive folder for cloud safety, or an external
@@ -86,10 +90,18 @@ test backup so you can confirm it works.</p>
 
 <h2 id="watchers">Folder watchers</h2>
 <div class="formgrid">
-  <label>Statements folder</label><input type="text" name="statements_watch_folder" value="{{ s.statements_watch_folder }}"
-    placeholder="leave blank to turn off">
-  <label>Receipts folder</label><input type="text" name="receipts_watch_folder" value="{{ s.receipts_watch_folder }}"
-    placeholder="leave blank to turn off">
+  <label>Statements folder</label>
+  <div class="folder-field">
+    <input type="text" name="statements_watch_folder" id="statements_watch_folder" value="{{ s.statements_watch_folder }}"
+      placeholder="leave blank to turn off">
+    <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('statements_watch_folder')">📁 Browse…</button>
+  </div>
+  <label>Receipts folder</label>
+  <div class="folder-field">
+    <input type="text" name="receipts_watch_folder" id="receipts_watch_folder" value="{{ s.receipts_watch_folder }}"
+      placeholder="leave blank to turn off">
+    <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('receipts_watch_folder')">📁 Browse…</button>
+  </div>
 </div>
 <p class="muted">Drop a bank/card statement (PDF/CSV) or a receipt (photo/PDF) into these folders — e.g. your
 Downloads folder, or wherever your bank/phone already saves them — and ShopBooks checks for new files about
@@ -99,6 +111,27 @@ posts automatically. Leave a field blank to turn that watcher off.</p>
 
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>
+
+<div id="folderPickerOverlay" class="modal-overlay" style="display:none" onclick="closeFolderPicker()"></div>
+<div id="folderPickerModal" class="modal" style="display:none">
+  <div class="modal-header">
+    <h3>Choose a folder</h3>
+    <button type="button" class="modal-close" onclick="closeFolderPicker()">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="toolbar" style="margin:0">
+      <button type="button" class="btn ghost small" onclick="folderPickerUp()">⬆ Up</button>
+      <input type="text" id="folderPickerPath" style="flex:1"
+        onkeydown="if(event.key==='Enter'){event.preventDefault(); folderPickerGo(this.value);}">
+      <button type="button" class="btn ghost small" onclick="folderPickerGo(document.getElementById('folderPickerPath').value)">Go</button>
+    </div>
+    <div id="folderPickerList" class="folder-picker-list"></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn ghost" onclick="closeFolderPicker()">Cancel</button>
+    <button type="button" class="btn" onclick="chooseFolderPickerPath()">Use this folder</button>
+  </div>
+</div>
 
 <div class="card section" style="max-width:720px">
   {% if watch_status %}

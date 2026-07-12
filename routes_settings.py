@@ -1,6 +1,7 @@
 """Chart of accounts, rules, application settings, backup/restore, sync routes."""
 import sqlite3
 from datetime import date as date_cls
+from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
@@ -150,6 +151,35 @@ def rules_delete(rule_id: int = Form(...), con=Depends(get_con)):
     con.execute("DELETE FROM rules WHERE id=?", (rule_id,))
     con.commit()
     return RedirectResponse("/rules", status_code=303)
+
+@router.get("/settings/browse-folder")
+def browse_folder(path: str = ""):
+    """List subdirectories of a local path, for the folder-picker widget on Settings (statement/
+    receipt watcher folders, the extra backup folder). Local-only app (CLAUDE.md invariant #8: no
+    auth, binds 127.0.0.1 only) - this reads directory NAMES only, never file contents, and grants
+    no more filesystem reach than the plain-text path fields it replaces already hand the watcher/
+    backup features. Never raises: an unreadable or missing path falls back to the home directory."""
+    p = Path(path).expanduser() if path.strip() else Path.home()
+    try:
+        p = p.resolve()
+        if not p.is_dir():
+            p = Path.home().resolve()
+    except Exception:
+        p = Path.home().resolve()
+    dirs = []
+    try:
+        for child in sorted(p.iterdir(), key=lambda c: c.name.lower()):
+            if child.name.startswith("."):
+                continue
+            try:
+                if child.is_dir():
+                    dirs.append({"name": child.name, "path": str(child)})
+            except OSError:
+                continue  # broken symlink / permission error on stat - skip, don't fail the listing
+    except PermissionError:
+        pass
+    parent = str(p.parent) if p.parent != p else None
+    return {"path": str(p), "parent": parent, "dirs": dirs}
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, msg: str = "", err: str = "", con=Depends(get_con)):

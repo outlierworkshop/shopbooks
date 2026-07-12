@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-12 — Folder picker for Settings (statement/receipt watchers, backup folder)
+- The three watch-folder/backup-folder fields on Settings were plain text inputs — type or paste a
+  path blind. Browsers deliberately never expose a real filesystem path from `<input type="file">`
+  (privacy sandboxing), so a native-feeling picker has to come from the server, which already has
+  full local filesystem access (CLAUDE.md invariant #8: local-only, no auth).
+- New `GET /settings/browse-folder?path=...` (`routes_settings.py`) lists a directory's subfolders
+  only (never files), skips dotfolders, and never 500s — an unreadable/missing path falls back to
+  the home directory. New `static/folder-picker.js` + a small reusable `.modal`/`.folder-field` CSS
+  block drive a "Browse…" button next to each field: navigate by clicking folders or "⬆ Up", or
+  type/paste a path directly and hit Go — the modal writes the chosen path back into that field only
+  (each of the three fields gets its own button, same shared modal).
+- New `test_folder_picker.py`. Verified end-to-end in a live browser session: opened from a blank
+  field (defaults home), descended into a folder, Up returned correctly, "Use this folder" wrote the
+  exact path into the right field only, Escape and overlay-click both close it.
+
 ### 2026-07-11 — Signed Mac build: ShopBooks.app (+ app-mode window, shipping the standalone-app design)
 - **`desktop.py`** (new): the launcher from `docs/standalone-app.md`, implemented as specced — frees
   port 8765, serves uvicorn in-process on a daemon thread, opens a chromeless Chrome/Edge **app-mode
