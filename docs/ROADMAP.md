@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-12 — Dashboard: "Waiting for review" replaces "Recent activity" (issue #81)
+- The dashboard's bottom section listed the last 12 **posted** ledger entries — a backward-looking
+  log that duplicated what each account's register already shows. Replaced it with **unposted
+  transactions waiting in Review** (pending `staged` rows), so the dashboard surfaces what still
+  needs the owner. Section header shows the pending count as a badge with a "Review all →" link;
+  each row is clickable through to `/review`; empty state is a positive "✓ Nothing waiting".
+- `routes_dashboard.py` swaps the `recent` posted-entries query for a `pending` query using the same
+  ordering/source-join as the Review queue itself (so the two never disagree), capped at 12 with a
+  separate total for the badge / "showing N of M". Amount signs mirror Review (positive = money out,
+  green negatives = money in). New `test_dashboard_pending.py`.
+
 ### 2026-07-12 — Folder picker for Settings (statement/receipt watchers, backup folder)
 - The three watch-folder/backup-folder fields on Settings were plain text inputs — type or paste a
   path blind. Browsers deliberately never expose a real filesystem path from `<input type="file">`

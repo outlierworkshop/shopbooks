@@ -38,11 +38,14 @@ def dashboard(
     accounts = ledger.accounts_with_balances(con, kinds=("bank", "card"))
     year = date_cls.today().year
     p = ledger.pnl(con, f"{year}-01-01", f"{year}-12-31")
-    recent = con.execute(
-        "SELECT e.*, (SELECT GROUP_CONCAT(a.name, ' / ') FROM splits s JOIN accounts a ON a.id=s.account_id "
-        " WHERE s.entry_id=e.id) accts, "
-        "(SELECT MAX(abs(amount_cents)) FROM splits WHERE entry_id=e.id) amt "
-        "FROM entries e ORDER BY e.date DESC, e.id DESC LIMIT 12").fetchall()
+    # Unposted transactions waiting in Review (the dashboard surfaces what needs the owner, not a
+    # log of what's already posted — those live in each account's register). Same ordering/source as
+    # the Review queue itself so the two never disagree; capped for the dashboard.
+    pending = con.execute(
+        "SELECT st.id, st.date, st.description, st.amount_cents, a.name source_name "
+        "FROM staged st JOIN batches b ON b.id=st.batch_id JOIN accounts a ON a.id=b.account_id "
+        "WHERE st.status='pending' ORDER BY b.id DESC, st.date, st.id LIMIT 12").fetchall()
+    pending_total = con.execute("SELECT COUNT(*) c FROM staged WHERE status='pending'").fetchone()["c"]
     brief_data = insights.briefing(con)
     narrative = ai.analyze(con, _briefing_facts(brief_data)) if (brief and ai.available(con)) else None
     trend = insights.monthly_trend(con, f"{year}-01-01", date_cls.today().isoformat())
@@ -218,7 +221,7 @@ def dashboard(
             })
 
     return templates.TemplateResponse(request, "dashboard.html", ctx(
-        request, con, accounts=accounts, pnl=p, recent=recent, year=year,
+        request, con, accounts=accounts, pnl=p, pending=pending, pending_total=pending_total, year=year,
         aging=aging_data, brief=brief_data, narrative=narrative,
         briefed=bool(brief), trend=trend,
         pl_period=pl_period,
