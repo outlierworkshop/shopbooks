@@ -4,8 +4,16 @@
 `run-mac.command` now execs it; and `build-mac.sh` + `shopbooks.spec` go one step further than this
 doc scoped (it had deferred the "bundled installer" problem): a PyInstaller-built, code-signed
 `dist/ShopBooks.app` with its own bundled Python 3.13, ad-hoc signed by default and taking a
-`IDENTITY`/`NOTARIZE=1` env for Developer ID + notarization later. The Windows launcher/shortcut
-work below is still open. The original design follows.
+`IDENTITY`/`NOTARIZE=1` env for Developer ID + notarization later.
+
+**Windows: SHIPPED (2026-07-12)** — same `desktop.py` entry point (its Windows branches for the
+Edge/Chrome path, `%LOCALAPPDATA%` profile, and `netstat`/`taskkill` port-free were already
+written). `shopbooks.spec` is now platform-conditional (onedir `.exe` on Windows), and
+`installer.iss` (Inno Setup) wraps it into `dist/ShopBooks-Setup.exe` — a per-user, no-admin
+double-click installer with Start-Menu + Desktop shortcuts and an uninstaller. Built in CI
+(`.github/workflows/build-windows.yml` on `windows-latest`, since PyInstaller/Inno can't
+cross-compile from macOS). Unsigned for now (SmartScreen "More info → Run anyway"); the signing
+step is left as a documented hook for when a code-signing cert exists. The original design follows.
 
 ## Goal
 Make ShopBooks feel like a **standalone desktop app** rather than a browser tab: its own chromeless

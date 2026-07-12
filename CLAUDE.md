@@ -25,6 +25,14 @@ Desktop launches: `run-mac.command` execs `desktop.py` (app-mode Chrome/Edge win
 on close; tab fallback). `./build-mac.sh` builds a **signed `dist/ShopBooks.app`** (PyInstaller,
 arm64, ad-hoc signed by default — set `IDENTITY`/`NOTARIZE=1` for Developer ID + notarization);
 on another Mac the first ad-hoc launch is right-click → Open. Books stay in the per-OS data dir.
+**Windows installer:** `desktop.py` is cross-platform, so the same entry point powers Windows.
+`shopbooks.spec` is platform-conditional (mac `.app` / Windows onedir `.exe`); `installer.iss`
+(Inno Setup) wraps the onedir into `dist/ShopBooks-Setup.exe` (per-user, no admin; Start-Menu +
+Desktop shortcuts; books in `%USERPROFILE%\ShopBooks` untouched by install/uninstall). It's built
+in CI (`.github/workflows/build-windows.yml`, `windows-latest`) since PyInstaller/Inno can't
+cross-compile from mac — run it from the Actions tab or push a `v*` tag. **Unsigned for now**
+(SmartScreen → "More info → Run anyway", the Windows counterpart of the mac right-click → Open);
+the app icon is `static/app-icon.png` → `build/ShopBooks.ico`.
 
 **Run the whole suite with `python run_tests.py`** (each file in its own process; ~25s; exits
 nonzero on any failure and REFUSES a test file that doesn't set `SHOPBOOKS_DATA_DIR`). CI runs it
