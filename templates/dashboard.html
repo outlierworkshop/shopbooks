@@ -627,19 +627,29 @@ function updateDashboardPeriods() {
 })();
 </script>
 
-{# ---------- recent activity ---------- #}
-<h2>Recent activity</h2>
+{# ---------- waiting for review (unposted transactions) ---------- #}
+<div class="dash-head" style="align-items:center; margin-top:8px">
+  <h2 style="margin:0">Waiting for review{% if pending_total %} <span class="badge">{{ pending_total }}</span>{% endif %}</h2>
+  {% if pending %}<a class="btn ghost small" href="/review">Review all →</a>{% endif %}
+</div>
+{% if pending %}
 <table class="sortable">
-  <tr><th>Date</th><th>Payee</th><th>Accounts</th><th class="num">Amount</th></tr>
-  {% for e in recent %}
-  <tr>
-    <td>{{ e.date }}</td>
-    <td>{{ e.payee }}</td>
-    <td class="muted">{{ e.accts }}</td>
-    <td class="num">${{ e.amt|money }}</td>
+  <tr><th>Date</th><th>Description</th><th>Source</th><th class="num">Amount</th></tr>
+  {% for t in pending %}
+  <tr onclick="location.href='/review'" style="cursor:pointer" title="Open the Review queue">
+    <td>{{ t.date }}</td>
+    <td>{{ t.description }}</td>
+    <td class="muted">{{ t.source_name }}</td>
+    <td class="num {{ 'pos' if t.amount_cents < 0 else '' }}">${{ t.amount_cents|money }}</td>
   </tr>
-  {% else %}
-  <tr><td colspan="4" class="muted">Nothing here yet. Start by <a href="/import">importing a statement</a>.</td></tr>
   {% endfor %}
 </table>
+{% if pending_total > pending|length %}
+<p class="muted" style="margin-top:8px">Showing the latest {{ pending|length }} of {{ pending_total }} — <a href="/review">see them all in Review →</a></p>
+{% endif %}
+<p class="muted" style="margin-top:6px; font-size:12px">Positive amounts are money out (charges/withdrawals); green negatives are money in. Nothing here is posted yet — confirm categories in <a href="/review">Review</a>.</p>
+{% else %}
+<p class="allclear" style="margin-top:6px">✓ Nothing waiting — your review queue is clear.
+  {% if not accounts %}Start by <a href="/import">importing a statement</a>.{% endif %}</p>
+{% endif %}
 {% endblock %}
