@@ -1,0 +1,24 @@
+{# Shared folder-picker modal. Include once on any page that has a .folder-field with a
+   "Browse…" button calling openFolderPicker('<input-id>'). Behavior lives in
+   static/folder-picker.js (loaded globally in base.html), which no-ops unless #folderPickerModal
+   is present — so this include is what activates the picker on a page. #}
+<div id="folderPickerOverlay" class="modal-overlay" style="display:none" onclick="closeFolderPicker()"></div>
+<div id="folderPickerModal" class="modal" style="display:none">
+  <div class="modal-header">
+    <h3>Choose a folder</h3>
+    <button type="button" class="modal-close" onclick="closeFolderPicker()">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="toolbar" style="margin:0">
+      <button type="button" class="btn ghost small" onclick="folderPickerUp()">⬆ Up</button>
+      <input type="text" id="folderPickerPath" style="flex:1"
+        onkeydown="if(event.key==='Enter'){event.preventDefault(); folderPickerGo(this.value);}">
+      <button type="button" class="btn ghost small" onclick="folderPickerGo(document.getElementById('folderPickerPath').value)">Go</button>
+    </div>
+    <div id="folderPickerList" class="folder-picker-list"></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn ghost" onclick="closeFolderPicker()">Cancel</button>
+    <button type="button" class="btn" onclick="chooseFolderPickerPath()">Use this folder</button>
+  </div>
+</div>

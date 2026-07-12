@@ -15,7 +15,10 @@
 <div class="card section">
   <h2 style="margin-top:0">Import a whole folder</h2>
   <form method="post" action="/receipts/import-folder" class="toolbar">
-    <input type="text" name="folder" placeholder="C:\Users\you\Pictures\Receipts" style="width:360px" required>
+    <div class="folder-field" style="width:420px">
+      <input type="text" name="folder" id="receipt_import_folder" placeholder="Choose a folder…" required>
+      <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('receipt_import_folder')">📁 Browse…</button>
+    </div>
     <label><input type="checkbox" name="recursive" value="1"> include subfolders</label>
     <button type="submit">Scan folder</button>
   </form>
@@ -196,4 +199,5 @@ function togglePairPosted(id) {
   }
 }
 </script>
+{% include "_folder_picker_modal.html" %}
 {% endblock %}

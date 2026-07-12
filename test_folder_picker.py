@@ -53,4 +53,12 @@ ok('id="folderPickerModal"' in r5.text, "settings page includes the folder-picke
 ok(r5.text.count("folder-picker-btn") == 3,
    "all three folder fields (statements, receipts, backup) get a Browse button")
 
+# ---- the Receipts "import a whole folder" field uses the same picker (via shared include) ----
+r6 = client.get("/receipts")
+ok(r6.status_code == 200, "receipts page renders")
+ok('id="folderPickerModal"' in r6.text, "receipts page includes the shared folder-picker modal")
+ok(r6.text.count("folder-picker-btn") == 1, "the receipts import-folder field gets a Browse button")
+ok("openFolderPicker('receipt_import_folder')" in r6.text,
+   "the receipts Browse button targets the import-folder input")
+
 print("\nFOLDER PICKER TESTS DONE")
