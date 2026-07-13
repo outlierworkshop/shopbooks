@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Fix: bundled ShopBooks.exe crashed on launch (windowed stdio)
+- The Windows installer's exe died immediately with "Unable to configure formatter 'default'":
+  a PyInstaller `console=False` build starts with `sys.stdout`/`sys.stderr` = None, and uvicorn's
+  log formatter calls `sys.stdout.isatty()` while `uvicorn.Config` configures logging. macOS app
+  bundles keep real streams, which is why only the Windows build hit it (and CI only proves the exe
+  BUILDS, not that it launches).
+- Fix: `desktop._shim_stdio()` runs at import, pointing any None stream at devnull BEFORE importing
+  uvicorn/app (logutil attaches a console handler at import too). Reproduced first under pythonw
+  (same None streams) with the identical traceback, then verified fixed the same way. Regression
+  test added to `test_desktop.py` (simulates None streams in a subprocess). Suite 60/60.
+
 ### 2026-07-12 — Windows installer (ShopBooks-Setup.exe), mirroring the Mac build
 - Windows is the primary customer channel, so it needed the same one-click install the Mac has.
   `desktop.py` was already cross-platform (Edge/Chrome app-window, `%LOCALAPPDATA%` profile,

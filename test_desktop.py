@@ -25,4 +25,27 @@ ok(callable(desktop.free_port) and callable(desktop.wait_ready) and callable(des
 ok(desktop.wait_ready(timeout=1, url="http://127.0.0.1:9/") is False,
    "wait_ready times out cleanly when nothing answers")
 
+# Windowed-exe regression (the v1.0.0 ShopBooks.exe launch crash): a PyInstaller console=False
+# build (and pythonw) starts with sys.stdout/stderr = None; uvicorn's formatter calls
+# sys.stdout.isatty() while Config configures logging -> "Unable to configure formatter 'default'".
+# Simulate the None streams in a subprocess and prove that importing desktop (whose _shim_stdio
+# runs at import) makes uvicorn.Config constructible.
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+_snippet = (
+    "import sys, os, tempfile;"
+    "os.environ['SHOPBOOKS_DATA_DIR'] = tempfile.mkdtemp(prefix='shopbooks_shimtest_');"
+    "sys.stdout = None; sys.stderr = None;"           # what a windowed exe looks like
+    "import desktop;"                                 # module-level _shim_stdio() must repair them
+    "assert sys.stdout is not None and sys.stderr is not None, 'shim did not run';"
+    "import uvicorn; from app import app;"
+    "uvicorn.Config(app, host='127.0.0.1', port=18766, log_level='warning');"
+    "sys.exit(0)"
+)
+r = subprocess.run([sys.executable, "-c", _snippet], capture_output=True, text=True,
+                   cwd=os.path.dirname(os.path.abspath(__file__)), timeout=120)
+ok(r.returncode == 0,
+   f"windowed-exe stdio shim lets uvicorn.Config configure logging (rc={r.returncode}, err={r.stderr[-300:]!r})")
+
 print("\nDESKTOP LAUNCHER TESTS DONE")

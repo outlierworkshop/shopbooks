@@ -18,9 +18,24 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-import uvicorn
 
-from app import app  # runs db.init() -> sync fast-forward -> backup snapshot, same as uvicorn
+def _shim_stdio():
+    """A PyInstaller windowed build (console=False on Windows) — and pythonw.exe — start with
+    sys.stdout/sys.stderr as None. uvicorn's log formatter calls sys.stdout.isatty() while
+    uvicorn.Config configures logging, so the bundled ShopBooks.exe crashed on launch with
+    "Unable to configure formatter 'default'". Point any missing stream at devnull BEFORE
+    importing uvicorn/app (logutil also attaches a console handler at import time). macOS app
+    bundles keep real streams, which is why only the Windows build hit this."""
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
+_shim_stdio()
+
+import uvicorn  # noqa: E402  (must come after the stdio shim — see _shim_stdio)
+
+from app import app  # noqa: E402  runs db.init() -> sync fast-forward -> backup snapshot, same as uvicorn
 
 PORT = 8765
 URL = f"http://127.0.0.1:{PORT}/"
