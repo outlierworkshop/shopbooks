@@ -36,6 +36,7 @@ import routes_estimates  # noqa: E402
 import routes_recurring  # noqa: E402
 import routes_feeds  # noqa: E402
 import routes_taxes  # noqa: E402
+import routes_travel  # noqa: E402
 import routes_settings  # noqa: E402
 from webutil import BASE  # noqa: E402
 
@@ -44,7 +45,7 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 for _mod in (routes_dashboard, routes_review, routes_entries, routes_receipts, routes_time,
              routes_reconcile, routes_reports, routes_migrate, routes_customers, routes_items,
              routes_invoices, routes_estimates, routes_recurring, routes_feeds, routes_taxes,
-             routes_settings):
+             routes_travel, routes_settings):
     app.include_router(_mod.router)
 
 

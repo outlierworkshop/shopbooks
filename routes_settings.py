@@ -309,7 +309,8 @@ async def settings_save(request: Request, con=Depends(get_con)):
              "ollama_url", "ollama_model", "business_name", "backup_dir", "business_address", "business_email",
              "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
              "email_subject", "email_body", "reminder_subject", "reminder_body",
-             "estimated_income_tax_rate", "statements_watch_folder", "receipts_watch_folder")
+             "estimated_income_tax_rate", "statements_watch_folder", "receipts_watch_folder",
+             "gsa_api_key")
     for k in plain:
         if k in form:
             db.set_setting(con, k, str(form[k]).strip())

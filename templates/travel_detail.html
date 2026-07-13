@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ trip.destination }}{% endblock %}
+{% block content %}
+<h1>{{ trip.destination }} <span class="muted">{{ trip.start_date }} → {{ trip.end_date }}</span></h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted"><a href="/travel">← All trips</a>
+  {% if trip.purpose %} · {{ trip.purpose }}{% endif %}
+  · rate source: {{ trip.rate_note or trip.rate_source }}</p>
+
+<div class="cards">
+  <div class="card">
+    <div class="label">M&IE per diem ({{ breakdown.days }} day{{ 's' if breakdown.days != 1 else '' }})</div>
+    <div class="big {{ 'pos' if summary.winner == 'perdiem' else '' }}">${{ summary.perdiem_total_cents|money }}</div>
+    <span class="muted">${{ trip.mie_cents|money }}/day · {{ breakdown.travel_days }} travel day(s) @ 75%
+      {% if breakdown.full_days %}+ {{ breakdown.full_days }} full day(s){% endif %}</span>
+  </div>
+  <div class="card">
+    <div class="label">Actual meals posted this stay</div>
+    <div class="big {{ 'pos' if summary.winner == 'actual' else '' }}">${{ actuals.meals_total_cents|money }}</div>
+    <span class="muted">{{ actuals.meal_rows|length }} transaction(s) in meal categories</span>
+  </div>
+  <div class="card">
+    <div class="label">More advantageous</div>
+    <div class="big pos">{{ 'Per diem' if summary.winner == 'perdiem' else 'Actual meals' }}</div>
+    <span class="muted">by ${{ summary.advantage_cents|abs|money }}</span>
+  </div>
+  {% if trip.lodging_cents %}
+  <div class="card">
+    <div class="label">GSA lodging cap (reference)</div>
+    <div class="big">${{ trip.lodging_cents|money }}<span class="muted">/night</span></div>
+    <span class="muted">lodging must be actual receipts</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if breakdown.days == 1 %}
+<p class="note">Single-day trip: per diem generally requires overnight travel — this one is shown at
+the 75% travel-day rate, but check with your advisor whether it qualifies at all.</p>
+{% endif %}
+
+<h2>Meals posted during the stay</h2>
+<p class="muted">Matched by category name ({{ actuals.meal_categories|join(', ') if actuals.meal_categories else 'no meal-like categories found' }}).
+If a meal is missing here, it's either unposted (check <a href="/review">Review</a>) or categorized elsewhere.</p>
+<table class="sortable">
+  <tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr>
+  {% for r in actuals.meal_rows %}
+  <tr><td>{{ r.date }}</td><td>{{ r.payee }}</td><td class="muted">{{ r.account }}</td>
+      <td class="num">${{ r.amount_cents|money }}</td></tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">No meal-category transactions posted in this date range.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Other expenses during the stay <span class="muted">(context — lodging, fuel, etc.)</span></h2>
+<table class="sortable">
+  <tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr>
+  {% for r in actuals.other_rows %}
+  <tr><td>{{ r.date }}</td><td>{{ r.payee }}</td><td class="muted">{{ r.account }}</td>
+      <td class="num">${{ r.amount_cents|money }}</td></tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">No other expenses posted in this date range.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Receipts from the stay</h2>
+<table class="sortable">
+  <tr><th>Vendor</th><th>Date</th><th class="num">Amount</th><th>Status</th></tr>
+  {% for r in actuals.receipts %}
+  <tr>
+    <td><a href="/doc/{{ r.id }}" target="_blank" data-doc="/doc/{{ r.id }}">{{ r.vendor or '(receipt)' }}</a></td>
+    <td>{{ r.doc_date }}</td>
+    <td class="num">{% if r.amount_cents is not none %}${{ r.amount_cents|money }}{% endif %}</td>
+    <td class="muted">{{ r.status }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">No receipts dated in this range — upload them on
+    <a href="/receipts">Receipts</a> and they'll show here.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Rate</h2>
+<div class="toolbar">
+  <form class="inline toolbar" method="post" action="/travel/{{ trip.id }}/rate">
+    <input type="text" name="mie" value="{{ trip.mie_cents|money }}" style="width:110px"
+           title="M&IE dollars per day">
+    <button type="submit" class="ghost">Set M&IE rate</button>
+  </form>
+  {% if trip.zip or (trip.city and trip.state) %}
+  <form class="inline" method="post" action="/travel/{{ trip.id }}/refresh-rate">
+    <button type="submit" class="ghost" title="Re-run the GSA lookup for {{ trip.zip or (trip.city ~ ', ' ~ trip.state) }}">↻ Refresh from GSA</button>
+  </form>
+  {% endif %}
+</div>
+
+<p class="muted"><strong>Tax notes:</strong> the per-diem election covers <em>meals &amp; incidentals
+only</em> — lodging is always deducted from actual receipts (the GSA lodging figure above is just the
+federal cap for reasonableness). Business meals are generally 50% deductible under either method, so
+the larger gross number wins either way. Use one method consistently for the whole trip, and confirm
+the election with your tax advisor.</p>
+{% endblock %}

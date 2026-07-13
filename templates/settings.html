@@ -74,6 +74,15 @@ console.anthropic.com - costs are typically pennies per statement. Without a key
   </div>
 </details>
 
+<h2>Travel (GSA per diem)</h2>
+<div class="formgrid">
+  <label>GSA API key</label><input type="text" name="gsa_api_key" value="{{ s.gsa_api_key }}"
+    placeholder="blank = shared DEMO_KEY (rate-limited)">
+</div>
+<p class="muted">Used by the <a href="/travel">Per Diem Travel</a> page to look up official M&amp;IE
+rates by city/ZIP. The shared demo key works for occasional use; get a free personal key at
+api.data.gov if lookups start getting rejected.</p>
+
 <h2>Backup folder</h2>
 <div class="formgrid">
   <label>Extra backup folder</label>
