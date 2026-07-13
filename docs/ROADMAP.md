@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — In-app Help menu (renders the guides; fixes private-repo links)
+- Added a **Help** nav dropdown and a `/help` hub that renders the project guides inside ShopBooks —
+  User Guide, Email setup, and Automatic mileage — instead of linking to the (private) GitHub repo,
+  which dead-ended for the owner. Hub has quick links to the monthly routine, invoicing, deductions,
+  reports, and the AI assistant; each guide page has a topics sidebar.
+- `helpdocs.py`: a small dependency-free Markdown-subset renderer (headings, wrapped bullet/numbered
+  lists, GitHub pipe tables, fenced + inline code, bold/italic, links; source HTML escaped) serving a
+  whitelist of docs. `routes_help.py` (`/help`, `/help/{slug}`), `templates/help.html`, help CSS.
+- Fixed the three private-GitHub `blob/main/docs/...` links (Settings ×2, Mileage ×1) to point at the
+  new in-app `/help/email` and `/help/mileage` pages. `test_help.py` covers the renderer subset, HTML
+  escaping, every whitelisted doc rendering artifact-free, the routes, and that the private links are
+  gone. Suite 64/64.
+
 ### 2026-07-13 — "Send test email" button + Google Workspace email setup guide
 - Invoice email over SMTP already worked; the friction was that Google Workspace/Gmail needs an
   **App Password** (plain passwords are rejected) that only appears after 2-Step Verification is on,
