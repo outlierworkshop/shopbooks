@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — "Send test email" button + Google Workspace email setup guide
+- Invoice email over SMTP already worked; the friction was that Google Workspace/Gmail needs an
+  **App Password** (plain passwords are rejected) that only appears after 2-Step Verification is on,
+  and there was no way to test config short of emailing a real invoice.
+- Added a **Send test email** button on Settings (mirrors the Ollama test button): sends a
+  self-addressed message via the saved SMTP settings and reports success or a plain-language error.
+  `invoicing._smtp_send` (factored out, reused by `send_invoice_email`), `send_test_email`, and
+  `explain_smtp_error` (535/auth → App Password guidance; connect/timeout → host/port guidance).
+  New `POST /email/test` route.
+- New `docs/email-setup.md` (2SV → App Password → SMTP fields → Send test → troubleshooting),
+  linked from the tightened Settings note. `test_email.py` covers the helper, error mapping, and the
+  route (no network). Suite 63/63.
+
 ### 2026-07-13 — Automatic mileage capture (car Bluetooth → Dropbox → watcher) + saved routes
 - **Automatic trips:** the phone (Android MacroDroid/Tasker; iPhone appendix included) fires on car-
   Bluetooth connect/disconnect, drops a one-line event file into a Dropbox folder, and the folder

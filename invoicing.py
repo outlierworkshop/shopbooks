@@ -486,10 +486,55 @@ def email_configured(con):
     return bool(db.get_setting(con, "smtp_user", "") and db.get_setting(con, "smtp_password", ""))
 
 
+def _smtp_send(con, msg):
+    """Connect to the configured SMTP server and send an already-built EmailMessage.
+    Raises RuntimeError if email isn't set up; otherwise raises the underlying smtplib error
+    (translate it with explain_smtp_error for a user-facing message)."""
+    host = db.get_setting(con, "smtp_host", "smtp.gmail.com")
+    port = int(db.get_setting(con, "smtp_port", "587") or 587)
+    user = db.get_setting(con, "smtp_user", "")
+    password = db.get_setting(con, "smtp_password", "")
+    if not (user and password):
+        raise RuntimeError("Email isn't set up - add SMTP details in Settings first.")
+    with smtplib.SMTP(host, port, timeout=30) as s:
+        s.starttls()
+        s.login(user, password)
+        s.send_message(msg)
+
+
+def explain_smtp_error(e):
+    """Turn an SMTP/connection failure into plain guidance for the owner."""
+    if isinstance(e, RuntimeError):
+        return str(e)
+    if isinstance(e, smtplib.SMTPAuthenticationError) or "535" in str(e) or "5.7.8" in str(e):
+        return ("The mail server rejected the login. For Gmail/Google Workspace this almost always "
+                "means the password isn't an App Password (a normal password won't work), or "
+                "2-Step Verification isn't turned on yet. See docs/email-setup.md.")
+    if isinstance(e, (smtplib.SMTPConnectError, ConnectionError, TimeoutError, OSError)):
+        return ("Couldn't reach the mail server. Check the SMTP host and port (Gmail: smtp.gmail.com "
+                "port 587) and your internet connection / firewall.")
+    return f"Email failed: {e}"
+
+
+def send_test_email(con):
+    """Send a small self-addressed test message to confirm the SMTP settings work.
+    Returns the address it was sent to; raises on failure (see explain_smtp_error)."""
+    user = db.get_setting(con, "smtp_user", "")
+    if not (user and db.get_setting(con, "smtp_password", "")):
+        raise RuntimeError("Email isn't set up - add your SMTP details above and Save first.")
+    biz = db.get_setting(con, "business_name", "My Business")
+    msg = EmailMessage()
+    msg["From"] = user
+    msg["To"] = user
+    msg["Subject"] = "ShopBooks test email"
+    msg.set_content(f"This is a test message from ShopBooks for {biz}.\n\n"
+                    "If you're reading this, invoice email is working.")
+    _smtp_send(con, msg)
+    return user
+
+
 def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=None):
     """Send the invoice PDF over SMTP. Raises on failure with a readable message."""
-    host = db.get_setting(con, "smtp_host", "smtp.gmail.com")
-    port = int(db.get_setting(con, "smtp_port", "587"))
     user = db.get_setting(con, "smtp_user", "")
     password = db.get_setting(con, "smtp_password", "")
     if not (user and password):
@@ -510,7 +555,4 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
     msg.set_content(body)
     msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf",
                        filename=f"{inv['number']}.pdf")
-    with smtplib.SMTP(host, port, timeout=30) as s:
-        s.starttls()
-        s.login(user, password)
-        s.send_message(msg)
+    _smtp_send(con, msg)
