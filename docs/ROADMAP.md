@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Double-launch guard: reuse a healthy server instead of killing it
+- Second real-world exe failure: the app window opened onto ERR_CONNECTION_REFUSED. Cause:
+  `free_port()` kills whatever holds :8765 — right for stale servers, wrong when it's a HEALTHY
+  instance. Double-clicking the exe twice (easy: a windowed exe shows nothing for seconds), or
+  launching with a leftover window open, made launch #2 kill launch #1's server and orphan its
+  window. Diagnosed live: a clean single launch of the installed exe served 200 for 40s+.
+- Fix: `desktop.already_serving()` gates `main()` — if something on :8765 already identifies as
+  ShopBooks, the new launch just opens another app window onto it and exits when that window
+  closes, leaving the first instance's server lifecycle alone. (Also means launching the exe
+  while the run.bat dev server is up reuses it instead of killing it.) Covered in
+  `test_desktop.py` with a throwaway local HTTP server. Suite 60/60.
+
 ### 2026-07-13 — Fix: bundled ShopBooks.exe crashed on launch (windowed stdio)
 - The Windows installer's exe died immediately with "Unable to configure formatter 'default'":
   a PyInstaller `console=False` build starts with `sys.stdout`/`sys.stderr` = None, and uvicorn's
