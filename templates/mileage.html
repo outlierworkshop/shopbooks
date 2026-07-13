@@ -2,12 +2,61 @@
 {% block title %}Mileage{% endblock %}
 {% block content %}
 <h1>Mileage log</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
 <div class="cards">
   <div class="card"><div class="label">{{ year }} miles</div><div class="big">{{ '%.1f'|format(ytd) }}</div></div>
   <div class="card"><div class="label">Rate</div><div class="big">${{ '%.2f'|format(rate) }}/mi</div>
     <a class="muted" href="/settings">change in settings</a></div>
   <div class="card"><div class="label">{{ year }} deduction</div><div class="big pos">${{ deduction_cents|money }}</div></div>
 </div>
+
+{% if candidates %}
+<h2>Trips waiting for approval <span class="badge">{{ candidates|length }}</span></h2>
+<p class="muted">Detected from your phone's car-Bluetooth events. Check the miles (a routed estimate —
+edit if you took a detour), add a purpose, and approve to log it.</p>
+{# one form per candidate, referenced by the row's inputs via the form= attribute
+   (a <form> can't legally live inside a <tr>) #}
+{% for c in candidates %}
+<form id="cand-{{ c.id }}" method="post" action="/mileage/trip/{{ c.id }}/approve"></form>
+{% endfor %}
+<table>
+  <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th></th></tr>
+  {% for c in candidates %}
+  <tr>
+    <td>{{ c.start_ts[:10] }} <span class="muted">{{ c.start_ts[11:16] }}</span></td>
+    <td>{{ c.start_place }} → {{ c.end_place }}
+      {% if c.distance_source != 'osrm' %}<span class="warn" title="Routing service was unreachable — this is a straight-line estimate x1.3. Double-check the miles."> (estimated)</span>{% endif %}</td>
+    <td class="num">{{ c.minutes }} min</td>
+    <td class="num"><input type="number" name="miles" value="{{ c.miles }}" step="0.1" min="0.1" style="width:80px" required form="cand-{{ c.id }}"></td>
+    <td><input type="text" name="purpose" placeholder="purpose" style="width:180px" form="cand-{{ c.id }}"></td>
+    <td>
+      <button class="small" type="submit" form="cand-{{ c.id }}">Approve</button>
+      <button class="small ghost" type="submit" form="cand-{{ c.id }}"
+              formaction="/mileage/trip/{{ c.id }}/dismiss" formnovalidate>Dismiss</button>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if routes %}
+<h2>Saved routes</h2>
+<div class="toolbar">
+  {% for r in routes %}
+  <form class="inline" method="post" action="/mileage/routes/log">
+    <input type="hidden" name="route_id" value="{{ r.id }}">
+    <button type="submit" class="ghost" title="Log {{ '%.1f'|format(r.miles) }} mi ({{ r.from_loc }} → {{ r.to_loc }}) as today's trip">
+      {{ r.name }} · {{ '%.1f'|format(r.miles) }} mi</button>
+  </form>
+  <form class="inline" method="post" action="/mileage/routes/{{ r.id }}/delete"
+        onsubmit="return confirm('Remove saved route {{ r.name }}? (Logged trips are kept.)')">
+    <button type="submit" class="small ghost" title="Remove this saved route">✕</button>
+  </form>
+  {% endfor %}
+</div>
+<p class="muted">One click logs the route as today's trip — edit the log below if the date differs.</p>
+{% endif %}
 
 <h2>Add a trip</h2>
 <form method="post" class="toolbar">
@@ -16,6 +65,8 @@
   <input type="text" name="purpose" placeholder="purpose (client visit, supply run...)" style="width:240px">
   <input type="text" name="from_loc" placeholder="from" style="width:120px">
   <input type="text" name="to_loc" placeholder="to" style="width:120px">
+  <label class="inline" style="white-space:nowrap" title="Remember this trip as a one-click saved route (named after the purpose)">
+    <input type="checkbox" name="save_route" value="1"> save as route</label>
   <button type="submit">Add</button>
 </form>
 
@@ -34,5 +85,9 @@
   {% endfor %}
 </table>
 <p class="muted">The IRS standard mileage rate changes each January - update it in Settings.
-The deduction shows on Reports for your tax advisor; it is not posted to the books.</p>
+The deduction shows on Reports for your tax advisor; it is not posted to the books.
+{% if not trips_watch_on %}<br><strong>Automatic capture:</strong> your phone can log drives for you —
+set a Trips folder in <a href="/settings#watchers">Settings → Folder watchers</a> and follow
+the <a href="https://github.com/outlierworkshop/shopbooks/blob/main/docs/mileage-automation.md">phone setup guide</a>
+(car Bluetooth connect/disconnect → trips appear above for approval).{% endif %}</p>
 {% endblock %}

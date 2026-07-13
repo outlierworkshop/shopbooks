@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Automatic mileage capture (car Bluetooth → Dropbox → watcher) + saved routes
+- **Automatic trips:** the phone (Android MacroDroid/Tasker; iPhone appendix included) fires on car-
+  Bluetooth connect/disconnect, drops a one-line event file into a Dropbox folder, and the folder
+  watcher (new third watch type + `trips_watch_folder` setting with Browse) ingests it. `trips.py`
+  pairs connect→disconnect (12h window; driveway blips auto-skipped; stale danglers orphaned),
+  routes road distance via the public OSRM server (haversine ×1.3 fallback flagged "estimated"),
+  reverse-geocodes endpoints via Nominatim, and queues **trip candidates on /mileage** — edit miles,
+  add a purpose, Approve → a normal mileage row; Dismiss for personal drives. Live-validated:
+  Nashville→Franklin event files routed to 21.5 mi with real place labels.
+- **Saved routes:** one-click chips on /mileage log a known trip as today ("Shop → McMaster = 23.4
+  mi"); "save as route" checkbox on the manual form. Records-only throughout — nothing posts.
+- Phone setup guide: `docs/mileage-automation.md` (MacroDroid + Dropsync or direct Dropbox API;
+  Tasker; iOS Shortcuts appendix; Bouncie OBD noted as the odometer-grade upgrade path).
+- `watcher.run_once/start` take an optional `trip_fn` (back-compat; `test_watcher` unchanged). New
+  tables `trip_events`/`trip_candidates`/`saved_routes`. `test_trips.py` covers parsing, pairing
+  edges, fallback math, watcher ingest idempotency, and the approve/dismiss/route flows. Suite 62/62.
+
 ### 2026-07-13 — Per Diem Travel page (GSA rates + per-diem vs actual-meals comparison)
 - New Expenses → **Per Diem Travel**: log a trip (destination, city/state or ZIP, dates) and
   ShopBooks pulls the official **GSA M&IE rate** for the destination and fiscal year
