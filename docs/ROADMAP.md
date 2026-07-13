@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Per Diem Travel page (GSA rates + per-diem vs actual-meals comparison)
+- New Expenses → **Per Diem Travel**: log a trip (destination, city/state or ZIP, dates) and
+  ShopBooks pulls the official **GSA M&IE rate** for the destination and fiscal year
+  (api.gsa.gov per-diem API; optional api.data.gov key in Settings, shared DEMO_KEY default;
+  lookup validated live — Nashville FY2026 returns $86 M&IE / $217 lodging). No locality or
+  lookup unavailable → standard CONUS fallback; a manual per-trip rate always wins and can be
+  set/overridden later ("Set M&IE rate" / "↻ Refresh from GSA").
+- Trip detail computes the per-diem total (first/last travel day at 75%, single-day trips
+  flagged) and compares it against **meals actually posted during the stay** (expense categories
+  matched by name: meal/food/dining/restaurant/refreshment), with other in-range expenses and
+  receipts listed as context/evidence — verdict card shows which deduction is larger and by how much.
+- Tax guardrails built in: the per-diem election covers M&IE ONLY for the self-employed — lodging
+  must be actual receipts (GSA lodging shown as a reference cap only); 50%-deductible note; advisor
+  caveat. Records-only like the mileage log — nothing posts to the ledger.
+- New `travel_trips` table (auto-created), `perdiem.py` module, `routes_travel.py` (get_con/
+  safe_redirect plumbing), `gsa_api_key` setting. `test_perdiem.py`: fiscal-year math, GSA parse,
+  75% breakdown edges, actuals matching, full /travel flow with mocked GSA. Suite 61/61.
+
 ### 2026-07-13 — Double-launch guard: reuse a healthy server instead of killing it
 - Second real-world exe failure: the app window opened onto ERR_CONNECTION_REFUSED. Cause:
   `free_port()` kills whatever holds :8765 — right for stale servers, wrong when it's a HEALTHY

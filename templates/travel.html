@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Per Diem Travel{% endblock %}
+{% block content %}
+<h1>Per diem travel</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted">Log a business trip and ShopBooks pulls the official GSA M&amp;IE (meals &amp;
+incidentals) rate for the destination, then compares the per-diem total against the meals you
+actually posted during the stay — so you can take whichever deduction is larger. Like the mileage
+log, this is a tax-time figure for your advisor: <strong>nothing here posts to the books.</strong></p>
+
+<h2>Add a trip</h2>
+<form method="post" class="toolbar">
+  <input type="text" name="destination" placeholder="destination (e.g. Nashville, TN)" style="width:220px" required>
+  <input type="text" name="city" placeholder="city (for GSA lookup)" style="width:160px">
+  <input type="text" name="state" placeholder="ST" style="width:48px" maxlength="2">
+  <input type="text" name="zip_code" placeholder="or ZIP" style="width:80px">
+  <input type="date" name="start_date" required title="first travel day">
+  <input type="date" name="end_date" required title="last travel day">
+  <input type="text" name="purpose" placeholder="purpose (trade show, install...)" style="width:200px">
+  <input type="text" name="manual_mie" placeholder="M&IE $/day (optional)" style="width:150px"
+         title="Leave blank to look the rate up from GSA; fill in to skip the lookup">
+  <button type="submit">Add trip</button>
+</form>
+<p class="muted">Give a city + 2-letter state (or a ZIP) and the rate comes from GSA for the trip's
+fiscal year. No locality or lookup unavailable → the standard CONUS rate is used (editable on the
+trip afterward).</p>
+
+<table class="sortable">
+  <tr><th>Destination</th><th>Dates</th><th class="num">Days</th><th class="num">M&IE/day</th>
+      <th class="num">Per diem total</th><th class="num">Actual meals</th><th>Better</th><th></th></tr>
+  {% for t in trips %}
+  <tr>
+    <td><a href="/travel/{{ t.id }}">{{ t.destination }}</a>{% if t.purpose %} <span class="muted">— {{ t.purpose }}</span>{% endif %}</td>
+    <td>{{ t.start_date }} → {{ t.end_date }}</td>
+    <td class="num">{{ t.days }}</td>
+    <td class="num">${{ t.mie_cents|money }} <span class="muted">({{ t.rate_source }})</span></td>
+    <td class="num">${{ t.perdiem_total|money }}</td>
+    <td class="num">${{ t.meals_total|money }}</td>
+    <td>{% if t.winner == 'perdiem' %}<span class="pos">per diem</span>{% else %}<span class="pos">actual</span>{% endif %}</td>
+    <td><form class="inline" method="post" action="/travel/{{ t.id }}/delete"
+              onsubmit="return confirm('Delete this trip record? (No ledger entries are affected.)')">
+      <button class="small danger" type="submit">✕</button></form></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">No trips yet — add your first one above.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted"><strong>Tax notes:</strong> self-employed filers may use the M&amp;IE per diem instead
+of actual meal costs (first and last travel day count at 75%), but <strong>lodging must always be
+actual receipts</strong> — the GSA lodging figure is shown only as a reference cap. Business meals are
+generally 50% deductible under either method. Pick one method per trip and confirm with your tax advisor.</p>
+{% endblock %}

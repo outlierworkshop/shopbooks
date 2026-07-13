@@ -344,6 +344,23 @@ CREATE TABLE IF NOT EXISTS tax_payments(
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS travel_trips(
+  id INTEGER PRIMARY KEY,
+  destination TEXT NOT NULL,             -- display label, e.g. 'Nashville, TN'
+  city TEXT DEFAULT '',                  -- for the GSA locality lookup (CONUS)
+  state TEXT DEFAULT '',                 -- 2-letter state code
+  zip TEXT DEFAULT '',                   -- ZIP lookup wins over city/state when present
+  start_date TEXT NOT NULL,              -- ISO YYYY-MM-DD
+  end_date TEXT NOT NULL,
+  mie_cents INTEGER NOT NULL,            -- daily M&IE rate locked in when the trip was added
+  lodging_cents INTEGER,                 -- GSA lodging cap for the start month (reference only —
+                                         -- self-employed must deduct ACTUAL lodging, never per diem)
+  rate_source TEXT NOT NULL DEFAULT 'standard',  -- 'gsa' | 'standard' | 'manual'
+  rate_note TEXT DEFAULT '',             -- e.g. the GSA locality the rate came from
+  purpose TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS recurring(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,                        -- payee / what it's for (e.g. 'Shop rent')
@@ -457,6 +474,7 @@ DEFAULT_SETTINGS = {
                       "convenience.\n\nThank you!\n{business}"),
     "estimated_income_tax_rate": "15",
     "sales_tax_rate": "0",  # percent charged on taxable invoice lines; 0 = no sales tax
+    "gsa_api_key": "",      # api.data.gov key for GSA per-diem lookups; blank = shared DEMO_KEY (rate-limited)
 }
 
 
