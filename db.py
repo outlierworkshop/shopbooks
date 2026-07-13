@@ -344,6 +344,41 @@ CREATE TABLE IF NOT EXISTS tax_payments(
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS trip_events(
+  id INTEGER PRIMARY KEY,
+  event TEXT NOT NULL,                   -- 'connect' | 'disconnect' (car Bluetooth, from the phone)
+  ts TEXT NOT NULL,                      -- ISO timestamp captured on the phone
+  lat REAL NOT NULL,
+  lon REAL NOT NULL,
+  raw TEXT DEFAULT '',                   -- the original event line, for debugging
+  status TEXT NOT NULL DEFAULT 'pending',-- pending | paired | orphan (no partner within the window)
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS trip_candidates(
+  id INTEGER PRIMARY KEY,
+  start_ts TEXT NOT NULL,
+  end_ts TEXT NOT NULL,
+  start_lat REAL NOT NULL, start_lon REAL NOT NULL,
+  end_lat REAL NOT NULL, end_lon REAL NOT NULL,
+  miles REAL NOT NULL,
+  distance_source TEXT NOT NULL DEFAULT 'estimate',  -- 'osrm' (routed) | 'estimate' (haversine x1.3)
+  start_place TEXT DEFAULT '',           -- reverse-geocoded label; coords string on fallback
+  end_place TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',-- pending | approved | dismissed
+  mileage_id INTEGER REFERENCES mileage(id),  -- the log row created on approval
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS saved_routes(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,                    -- 'Shop -> McMaster pickup'
+  from_loc TEXT DEFAULT '',
+  to_loc TEXT DEFAULT '',
+  miles REAL NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS travel_trips(
   id INTEGER PRIMARY KEY,
   destination TEXT NOT NULL,             -- display label, e.g. 'Nashville, TN'
@@ -461,6 +496,7 @@ DEFAULT_SETTINGS = {
     "next_credit_memo_number": "1001",
     "statements_watch_folder": "",  # folder auto-scanned for new bank/card statement PDFs/CSVs; blank = off
     "receipts_watch_folder": "",    # folder auto-scanned for new receipt images/PDFs; blank = off
+    "trips_watch_folder": "",       # folder auto-scanned for phone Bluetooth trip events; blank = off
     "smtp_host": "smtp.gmail.com",
     "smtp_port": "587",
     "smtp_user": "",

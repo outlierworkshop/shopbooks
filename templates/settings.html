@@ -111,12 +111,23 @@ test backup so you can confirm it works.</p>
       placeholder="leave blank to turn off">
     <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('receipts_watch_folder')">📁 Browse…</button>
   </div>
+  <label>Trips folder (mileage)</label>
+  <div class="folder-field">
+    <input type="text" name="trips_watch_folder" id="trips_watch_folder" value="{{ s.trips_watch_folder }}"
+      placeholder="leave blank to turn off"
+      title="Where your phone drops car-Bluetooth trip events (a Dropbox subfolder) — see docs/mileage-automation.md">
+    <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('trips_watch_folder')">📁 Browse…</button>
+  </div>
 </div>
 <p class="muted">Drop a bank/card statement (PDF/CSV) or a receipt (photo/PDF) into these folders — e.g. your
 Downloads folder, or wherever your bank/phone already saves them — and ShopBooks checks for new files about
 once a minute while it's running (not a background service; it only runs while the app is open) and stages
 them in <a href="/review">Review</a> or <a href="/receipts">Receipts</a> exactly like a manual upload. Nothing
-posts automatically. Leave a field blank to turn that watcher off.</p>
+posts automatically. Leave a field blank to turn that watcher off.
+The <strong>Trips folder</strong> powers automatic mileage: your phone drops a tiny event file there when it
+connects/disconnects from your car's Bluetooth, and detected drives appear on <a href="/mileage">Mileage</a>
+for approval — phone setup guide in
+<a href="https://github.com/outlierworkshop/shopbooks/blob/main/docs/mileage-automation.md">docs/mileage-automation.md</a>.</p>
 
 <div class="toolbar"><button type="submit">Save all settings</button></div>
 </form>

@@ -50,8 +50,8 @@ ok(r4.status_code == 200 and r4.json()["path"] == str(Path.home().resolve()),
 r5 = client.get("/settings")
 ok(r5.status_code == 200, "settings page renders")
 ok('id="folderPickerModal"' in r5.text, "settings page includes the folder-picker modal")
-ok(r5.text.count("folder-picker-btn") == 3,
-   "all three folder fields (statements, receipts, backup) get a Browse button")
+ok(r5.text.count("folder-picker-btn") == 4,
+   "all four folder fields (statements, receipts, trips, backup) get a Browse button")
 
 # ---- the Receipts "import a whole folder" field uses the same picker (via shared include) ----
 r6 = client.get("/receipts")
