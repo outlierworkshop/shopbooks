@@ -9,6 +9,7 @@ import ai
 import backup
 import db
 import feeds
+import invoicing
 import ledger
 import sync
 import watcher
@@ -289,6 +290,15 @@ def sync_resolve(choice: str = Form(...)):
     if r.get("status") in ("no_cloud", "error"):
         return safe_redirect("/settings", err="Could not resolve: " + r.get("error", r.get("status", "")))
     return safe_redirect("/settings", msg=note)
+
+@router.post("/email/test")
+def email_test(con=Depends(get_con)):
+    """Send a self-addressed test email to confirm the SMTP settings before sending real invoices."""
+    try:
+        to = invoicing.send_test_email(con)
+        return safe_redirect("/settings", msg=f"Test email sent to {to} — check your inbox (and spam).")
+    except Exception as e:
+        return safe_redirect("/settings", err=invoicing.explain_smtp_error(e))
 
 @router.post("/ollama/test")
 def ollama_test(con=Depends(get_con)):
