@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Help{% if title %} · {{ title }}{% endif %}{% endblock %}
+{% block content %}
+<div class="help-layout">
+  <aside class="help-nav">
+    <h3>Help</h3>
+    <a href="/help" class="{{ 'active' if not current else '' }}">Overview</a>
+    {% for d in docs %}
+    <a href="/help/{{ d.slug }}" class="{{ 'active' if current == d.slug else '' }}">{{ d.title }}</a>
+    {% endfor %}
+    <div class="help-nav-extra">
+      <a href="/chat">🤖 Ask the AI assistant</a>
+    </div>
+  </aside>
+
+  <div class="help-content">
+    {% if body %}
+      {{ body|safe }}
+    {% else %}
+      <h1>ShopBooks Help</h1>
+      <p>Guides and how-tos, right inside the app. Pick a topic on the left, or start here.</p>
+
+      <div class="cards">
+        {% for d in docs %}
+        <a class="card help-card" href="/help/{{ d.slug }}">
+          <div class="label">Guide</div>
+          <div class="help-card-title">{{ d.title }}</div>
+        </a>
+        {% endfor %}
+      </div>
+
+      <h2>Quick links</h2>
+      <ul>
+        <li><strong>The monthly routine:</strong> <a href="/import">Import statements</a> →
+          <a href="/review">Review</a> → <a href="/receipts">Match receipts</a> →
+          <a href="/reconcile">Reconcile</a>. Nothing hits your books without your approval.</li>
+        <li><strong>Get paid:</strong> <a href="/invoices">Invoices</a> and
+          <a href="/estimates">Estimates</a> (email setup in the
+          <a href="/help/email">Email guide</a>).</li>
+        <li><strong>Deductions:</strong> <a href="/mileage">Mileage</a> (auto-capture in the
+          <a href="/help/mileage">phone guide</a>), <a href="/travel">Per Diem Travel</a>.</li>
+        <li><strong>See the numbers:</strong> <a href="/reports">Reports</a>,
+          <a href="/insights">Insights</a>, <a href="/taxes">Tax Planner</a>, and the
+          <a href="/chat">AI assistant</a> for questions about your own books.</li>
+        <li><strong>Settings:</strong> <a href="/settings">Application settings</a> —
+          Claude API key, email (SMTP), backups, folder watchers, GSA per-diem key.</li>
+      </ul>
+
+      <h2>Stuck?</h2>
+      <p>Ask the built-in <a href="/chat">AI assistant</a> — it can answer how-to questions and
+        analyze your actual figures. Every page is also reversible: imports wait in Review, and
+        posted entries can be deleted from an account register.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

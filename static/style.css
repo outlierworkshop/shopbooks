@@ -539,3 +539,33 @@ tr:target { animation: rowflash 2.2s ease-out; }
 .cash-dot:hover { r: 6; fill: #fff; stroke: var(--accent); stroke-width: 2.5px; }
 .flow-rect { cursor: pointer; transition: opacity 0.15s ease; }
 .flow-rect:hover { opacity: 0.75; }
+
+/* Help pages (in-app rendered guides) */
+.help-layout { display: flex; gap: 28px; align-items: flex-start; }
+.help-nav { flex: 0 0 210px; position: sticky; top: 20px; }
+.help-nav h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.help-nav a { display: block; padding: 6px 10px; border-radius: var(--r-sm); color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+.help-nav a:hover { background: var(--accent-soft); }
+.help-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.help-nav-extra { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.help-content { flex: 1 1 auto; min-width: 0; max-width: 780px; }
+.help-content h1 { margin-top: 0; }
+.help-content h2 { margin-top: 28px; padding-top: 6px; border-top: 1px solid var(--line); }
+.help-content h3 { margin-top: 20px; }
+.help-content p, .help-content li { line-height: 1.6; }
+.help-content ul, .help-content ol { padding-left: 22px; }
+.help-content li { margin: 4px 0; }
+.help-content code { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; font-size: 0.9em; }
+.help-content pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; overflow-x: auto; }
+.help-content pre code { background: none; border: none; padding: 0; }
+.help-content blockquote { margin: 12px 0; padding: 8px 14px; border-left: 3px solid var(--accent);
+  background: var(--accent-soft); border-radius: 0 6px 6px 0; }
+.help-content table { display: block; overflow-x: auto; }
+.help-card { text-decoration: none; }
+.help-card-title { font-weight: 600; font-size: 15px; margin-top: 4px; color: var(--ink); }
+@media (max-width: 760px) {
+  .help-layout { flex-direction: column; }
+  .help-nav { position: static; flex-basis: auto; }
+}
