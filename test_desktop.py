@@ -25,6 +25,33 @@ ok(callable(desktop.free_port) and callable(desktop.wait_ready) and callable(des
 ok(desktop.wait_ready(timeout=1, url="http://127.0.0.1:9/") is False,
    "wait_ready times out cleanly when nothing answers")
 
+# Double-launch guard: a second launch must REUSE a healthy ShopBooks instead of killing it
+# (free_port on launch #2 used to kill launch #1's server, orphaning its window on
+# ERR_CONNECTION_REFUSED). already_serving() is the gate: False on a dead port, True against a
+# response that identifies as ShopBooks.
+ok(desktop.already_serving(url="http://127.0.0.1:9/") is False,
+   "already_serving is False when nothing answers")
+
+import http.server  # noqa: E402
+import threading  # noqa: E402
+
+class _FakeShopBooks(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"<!doctype html><title>Dashboard - ShopBooks</title>"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):  # keep test output clean
+        pass
+
+_srv = http.server.HTTPServer(("127.0.0.1", 0), _FakeShopBooks)
+threading.Thread(target=_srv.serve_forever, daemon=True).start()
+ok(desktop.already_serving(url=f"http://127.0.0.1:{_srv.server_port}/") is True,
+   "already_serving recognizes a live ShopBooks response (second launch will reuse, not kill)")
+_srv.shutdown()
+
 # Windowed-exe regression (the v1.0.0 ShopBooks.exe launch crash): a PyInstaller console=False
 # build (and pythonw) starts with sys.stdout/stderr = None; uvicorn's formatter calls
 # sys.stdout.isatty() while Config configures logging -> "Unable to configure formatter 'default'".

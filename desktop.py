@@ -83,6 +83,25 @@ def app_profile_dir():
     return Path.home() / ".local" / "share" / "ShopBooks-app"
 
 
+def already_serving(url=URL):
+    """True if a healthy ShopBooks is already answering on the port. Launching again must NOT
+    kill it: free_port() on a second double-click killed the first instance's server and left
+    its app window orphaned on ERR_CONNECTION_REFUSED. Reuse the live server instead."""
+    try:
+        with urllib.request.urlopen(url, timeout=1.5) as r:
+            return b"ShopBooks" in r.read(8192)
+    except Exception:
+        return False
+
+
+def open_app_window(browser):
+    """Open the chromeless app-mode window; blocks until the window's browser process exits."""
+    profile = app_profile_dir()
+    profile.mkdir(parents=True, exist_ok=True)
+    subprocess.run([browser, f"--app={URL}", f"--user-data-dir={profile}",
+                    "--no-first-run", "--no-default-browser-check"])
+
+
 def free_port(port=PORT):
     """Always serve one clean instance: kill whatever already holds the port (stale server)."""
     try:
@@ -112,6 +131,17 @@ def wait_ready(timeout=20, url=URL):
 
 
 def main():
+    if already_serving():
+        # A healthy ShopBooks (another launch of this app, or the dev server) already owns the
+        # port. Open a window onto it and leave its lifecycle alone — the instance that started
+        # the server stops it when ITS window closes.
+        browser = find_chromium()
+        if browser:
+            open_app_window(browser)
+        else:
+            webbrowser.open(URL)
+        return
+
     free_port()
     cfg = uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="warning")
     server = uvicorn.Server(cfg)
@@ -124,11 +154,8 @@ def main():
 
     browser = find_chromium()
     if browser:
-        profile = app_profile_dir()
-        profile.mkdir(parents=True, exist_ok=True)
         # Blocks until the app window (its whole dedicated profile) closes.
-        subprocess.run([browser, f"--app={URL}", f"--user-data-dir={profile}",
-                        "--no-first-run", "--no-default-browser-check"])
+        open_app_window(browser)
     else:
         # No Chromium browser: normal tab, keep serving until Ctrl-C (today's behavior).
         webbrowser.open(URL)
