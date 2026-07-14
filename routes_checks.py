@@ -101,29 +101,33 @@ def _read_check_form(form):
             "memo": (form.get("memo") or "").strip()}
 
 
-def _payee_name_for_preview(con, form):
+def _payee_for_preview(con, form):
+    """(name, address) for the preview PDF: an existing payee's stored address, or the address typed
+    for a brand-new payee. Raises ValueError if no payee is chosen."""
     picked = (form.get("payee_id") or "").strip()
     if picked:
-        p = con.execute("SELECT name FROM payees WHERE id=?", (int(picked),)).fetchone()
+        p = con.execute("SELECT name, address FROM payees WHERE id=?", (int(picked),)).fetchone()
         if p:
-            return p["name"]
+            return p["name"], (p["address"] or "")
     name = (form.get("new_payee_name") or "").strip()
     if not name:
         raise ValueError("Pick a payee, or enter a new payee's name.")
-    return name
+    return name, (form.get("new_payee_address") or "").strip()
 
 
 @router.post("/checks/preview", response_class=HTMLResponse)
 async def check_preview(request: Request, con=Depends(get_con)):
     form = await request.form()
     raw = {k: form.get(k, "") for k in ("account_id", "payee_id", "new_payee_name", "new_payee_email",
-                                        "date", "amount", "category_id", "memo", "check_number")}
+                                        "new_payee_address", "date", "amount", "category_id", "memo",
+                                        "check_number")}
     try:
         fields = _read_check_form(form)
-        payee_name = _payee_name_for_preview(con, form)
+        payee_name, payee_addr = _payee_for_preview(con, form)
     except ValueError as e:
         return templates.TemplateResponse(request, "check_new.html", _new_ctx(request, con, form=raw, error=str(e)))
     pdf_qs = urlencode({"account_id": fields["account_id"], "payee_name": payee_name,
+                        "payee_addr": payee_addr,
                         "date": fields["date"], "amount_cents": fields["amount_cents"],
                         "memo": fields["memo"], "category_id": fields["category_id"],
                         "check_number": fields["check_number"]})
@@ -134,8 +138,9 @@ async def check_preview(request: Request, con=Depends(get_con)):
 
 @router.get("/checks/preview.pdf")
 def check_preview_pdf(account_id: int, payee_name: str, date: str, amount_cents: int,
-                      category_id: int = 0, memo: str = "", check_number: int = 0, con=Depends(get_con)):
-    chk = {"account_id": account_id, "payee_name": payee_name, "date": date,
+                      category_id: int = 0, memo: str = "", check_number: int = 0,
+                      payee_addr: str = "", con=Depends(get_con)):
+    chk = {"account_id": account_id, "payee_name": payee_name, "payee_addr": payee_addr, "date": date,
            "amount_cents": amount_cents, "memo": memo, "category_id": category_id or None,
            "check_number": check_number}
     return StreamingResponse(iter([checks.render_check_pdf(con, chk)]), media_type="application/pdf",

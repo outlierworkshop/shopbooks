@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-14 — Checks: QuickBooks-voucher alignment + DWE001 window address block
+- The CheckSimple **STCHK1** stock is cut to the standard **QuickBooks/Quicken voucher** template,
+  so the check face now uses those positions (date top-right, pay-to, courtesy $ box, written
+  amount, memo) instead of hand-guessed ones. Date prints **US MM/DD/YYYY** and is right-justified
+  to the dollar amount's right edge; positions verified in inches with pdfplumber.
+- Mailed in the **DWE001 double-window** envelope, so a **payee name + address block** now prints
+  for the lower window (skipped when no address is on file). Payees gained a real multi-line
+  **mailing address** (Payees page column + inline-on-check quick-add); `resolve_payee` stores it.
+  The per-printer `check_offset_x/y` nudge still dials in the final alignment (no absolute field
+  coordinates are published by Intuit/CheckSimple — QuickBooks itself aligns via a sample print).
+- `test_checks.py` +5 (US date, address-line split, address-block render, payee-address storage).
+
 ### 2026-07-13 — Write & print checks (top-check 8.5×11) + payees
 - New Expenses → **Write Checks** and **Payees**. The check dialog: pick the bank account, payee
   (existing or quick-add a new one — separate `payees` list that reuses the customer form/format,

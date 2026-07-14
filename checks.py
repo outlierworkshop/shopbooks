@@ -45,6 +45,16 @@ def amount_to_words(cents):
     return f"{w[0].upper()}{w[1:]} and {c:02d}/100"
 
 
+def _us_date(iso):
+    """ISO 'YYYY-MM-DD' -> 'MM/DD/YYYY' for the printed check face (banks/recipients expect it);
+    passes anything unparseable straight through."""
+    try:
+        y, m, d = str(iso).split("-")
+        return f"{int(m):02d}/{int(d):02d}/{y}"
+    except (ValueError, AttributeError):
+        return str(iso)
+
+
 def next_check_number(con, account_id):
     """One past the highest printed check number on this account, or None if none printed yet
     (the first time, the owner types the starting number off their checkbook)."""
@@ -70,7 +80,9 @@ def resolve_payee(con, form):
     if not name:
         raise ValueError("Pick a payee, or enter a new payee's name.")
     email = (form.get("new_payee_email") or "").strip()
-    pid = con.execute("INSERT INTO payees(name, email) VALUES(?, ?)", (name, email)).lastrowid
+    address = (form.get("new_payee_address") or "").strip()
+    pid = con.execute("INSERT INTO payees(name, email, address) VALUES(?, ?, ?)",
+                      (name, email, address)).lastrowid
     return pid, name
 
 
@@ -111,6 +123,27 @@ def get_check(con, check_id):
     return con.execute("SELECT * FROM checks WHERE id=?", (check_id,)).fetchone()
 
 
+def _chk_get(chk, key):
+    """Read a key from either a dict (preview) or a sqlite Row (reprint); None if absent."""
+    try:
+        return chk[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def _payee_address_lines(con, chk):
+    """Mailing-address lines for the DWE001 window block: from chk['payee_addr'] when the preview
+    passes it, else looked up by chk['payee_id']. Empty list when no address is on file (then the
+    window block is skipped — the name is already on the Pay-to line)."""
+    raw = _chk_get(chk, "payee_addr")
+    if raw is None:
+        pid = _chk_get(chk, "payee_id")
+        if pid:
+            row = con.execute("SELECT address FROM payees WHERE id=?", (pid,)).fetchone()
+            raw = row["address"] if row else ""
+    return [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
+
+
 def render_check_pdf(con, chk):
     """A one-page 8.5x11 PDF: variable fields positioned for pre-printed 'check on top' stock, plus
     two record stubs. `chk` is a dict/row with account_id, payee_name, date, amount_cents, memo,
@@ -131,20 +164,34 @@ def render_check_pdf(con, chk):
         pdf.set_font("Helvetica", style, size)
         pdf.text(x + ox, y + oy, invoicing._latin(str(s)))
 
-    # --- the check itself (top 3.5in / 88.9mm) — align to the pre-printed boxes ---
-    text(163, 22, chk["date"])                                   # date (top right)
-    text(22, 35, chk["payee_name"], 11)                          # pay to the order of
-    pdf.set_font("Helvetica", "B", 11)                           # courtesy amount box (right, boxed)
-    pdf.set_xy(150 + ox, 31 + oy)
-    pdf.cell(55, 6, invoicing._latin("**" + amt), align="R")
-    text(12, 44, words.upper(), 10)                              # written amount line
+    # --- the check itself (top 3.5in / 88.9mm): standard QuickBooks/Quicken voucher layout ---
+    #     STCHK1 is cut to the QB voucher template; positions are mm from the top-left. Fine-tune
+    #     for a specific printer with the check_offset_x/y nudge (Settings on the Write-a-check page).
+    pdf.set_font("Helvetica", "", 10)                            # DATE, right-justified to the $ right edge
+    ds = invoicing._latin(_us_date(chk["date"]))
+    pdf.text(200 - pdf.get_string_width(ds) + ox, 18 + oy, ds)
+    text(25, 31, chk["payee_name"], 11)                          # PAY TO THE ORDER OF   (~1.0in, 1.22in)
+    pdf.set_font("Helvetica", "B", 11)                           # courtesy $ amount, right-aligned in box
+    s = invoicing._latin("**" + amt)
+    pdf.text(200 - pdf.get_string_width(s) + ox, 31 + oy, s)     # right edge ~7.87in, same line as payee
+    text(9, 38, words.upper(), 10)                               # written/legal amount  (~0.35in, 1.5in)
+
+    # payee name + address block for the DWE001 lower window (~0.9in, 1.85in) — skipped if no address
+    addr_lines = _payee_address_lines(con, chk)
+    if addr_lines:
+        text(22, 47, chk["payee_name"], 9)
+        ay = 47
+        for line in addr_lines:
+            ay += 4.2
+            text(22, ay, line, 9)
+
     if chk["memo"]:
-        text(15, 68, chk["memo"], 9)                            # memo (bottom left of check)
+        text(23, 66, chk["memo"], 9)                             # MEMO line             (~0.9in, 2.6in)
 
     # --- two voucher stubs below the perforations (remittance record) ---
     for top in (100, 190):
         text(15, top, f"Check #{chk['check_number']}", 10, "B")
-        text(15, top + 7, f"Date:     {chk['date']}")
+        text(15, top + 7, f"Date:     {_us_date(chk['date'])}")
         text(15, top + 13, f"Pay to:   {chk['payee_name']}")
         text(15, top + 19, f"Amount:   ${amt}")
         if cat:
