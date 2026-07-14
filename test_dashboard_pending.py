@@ -21,6 +21,13 @@ ok("Waiting for review" in page, "dashboard has the 'Waiting for review' section
 ok("Nothing waiting" in page, "empty state shows the 'nothing waiting' message")
 ok("Recent activity" not in page, "the old posted-entries 'Recent activity' section is gone")
 
+# ---- account tiles are ALWAYS the top row, linking to each register (regressed once in 62d505b) ----
+ok('class="kpis account-tiles"' in page, "the account-tiles top row is present")
+ok(f'href="/register/{chk}"' in page, "each account tile links to its register")
+ok("Business Checking" in page, "the checking-account tile shows on the dashboard")
+ok(page.index('account-tiles') < page.index('Today at a glance'),
+   "account tiles come before the day-brief hero (top row)")
+
 # ---- seed pending transactions via a CSV import ----
 csv = ("Date,Description,Amount\n"
        "02/03/2026,BLUE BOTTLE COFFEE,-6.75\n"

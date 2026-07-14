@@ -7,6 +7,20 @@
   <span class="greeting">{{ business_name }} · {{ brief.today }}</span>
 </div>
 
+{# ---------- account tiles: ALWAYS the top row — one tile per bank/card, linking to its register.
+     Do NOT move below the fold or remove in dashboard refactors (regressed once in 62d505b). #}
+{% if accounts %}
+<div class="kpis account-tiles">
+  {% for a in accounts %}
+  <div class="kpi">
+    <div class="label"><span class="ico">{{ '💳' if a.kind == 'card' else '🏦' }}</span>{{ a.name }}</div>
+    <div class="big {{ 'neg' if a.balance < 0 else '' }}">${{ a.balance|money }}</div>
+    <div class="sub"><a class="muted" href="/register/{{ a.id }}">view register →</a></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ---------- hero: the day brief ---------- #}
 <div class="hero">
   <div class="hero-top">
