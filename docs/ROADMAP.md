@@ -34,6 +34,12 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-14 — Invoice PDF: US Letter page size
+- Switched the invoice/estimate/credit-memo PDF from the fpdf2 default (A4) to **US Letter**
+  (216 × 279 mm / 8.5 × 11 in) so it prints cleanly on US printers. Widened the layout margins to
+  match (`R` 192 → 198) and the Description column (96 → 102 mm) so the table and totals stay
+  aligned to the right edge on the wider page. Page MediaBox verified at 612 × 792 pt.
+
 ### 2026-07-14 — Company logo: SVG (vector) support
 - The logo upload now accepts **SVG** in addition to PNG/JPG/GIF. On invoices the SVG is rendered as
   true vector via fpdf2 (crisp at any size; `pdf.image` handles SVG, `<text>`-outlining recommended

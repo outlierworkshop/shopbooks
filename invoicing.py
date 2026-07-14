@@ -273,10 +273,10 @@ def render_pdf(con, inv, items, total):
     is_credit_memo = _kind(inv) == "credit_memo"
     doc_label = "ESTIMATE" if is_est else "CREDIT MEMO" if is_credit_memo else "INVOICE"
 
-    pdf = FPDF()
+    pdf = FPDF(format="letter")  # US Letter (216 x 279 mm / 8.5 x 11 in)
     pdf.add_page()
     pdf.set_auto_page_break(True, margin=22)
-    L, R = 18, 192
+    L, R = 18, 198  # 18 mm side margins on a 216 mm-wide page
 
     # 1. Header: logo + business (left), document label + number (right)
     name_y = 20
@@ -337,7 +337,7 @@ def render_pdf(con, inv, items, total):
     # 3. Line items: hairline rules, no filled rows
     pdf.set_font("helvetica", "", 8)
     pdf.set_text_color(*MUTED)
-    pdf.cell(96, 7, "DESCRIPTION")
+    pdf.cell(102, 7, "DESCRIPTION")
     pdf.cell(16, 7, "QTY", align="R")
     pdf.cell(30, 7, "UNIT", align="R")
     pdf.cell(32, 7, "AMOUNT", align="R", new_x="LMARGIN", new_y="NEXT")
@@ -350,7 +350,7 @@ def render_pdf(con, inv, items, total):
     for it in items:
         amt = round(it["qty"] * it["unit_cents"])
         qty = f"{it['qty']:g}"
-        pdf.cell(96, 8, _latin(it["description"])[:60])
+        pdf.cell(102, 8, _latin(it["description"])[:64])
         pdf.cell(16, 8, qty, align="R")
         pdf.cell(30, 8, f"${fmt_cents(it['unit_cents'])}", align="R")
         pdf.cell(32, 8, f"${fmt_cents(amt)}", align="R", new_x="LMARGIN", new_y="NEXT")
