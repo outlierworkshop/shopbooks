@@ -34,6 +34,15 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-14 — Invoice email: branded HTML that mirrors the PDF + a "Pay here" button
+- The invoice email is now a rich, PDF-like HTML message (`invoicing._apply_invoice_email`): logo +
+  business header, invoice number/dates, bill-to, a line-item table with subtotal/tax/total, the
+  owner's note, and — when a Square `pay_url` is passed — a prominent green **Pay here — $total**
+  button (ACH/card). Email-safe (table layout, inline styles, logo inlined via `cid`); plain text
+  stays the universal fallback (still carries the pay link). The generic `_apply_email_body` remains
+  for the test email. `test_email.py` +5 (HTML lists items + total, Pay button present with a link
+  and absent without, plain-text fallback). Suite 69/69. (Logo shows once one is uploaded in Settings.)
+
 ### 2026-07-14 — Accept digital payments via Square (ACH + cards) on invoices
 - Customers can pay invoices online by **ACH (~1%)** or **card** on a **Square-hosted** page. Since
   ShopBooks is a local 127.0.0.1 app (no public URL, no webhooks possible), it uses the **Square
