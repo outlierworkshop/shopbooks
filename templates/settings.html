@@ -292,6 +292,7 @@ for approval — phone setup guide in
   {% endif %}
   <div class="toolbar" style="margin-top:8px">
     <form class="inline" method="post" action="/feeds/fetch">
+      <input type="hidden" name="back" value="/settings">
       <button type="submit">Fetch from bank feeds</button></form>
     <form class="inline" method="post" action="/feeds/disconnect"
           onsubmit="return confirm('Disconnect bank feeds? (Mappings are kept; you can reconnect with a new setup token.)')">

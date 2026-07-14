@@ -158,6 +158,10 @@ ok("Fetch from bank feeds" in c.get("/import").text, "import page offers the fet
 
 r = c.post("/feeds/fetch", follow_redirects=False)
 ok(r.status_code == 303, "POST /feeds/fetch redirects")
+# a fetch launched from Review returns toward Review, never bouncing the user to Settings
+r_back = c.post("/feeds/fetch", data={"back": "/review"}, follow_redirects=False)
+ok(r_back.status_code == 303 and not r_back.headers["location"].startswith("/settings"),
+   "a fetch launched from Review does not kick the user to /settings")
 r = c.post("/feeds/map", data={"feed_account_id": "act-card", "account_id": str(CARD), "enabled": "1"},
            follow_redirects=False)
 ok(r.status_code == 303, "POST /feeds/map redirects")
