@@ -92,7 +92,7 @@
     {% endif %}
 
     {% if applicable_invoices and remaining_credit > 0 %}
-      <div style="margin-top:15px; padding:12px; border:1px solid #c9c6bd; border-radius:6px; background:#fdfdfb;">
+      <div style="margin-top:15px; padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--card-2);">
         <h3 style="margin-top:0; font-size:14px; color:#333;">Apply this credit to an invoice</h3>
         <p class="muted" style="font-size:12px; margin-bottom:8px;">${{ remaining_credit|money }} available — pick an open invoice for this customer:</p>
         <form method="post" action="/credit-memos/{{ inv.id }}/apply" class="toolbar" style="margin-bottom:0;">
@@ -142,7 +142,7 @@
     {% endif %}
 
     {% if available_credits %}
-      <div style="margin-top: 15px; padding: 12px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb;">
+      <div style="margin-top: 15px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2);">
         <h3 style="margin-top:0; font-size: 14px; color: #333;">Available Customer Credits</h3>
         <p class="muted" style="font-size: 12px; margin-bottom: 8px;">This customer has open credit memos or overpaid invoices. Apply them to reduce this invoice's balance.</p>
         <form method="post" action="/invoices/{{ inv.id }}/apply-credit" class="toolbar" style="margin-bottom:0;">
@@ -159,7 +159,7 @@
     {% endif %}
 
     {% if remaining_credit > 0 %}
-      <div style="margin-top:15px; padding:12px; border:1px solid #c9c6bd; border-radius:6px; background:#fdfdfb;">
+      <div style="margin-top:15px; padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--card-2);">
         <h3 style="margin-top:0; font-size:14px; color:#333;">Overpayment</h3>
         <p class="muted" style="font-size:12px; margin-bottom:8px;">This invoice is overpaid by ${{ remaining_credit|money }}. Turn the excess into a credit memo you can apply to this customer's other invoices.</p>
         <form method="post" action="/invoices/{{ inv.id }}/to-credit-memo"
@@ -222,10 +222,10 @@
       <a href="#" onclick="togglePairPayments(); return false;" class="muted" style="font-size: 11px; text-decoration: underline;">Pair Payments</a>
       
       <!-- Inline Payments Pairing Drawer -->
-      <div id="pair-payments-drawer" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+      <div id="pair-payments-drawer" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2); text-align: left; max-width: 600px;">
         <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair deposits on your books with this invoice:</div>
         <form method="post" action="/invoices/{{ inv.id }}/save-matches">
-          <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+          <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; background: var(--card); margin-bottom: 8px;">
             {% for e in available_deposits %}
               <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
                 <input type="checkbox" name="entry_ids" value="{{ e.id }}" 

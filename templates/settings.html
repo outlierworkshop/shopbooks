@@ -274,7 +274,7 @@ for approval — phone setup guide in
     </p>
 
     {% if sync_status.status in ('conflict', 'local_ahead') %}
-    <div class="card" style="background:#fff6f6;border-color:#e7b3b3">
+    <div class="card" style="background:var(--bad-soft);border-color:var(--bad)">
       <p><strong>Both copies changed - choose which to keep:</strong></p>
       <div class="toolbar">
         <form class="inline" method="post" action="/sync/resolve"
