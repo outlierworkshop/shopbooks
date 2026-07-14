@@ -45,6 +45,17 @@ ok(checks.next_check_number(con, bank) == 1002, "next number counts up from the 
 pdf = checks.render_check_pdf(con, dict(chk))
 ok(pdf[:4] == b"%PDF" and len(pdf) > 800, "check renders to a PDF")
 
+# --- US date + DWE001 window address block ------------------------------------
+ok(checks._us_date("2026-07-14") == "07/14/2026", "ISO date -> US MM/DD/YYYY on the check face")
+ok(checks._us_date("whenever") == "whenever", "an unparseable date passes straight through")
+ok(checks._payee_address_lines(con, {"payee_addr": "742 Evergreen Terrace\nSpringfield, MA 01101"})
+   == ["742 Evergreen Terrace", "Springfield, MA 01101"], "address splits into window-block lines")
+ok(checks._payee_address_lines(con, {"payee_addr": "  "}) == [], "no address -> window block skipped")
+pdf_addr = checks.render_check_pdf(con, {"account_id": bank, "payee_name": "Acme", "date": "2026-07-14",
+           "amount_cents": 5000, "memo": "m", "category_id": exp, "check_number": 1200,
+           "payee_addr": "1 A St\nB, MA 02000"})
+ok(pdf_addr[:4] == b"%PDF", "check with a window address block still renders")
+
 # --- void unwinds the ledger entry --------------------------------------------
 checks.void_check(con, cid)
 con.commit()
@@ -59,6 +70,10 @@ got_id, got_name = checks.resolve_payee(con, {"payee_id": str(pid)})
 ok(got_id == pid and got_name == "Existing Vendor", "resolve_payee returns the picked payee")
 new_id, new_name = checks.resolve_payee(con, {"new_payee_name": "Brand New Vendor", "new_payee_email": "v@x.com"})
 ok(new_id != pid and new_name == "Brand New Vendor", "resolve_payee creates a new payee from a typed name")
+addr_id, _ = checks.resolve_payee(con, {"new_payee_name": "Mailed Vendor",
+                                        "new_payee_address": "9 Elm St\nWorcester, MA 01601"})
+ok(con.execute("SELECT address FROM payees WHERE id=?", (addr_id,)).fetchone()["address"]
+   == "9 Elm St\nWorcester, MA 01601", "resolve_payee stores a new payee's mailing address")
 try:
     checks.resolve_payee(con, {})
     ok(False, "resolve_payee should require a payee")

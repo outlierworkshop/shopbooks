@@ -36,6 +36,9 @@
       <label class="np-field">New payee email</label>
       <input class="np-field" type="email" name="new_payee_email" value="{{ form.new_payee_email or '' }}"
              placeholder="optional">
+      <label class="np-field">New payee address</label>
+      <textarea class="np-field" name="new_payee_address" rows="2"
+                placeholder="optional — prints in the window-envelope block">{{ form.new_payee_address or '' }}</textarea>
 
       <label>Amount ($)</label>
       <input type="text" name="amount" value="{{ form.amount or '' }}" placeholder="0.00" inputmode="decimal" required>
