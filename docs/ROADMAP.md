@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Invoice/estimate/credit-memo PDF: clean-minimal redesign + punctuation fix
+- Rebuilt `invoicing.render_pdf` from a generic template into a **clean-minimal** layout: sans
+  throughout, a letter-spaced `INVOICE`/`ESTIMATE`/`CREDIT MEMO` label with a large document number,
+  hairline table rules (no filled rows), a right-aligned totals block with a ruled **Total due**, and
+  an anchored footer — so a high-ticket custom-instrument invoice no longer reads like a utility bill.
+  Every money branch is preserved (subtotal, sales tax, payments received, credits applied,
+  credit-memo, estimate, remaining balance due). Chosen from three rendered directions (Refined /
+  Minimal / Bold).
+- Fixed a real bug in `_latin`: common non-latin-1 punctuation (em/en dash, curly quotes, ellipsis,
+  bullet, arrow, ™) now transliterates to ASCII instead of rendering as **"?"** under fpdf2's built-in
+  fonts — e.g. "mandolin — Model A" printed as "mandolin ? Model A".
+- The minimal look is intentionally **logo-less** (matches the chosen direction); re-adding the
+  letterhead logo is a small change. `test_invoice_pdf.py` covers the punctuation fix and that all
+  three document kinds render.
+
 ### 2026-07-13 — Bill a not-yet-a-customer on new invoices/estimates
 - The new-invoice and new-estimate forms required picking an *existing* customer (and hid the whole
   form until you'd added one). Now the customer `<select>` includes a **"— New customer (enter
