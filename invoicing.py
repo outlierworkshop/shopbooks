@@ -278,8 +278,16 @@ def render_pdf(con, inv, items, total):
     pdf.set_auto_page_break(True, margin=22)
     L, R = 18, 192
 
-    # 1. Header: business (left), document label + number (right)
-    pdf.set_xy(L, 20)
+    # 1. Header: logo + business (left), document label + number (right)
+    name_y = 20
+    logo = db.company_logo_path(con)
+    if logo:
+        try:
+            pdf.image(str(logo), x=L, y=15, h=13)  # height-constrained so any aspect ratio fits
+            name_y = 31
+        except Exception:
+            pass  # a bad/unsupported logo image never breaks the invoice
+    pdf.set_xy(L, name_y)
     pdf.set_font("helvetica", "B", 11)
     pdf.set_text_color(*INK)
     pdf.cell(0, 6, _latin(biz), new_x="LMARGIN", new_y="NEXT")
@@ -288,6 +296,7 @@ def render_pdf(con, inv, items, total):
     for line in [x for x in (addr.splitlines() + [bemail, bphone]) if x.strip()]:
         pdf.set_x(L)
         pdf.cell(0, 4.4, _latin(line), new_x="LMARGIN", new_y="NEXT")
+    left_end = pdf.get_y()
     pdf.set_xy(120, 20)
     pdf.set_font("helvetica", "", 8)
     pdf.set_text_color(*MUTED)
@@ -297,8 +306,8 @@ def render_pdf(con, inv, items, total):
     pdf.set_text_color(*INK)
     pdf.cell(R - 120, 11, _latin(inv["number"]), align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # 2. Bill-to (left) and dates (right)
-    pdf.set_y(max(46, pdf.get_y() + 8))
+    # 2. Bill-to (left) and dates (right) — start below whichever header column is taller
+    pdf.set_y(max(46, left_end, pdf.get_y()) + 8)
     y_row = pdf.get_y()
     pdf.set_font("helvetica", "", 8)
     pdf.set_text_color(*MUTED)
@@ -508,6 +517,35 @@ def explain_smtp_error(e):
     return f"Email failed: {e}"
 
 
+def _apply_email_body(msg, con, plain_body):
+    """Set the message's plain-text body and add a simple branded HTML alternative, with the
+    uploaded company logo as an inline header image if one is set. Plain text stays the fallback,
+    so the message is readable in any client; the logo is best-effort and never blocks sending."""
+    import html as _h
+    from email.utils import make_msgid
+    msg.set_content(plain_body)
+    biz = db.get_setting(con, "business_name", "My Business")
+    logo = db.company_logo_path(con)
+    cid = make_msgid() if logo else None
+    logo_html = (f'<img src="cid:{cid[1:-1]}" alt="{_h.escape(biz)}" '
+                 'style="max-height:60px;max-width:220px;margin-bottom:18px">') if logo else ""
+    body_html = _h.escape(plain_body).replace("\n", "<br>")
+    html_doc = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;color:#23281f;font-size:14px;'
+        'line-height:1.55;max-width:560px;margin:0 auto;padding:8px">'
+        f'{logo_html}<div>{body_html}</div>'
+        '<hr style="border:none;border-top:1px solid #e4e2d9;margin:22px 0 12px">'
+        f'<div style="color:#8a8f83;font-size:12px">{_h.escape(biz)}</div></div>')
+    msg.add_alternative(html_doc, subtype="html")
+    if logo:
+        subtype = logo.suffix.lower().lstrip(".")
+        subtype = "jpeg" if subtype == "jpg" else subtype
+        try:
+            msg.get_payload()[1].add_related(logo.read_bytes(), "image", subtype, cid=cid)
+        except Exception:
+            pass
+
+
 def send_test_email(con):
     """Send a small self-addressed test message to confirm the SMTP settings work.
     Returns the address it was sent to; raises on failure (see explain_smtp_error)."""
@@ -519,8 +557,8 @@ def send_test_email(con):
     msg["From"] = user
     msg["To"] = user
     msg["Subject"] = "ShopBooks test email"
-    msg.set_content(f"This is a test message from ShopBooks for {biz}.\n\n"
-                    "If you're reading this, invoice email is working.")
+    _apply_email_body(msg, con, f"This is a test message from ShopBooks for {biz}.\n\n"
+                      "If you're reading this, invoice email is working.")
     _smtp_send(con, msg)
     return user
 
@@ -544,7 +582,7 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
     msg["From"] = user
     msg["To"] = to_addr
     msg["Subject"] = subject
-    msg.set_content(body)
+    _apply_email_body(msg, con, body)
     msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf",
                        filename=f"{inv['number']}.pdf")
     _smtp_send(con, msg)

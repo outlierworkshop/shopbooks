@@ -29,8 +29,12 @@ con.commit()
 
 captured = {}
 _orig = invoicing._smtp_send
+# Emails are multipart now (plain text + branded HTML, with the company logo inline when set),
+# so pull the plain-text part rather than msg.get_content() (which raises on a multipart message).
 invoicing._smtp_send = lambda c, msg: captured.update(
-    {"from": msg["From"], "to": msg["To"], "subject": msg["Subject"], "body": msg.get_content()})
+    {"from": msg["From"], "to": msg["To"], "subject": msg["Subject"],
+     "body": msg.get_body(preferencelist=("plain",)).get_content(),
+     "has_html": msg.get_body(preferencelist=("html",)) is not None})
 try:
     to = invoicing.send_test_email(con)
     ok(to == "me@myco.com", "send_test_email returns the address it sent to")
@@ -38,6 +42,7 @@ try:
        "test email is self-addressed (from and to the SMTP user)")
     ok(captured["subject"] == "ShopBooks test email", "test email has the expected subject")
     ok("Outlier Workshop" in captured["body"], "test email body names the business")
+    ok(captured["has_html"], "test email includes an HTML alternative part")
 finally:
     invoicing._smtp_send = _orig
 

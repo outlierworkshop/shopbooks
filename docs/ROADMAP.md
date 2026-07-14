@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Company logo: upload once, shows on invoices + emails
+- New **Settings → Company logo**: upload a PNG/JPG/GIF (validated, ≤3 MB, stored in the data dir)
+  with a live preview and Remove. `render_pdf` puts the logo back in the invoice header (top-left,
+  height-constrained so any aspect ratio fits; a bad/unsupported image is caught and skipped so it
+  can never break invoice generation). Invoice/reminder emails are now **multipart** — a branded
+  HTML body with the logo inline (`cid:`), plus the existing plain-text fallback and PDF attachment.
+  `db.company_logo_path` is the single source of truth. This replaces the hardcoded
+  `static/logo.png` (Outlier Workshop wordmark) that used to be baked into every invoice, so any SB
+  user can brand their own. Routes: `GET`/`POST /settings/logo`, `POST /settings/logo/remove`.
+  `test_company_logo.py` covers upload/serve/validation/embed/email; `test_email.py` updated for the
+  multipart body.
+
 ### 2026-07-13 — Invoice/estimate/credit-memo PDF: clean-minimal redesign + punctuation fix
 - Rebuilt `invoicing.render_pdf` from a generic template into a **clean-minimal** layout: sans
   throughout, a letter-spaced `INVOICE`/`ESTIMATE`/`CREDIT MEMO` label with a large document number,
