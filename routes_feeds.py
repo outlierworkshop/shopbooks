@@ -46,14 +46,17 @@ def feeds_map(feed_account_id: str = Form(...), account_id: str = Form(""), enab
     return safe_redirect("/settings")
 
 @router.post("/feeds/fetch")
-def feeds_fetch(con=Depends(get_con)):
+def feeds_fetch(back: str = Form("/settings"), con=Depends(get_con)):
+    # Return the user to whichever page they clicked from (Review, Import, or Settings), not always
+    # to Settings — the button lives on several pages.
+    back = back if back.startswith("/") else "/settings"
     try:
         r = feeds.fetch(con, categorize=_feed_ai_categorize)
         con.commit()
     except ValueError as e:
-        return safe_redirect("/settings", err=str(e))
+        return safe_redirect(back, err=str(e))
     except Exception as e:
-        return safe_redirect("/settings", err=
+        return safe_redirect(back, err=
             f"Couldn't reach the bank feed (it may be busy — the bridge refreshes daily): {e}")
     parts = [f"Fetched {r['staged']} new transaction(s) from the bank feed"]
     if r["accounts"]:
@@ -62,7 +65,7 @@ def feeds_fetch(con=Depends(get_con)):
         parts.append(f"unmapped (skipped): {', '.join(r['unmapped'])} — map them in Settings")
     if r["staged"]:
         return safe_redirect("/review", msg="; ".join(parts) + ".")
-    return safe_redirect("/settings", msg="; ".join(parts) + ". Nothing new to review.")
+    return safe_redirect(back, msg="; ".join(parts) + ". Nothing new to review.")
 
 @router.post("/feeds/disconnect")
 def feeds_disconnect(con=Depends(get_con)):

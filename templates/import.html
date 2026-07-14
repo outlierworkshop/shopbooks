@@ -6,6 +6,7 @@
 {% if feeds_connected %}
 <div class="toolbar" style="margin-bottom:10px">
   <form class="inline" method="post" action="/feeds/fetch">
+    <input type="hidden" name="back" value="/import">
     <button type="submit">⇣ Fetch from bank feeds</button></form>
   <span class="muted">Pulls new transactions from your connected banks into Review
     (<a href="/settings#feeds">manage feeds</a>).</span>
