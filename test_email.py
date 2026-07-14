@@ -77,5 +77,32 @@ ok(r.status_code == 303 and "err=" in r.headers["location"],
    "POST /email/test failure redirects with an err= message")
 invoicing._smtp_send = _orig
 
+# --- rich invoice email: HTML mirrors the PDF, with a Pay button when a pay link is given ------
+cust = con.execute("INSERT INTO customers(name,email) VALUES('Rich Buyer','rb@x.com')").lastrowid
+inv_id = con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,kind) "
+                     "VALUES('INV-7001',?,?,?,'sent','invoice')", (cust, '2026-07-14', '2026-08-14')).lastrowid
+con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,taxable) "
+            "VALUES(?, 'Custom bracket', 2, 5000, 0)", (inv_id,))
+con.commit()
+inv, items, total = invoicing.get_invoice(con, inv_id)
+
+cap = {}
+invoicing._smtp_send = lambda c, msg: cap.update(
+    {"plain": msg.get_body(preferencelist=("plain",)).get_content(),
+     "html": msg.get_body(preferencelist=("html",)).get_content()})
+try:
+    invoicing.send_invoice_email(con, inv, total, b"%PDF-fake", "rb@x.com",
+                                 pay_url="https://squareup.com/pay/ABC")
+    ok("Custom bracket" in cap["html"], "invoice email HTML lists the line item")
+    ok("Total due" in cap["html"] and "100.00" in cap["html"], "invoice email HTML shows the total")
+    ok("Pay here" in cap["html"] and "squareup.com/pay/ABC" in cap["html"],
+       "a Pay-here button links to the Square page when a pay_url is given")
+    ok("squareup.com/pay/ABC" in cap["plain"], "plain-text fallback still includes the pay link")
+    cap.clear()
+    invoicing.send_invoice_email(con, inv, total, b"%PDF-fake", "rb@x.com")   # no pay link
+    ok("Pay here" not in cap["html"], "no Pay button when there's no pay link")
+finally:
+    invoicing._smtp_send = _orig
+
 con.close()
 print("\nEMAIL TESTS DONE")

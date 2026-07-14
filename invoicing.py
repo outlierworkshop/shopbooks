@@ -588,6 +588,129 @@ def _apply_email_body(msg, con, plain_body):
             pass
 
 
+def _qty_str(q):
+    q = float(q)
+    return str(int(q)) if q == int(q) else f"{q:g}"
+
+
+def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
+    """Set the plain-text fallback and a rich HTML alternative that mirrors the PDF invoice: logo +
+    business header, invoice number/dates, bill-to, a line-item table with totals, the owner's note,
+    and — when `pay_url` is set — a prominent 'Pay here' button (ACH/card via Square). Email-safe:
+    table layout with inline styles only, logo embedded inline (cid). The logo is best-effort and
+    never blocks sending; the plain text stays the universal fallback."""
+    import html as _h
+    from email.utils import make_msgid
+    msg.set_content(plain_body)
+
+    biz = db.get_setting(con, "business_name", "My Business")
+    addr = db.get_setting(con, "business_address", "")
+    bemail = db.get_setting(con, "business_email", "")
+    bphone = db.get_setting(con, "business_phone", "")
+    terms = db.get_setting(con, "invoice_terms", "")
+    _, items, _ = get_invoice(con, inv["id"])
+    subtotal = invoice_subtotal(con, inv["id"])
+    tax = invoice_tax(con, inv["id"])
+
+    INK, GRAY, MUTED, HAIR, BG, ACCENT = "#1f2421", "#696969", "#929292", "#e4e2db", "#f4f3ee", "#2f9e44"
+    e = _h.escape
+
+    logo = db.company_logo_raster_path(con)
+    cid = make_msgid() if logo else None
+    logo_html = (f'<img src="cid:{cid[1:-1]}" alt="{e(biz)}" '
+                 f'style="max-height:56px;max-width:220px;margin-bottom:12px">') if logo else ""
+
+    contact = "<br>".join(e(x) for x in (addr.splitlines() + [bemail, bphone]) if x.strip())
+    cust = [e(x) for x in (inv["customer_address"] or "").splitlines()]
+    if inv["customer_email"]:
+        cust.append(e(inv["customer_email"]))
+    cust_html = ("<br>".join(cust)) if cust else ""
+
+    rows = ""
+    for it in items:
+        amt = fmt_cents(round(it["qty"] * it["unit_cents"]))
+        rows += (
+            '<tr>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #efeee7;color:{INK}">{e(it["description"])}</td>'
+            f'<td align="right" style="padding:8px 0 8px 10px;border-bottom:1px solid #efeee7;color:{GRAY};white-space:nowrap">{_qty_str(it["qty"])}</td>'
+            f'<td align="right" style="padding:8px 0 8px 10px;border-bottom:1px solid #efeee7;color:{GRAY};white-space:nowrap">${fmt_cents(it["unit_cents"])}</td>'
+            f'<td align="right" style="padding:8px 0 8px 14px;border-bottom:1px solid #efeee7;color:{INK};white-space:nowrap">${amt}</td>'
+            '</tr>')
+
+    def total_row(lbl, val, strong=False):
+        w = "bold" if strong else "normal"
+        sz = "15px" if strong else "13px"
+        col = INK if strong else GRAY
+        return (f'<tr><td align="right" style="padding:3px 14px 3px 0;color:{col};font-size:{sz};font-weight:{w}">{lbl}</td>'
+                f'<td align="right" style="padding:3px 0;color:{col};font-size:{sz};font-weight:{w};white-space:nowrap">${val}</td></tr>')
+    totals = total_row("Subtotal", fmt_cents(subtotal))
+    if tax:
+        totals += total_row("Sales tax", fmt_cents(tax))
+    totals += total_row("Total due", fmt_cents(total), strong=True)
+
+    button = ""
+    if pay_url:
+        button = (
+            f'<tr><td style="padding:22px 30px 6px">'
+            f'<table cellpadding="0" cellspacing="0" role="presentation"><tr>'
+            f'<td align="center" bgcolor="{ACCENT}" style="border-radius:8px">'
+            f'<a href="{e(pay_url)}" target="_blank" '
+            f'style="display:inline-block;padding:14px 34px;font-size:16px;font-weight:bold;'
+            f'color:#ffffff;text-decoration:none;border-radius:8px">Pay here &nbsp;&#8226;&nbsp; ${fmt_cents(total)}</a>'
+            f'</td></tr></table>'
+            f'<div style="font-size:12px;color:{MUTED};padding-top:8px">Pay securely by bank transfer '
+            f'(ACH) or card via Square. The PDF invoice is attached.</div></td></tr>')
+
+    note_html = e(note).replace("\n", "<br>")
+    doc = (
+        f'<div style="background:{BG};padding:24px 12px;font-family:Arial,Helvetica,sans-serif">'
+        '<table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr><td align="center">'
+        f'<table width="600" cellpadding="0" cellspacing="0" role="presentation" '
+        f'style="max-width:600px;width:100%;background:#ffffff;border:1px solid {HAIR};border-radius:10px">'
+        # header
+        f'<tr><td style="padding:28px 30px 0">{logo_html}'
+        f'<div style="font-size:15px;font-weight:bold;color:{INK}">{e(biz)}</div>'
+        f'<div style="font-size:12px;color:{MUTED};line-height:1.5">{contact}</div></td></tr>'
+        # doc title + dates
+        '<tr><td style="padding:14px 30px 0"><table width="100%" role="presentation"><tr>'
+        f'<td style="font-size:11px;color:{MUTED};letter-spacing:1px">INVOICE<br>'
+        f'<span style="font-size:22px;color:{INK};font-weight:bold;letter-spacing:0">{e(inv["number"])}</span></td>'
+        f'<td align="right" style="font-size:12px;color:{GRAY};line-height:1.7">Date: {e(inv["date"])}<br>'
+        f'Due: {e(inv["due_date"])}</td></tr></table></td></tr>'
+        f'{button}'
+        # note
+        f'<tr><td style="padding:18px 30px 0;font-size:14px;color:#23281f;line-height:1.55">{note_html}</td></tr>'
+        # bill to
+        f'<tr><td style="padding:18px 30px 0"><div style="font-size:11px;color:{MUTED};letter-spacing:1px">BILL TO</div>'
+        f'<div style="font-size:14px;color:{INK};font-weight:bold;padding-top:3px">{e(inv["customer"])}</div>'
+        f'<div style="font-size:12px;color:{GRAY};line-height:1.6">{cust_html}</div></td></tr>'
+        # line items
+        '<tr><td style="padding:14px 30px 0"><table width="100%" cellpadding="0" cellspacing="0" '
+        'role="presentation" style="border-collapse:collapse;font-size:13px">'
+        f'<tr style="font-size:11px;color:{MUTED};letter-spacing:.5px">'
+        f'<td style="padding:0 0 6px;border-bottom:2px solid {HAIR}">DESCRIPTION</td>'
+        f'<td align="right" style="padding:0 0 6px 10px;border-bottom:2px solid {HAIR}">QTY</td>'
+        f'<td align="right" style="padding:0 0 6px 10px;border-bottom:2px solid {HAIR}">UNIT</td>'
+        f'<td align="right" style="padding:0 0 6px 14px;border-bottom:2px solid {HAIR}">AMOUNT</td></tr>'
+        f'{rows}</table></td></tr>'
+        # totals
+        '<tr><td style="padding:12px 30px 0"><table align="right" cellpadding="0" cellspacing="0" '
+        f'role="presentation">{totals}</table></td></tr>'
+        # terms / footer
+        f'<tr><td style="padding:26px 30px 26px"><div style="border-top:1px solid {HAIR};padding-top:12px;'
+        f'font-size:11px;color:{MUTED};line-height:1.6">{e(terms)}</div></td></tr>'
+        '</table></td></tr></table></div>')
+
+    msg.add_alternative(doc, subtype="html")
+    if logo:
+        subtype = logo.suffix.lower().lstrip(".")
+        subtype = "jpeg" if subtype == "jpg" else subtype
+        try:
+            msg.get_payload()[1].add_related(logo.read_bytes(), "image", subtype, cid=cid)
+        except Exception:
+            pass
+
+
 def send_test_email(con):
     """Send a small self-addressed test message to confirm the SMTP settings work.
     Returns the address it was sent to; raises on failure (see explain_smtp_error)."""
@@ -620,15 +743,14 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
               "total": fmt_cents(total), "due_date": inv["due_date"], "date": inv["date"],
               "payments_total": fmt_cents(pay_total), "outstanding": fmt_cents(outstanding)}
     subject = (subject or db.get_setting(con, "email_subject")).format(**fields)
-    body = (body or db.get_setting(con, "email_body")).format(**fields)
-    if pay_url:
-        body += f"\n\nPay online (bank transfer or card): {pay_url}\n"
+    note = (body or db.get_setting(con, "email_body")).format(**fields)
+    plain = note + (f"\n\nPay online (bank transfer or card): {pay_url}\n" if pay_url else "")
 
     msg = EmailMessage()
     msg["From"] = user
     msg["To"] = to_addr
     msg["Subject"] = subject
-    _apply_email_body(msg, con, body)
+    _apply_invoice_email(msg, con, inv, total, note, plain, pay_url)
     msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf",
                        filename=f"{inv['number']}.pdf")
     _smtp_send(con, msg)
