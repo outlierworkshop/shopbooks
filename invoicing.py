@@ -322,13 +322,18 @@ def render_pdf(con, inv, items, total):
 
     # 1. Header: logo + business (left), document label + number (right)
     name_y = 20
-    logo = db.company_logo_path(con)
-    if logo:
-        try:
-            pdf.image(str(logo), x=L, y=15, h=13)  # height-constrained so any aspect ratio fits
-            name_y = 31
-        except Exception:
-            pass  # a bad/unsupported logo image never breaks the invoice
+    # A logo shows iff company_logo is set. Prefer the raster (PNG) companion to draw it — fpdf2's
+    # SVG rendering garbles script/complex marks — falling back to the original file, then nothing.
+    if db.company_logo_path(con):
+        for _lg in (db.company_logo_raster_path(con), db.company_logo_path(con)):
+            if not _lg:
+                continue
+            try:
+                pdf.image(str(_lg), x=L, y=15, h=13)  # height-constrained so the aspect ratio is kept
+                name_y = 31
+                break
+            except Exception:
+                continue  # a bad/unsupported logo image never breaks the invoice
     pdf.set_xy(L, name_y)
     pdf.set_font("helvetica", "B", 11)
     pdf.set_text_color(*INK)
@@ -473,7 +478,9 @@ def render_pdf(con, inv, items, total):
         pdf.set_text_color(*GRAY)
         pdf.multi_cell(0, 4.8, _latin(terms))
 
-    # 6. Footer, anchored near the bottom
+    # 6. Footer, anchored near the bottom. Disable auto page-break first: set_y(-17) lands inside the
+    #    break margin, so drawing the footer cell would otherwise spill onto a spurious 2nd page.
+    pdf.set_auto_page_break(False)
     pdf.set_y(-17)
     pdf.set_draw_color(*HAIR)
     pdf.set_line_width(0.3)
