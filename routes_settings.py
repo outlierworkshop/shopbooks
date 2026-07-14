@@ -191,6 +191,7 @@ def settings_page(request: Request, msg: str = "", err: str = "", con=Depends(ge
     return templates.TemplateResponse(request, "settings.html", ctx(
         request, con, s=s, key_set=bool(key),
         smtp_set=bool(db.get_setting(con, "smtp_password", "")),
+        square_set=bool(db.get_setting(con, "square_access_token", "")),
         feeds_connected=feeds.connected(con), feed_accounts=feeds.list_feed_accounts(con),
         bankcards=bankcards,
         backup=backup.status(), restorable=backup.list_restorable()[:30],
@@ -320,10 +321,14 @@ async def settings_save(request: Request, con=Depends(get_con)):
              "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
              "email_subject", "email_body", "reminder_subject", "reminder_body",
              "estimated_income_tax_rate", "statements_watch_folder", "receipts_watch_folder",
-             "trips_watch_folder", "gsa_api_key")
+             "trips_watch_folder", "gsa_api_key",
+             "square_location_id", "square_environment", "square_deposit_account_id")
     for k in plain:
         if k in form:
             db.set_setting(con, k, str(form[k]).strip())
+    # Square "also accept cards" checkbox (present only when the main settings form is submitted)
+    if "square_environment" in form:
+        db.set_setting(con, "square_enable_card", "1" if form.get("square_enable_card") else "0")
     # sales tax rate: sanitize to a non-negative number (accepts "8.25" or "8.25%")
     if "sales_tax_rate" in form:
         raw = str(form["sales_tax_rate"]).strip().rstrip("%").strip()
@@ -333,7 +338,7 @@ async def settings_save(request: Request, con=Depends(get_con)):
             rate = 0.0
         db.set_setting(con, "sales_tax_rate", str(rate))
     # secrets: blank = keep current, "CLEAR" = remove
-    for k in ("anthropic_api_key", "smtp_password"):
+    for k in ("anthropic_api_key", "smtp_password", "square_access_token"):
         v = str(form.get(k, "")).strip()
         if v == "CLEAR":
             db.set_setting(con, k, "")

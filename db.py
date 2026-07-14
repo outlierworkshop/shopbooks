@@ -347,6 +347,18 @@ CREATE TABLE IF NOT EXISTS feed_txns(
   staged_id INTEGER REFERENCES staged(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS square_invoices(
+  invoice_id INTEGER PRIMARY KEY REFERENCES invoices(id) ON DELETE CASCADE,
+  square_invoice_id TEXT NOT NULL,      -- Square's invoice id (for GetInvoice polling)
+  square_order_id TEXT DEFAULT '',      -- the underlying Square order
+  public_url TEXT DEFAULT '',           -- hosted pay page (emailed to the customer)
+  status TEXT DEFAULT '',               -- last-seen Square status (DRAFT/UNPAID/PAID/...)
+  version INTEGER DEFAULT 0,            -- Square invoice version (required by publish/update)
+  payment_recorded_cents INTEGER NOT NULL DEFAULT 0,  -- how much we've already booked (idempotent sync)
+  fee_recorded INTEGER NOT NULL DEFAULT 0,            -- 1 once the Square processing fee is booked
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS watched_files(
   path TEXT PRIMARY KEY,                -- absolute path of a file seen by a folder watcher
   kind TEXT NOT NULL,                   -- 'statement' | 'receipt'
@@ -538,6 +550,12 @@ DEFAULT_SETTINGS = {
     "gsa_api_key": "",      # api.data.gov key for GSA per-diem lookups; blank = shared DEMO_KEY (rate-limited)
     "check_offset_x": "0",  # printer alignment nudge for check printing, mm (right = +)
     "check_offset_y": "0",  # printer alignment nudge for check printing, mm (down = +)
+    # Square online payments (Invoices API; see square.py). Blank token = not connected.
+    "square_access_token": "",      # Square app access token (secret; own-account PAT)
+    "square_location_id": "",       # Square Location the invoices are created under
+    "square_environment": "sandbox",  # 'sandbox' | 'production' — picks the API base URL
+    "square_deposit_account_id": "",  # ShopBooks "Square" clearing account payments land in
+    "square_enable_card": "1",      # also accept cards on the hosted page (ACH is always on)
 }
 
 
@@ -590,6 +608,10 @@ def _column_migrations(con):
                 "INSERT INTO document_entry_links(document_id, entry_id) "
                 "SELECT id, entry_id FROM documents WHERE entry_id IS NOT NULL"
             )
+
+    cust = {r["name"] for r in con.execute("PRAGMA table_info(customers)").fetchall()}
+    if "square_customer_id" not in cust:
+        con.execute("ALTER TABLE customers ADD COLUMN square_customer_id TEXT")
 
     acct = {r["name"] for r in con.execute("PRAGMA table_info(accounts)").fetchall()}
     if "parent_id" not in acct:

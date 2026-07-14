@@ -5,6 +5,7 @@ from email.message import EmailMessage
 from fpdf import FPDF
 
 import db
+import ledger
 from ledger import fmt_cents
 
 
@@ -67,6 +68,47 @@ def invoice_total(con, invoice_id):
     if inv and inv["kind"] == "credit_memo":
         return -total
     return total
+
+
+def invoice_default_income_id(con, invoice_id):
+    """Best income account to credit when an invoice is paid online (no interactive picker): the
+    income account most of the invoice's catalog items map to, else the first active income
+    account. Returns an account id or None."""
+    rows = con.execute(
+        "SELECT itm.income_account_id aid, COUNT(*) n FROM invoice_items ii "
+        "JOIN items itm ON itm.id=ii.item_id "
+        "WHERE ii.invoice_id=? AND itm.income_account_id IS NOT NULL "
+        "GROUP BY itm.income_account_id ORDER BY n DESC", (invoice_id,)).fetchall()
+    if rows:
+        return rows[0]["aid"]
+    row = con.execute("SELECT id FROM accounts WHERE type='income' AND active=1 ORDER BY id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def record_invoice_payment(con, invoice_id, *, into_account_id, income_id, amount_cents, date,
+                           label=None, memo=None):
+    """Post a full customer payment against an invoice and mark it paid: debit the deposit account
+    (a bank account, or the Square clearing account for online payments), credit income, and split
+    any collected sales tax to Sales Tax Payable (tax_allocation). Sets status='paid' + paid_entry_id
+    and returns the entry id. Shared by the manual Record-Payment route and Square payment sync so
+    the tax-split posting lives in exactly one place."""
+    inv = con.execute("SELECT i.number, i.customer_id, c.name customer FROM invoices i "
+                      "JOIN customers c ON c.id=i.customer_id WHERE i.id=?", (invoice_id,)).fetchone()
+    sub = invoice_subtotal(con, invoice_id)
+    tax = invoice_tax(con, invoice_id)
+    inc_part, tax_part = tax_allocation(sub, tax, amount_cents)
+    tax_acct = sales_tax_account_id(con)
+    if tax_part and tax_acct:
+        legs = [(into_account_id, amount_cents), (income_id, -inc_part), (tax_acct, -tax_part)]
+    else:  # no tax (or account missing) → the whole payment is income
+        legs = [(into_account_id, amount_cents), (income_id, -amount_cents)]
+    d = ledger.normalize_date(date)
+    entry_id = ledger.post_entry(con, d, label or f"Invoice {inv['number']} - {inv['customer']}",
+                                 legs, memo=memo or f"invoice #{inv['number']}",
+                                 customer_id=inv["customer_id"])
+    con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
+                (d, entry_id, invoice_id))
+    return entry_id
 
 
 def tax_allocation(subtotal, tax, amount):
@@ -563,8 +605,10 @@ def send_test_email(con):
     return user
 
 
-def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=None):
-    """Send the invoice PDF over SMTP. Raises on failure with a readable message."""
+def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=None, pay_url=None):
+    """Send the invoice PDF over SMTP. When `pay_url` is given (the Square hosted payment page), a
+    'Pay online' line is appended so the customer can pay by ACH or card. Raises on failure with a
+    readable message."""
     user = db.get_setting(con, "smtp_user", "")
     password = db.get_setting(con, "smtp_password", "")
     if not (user and password):
@@ -577,6 +621,8 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
               "payments_total": fmt_cents(pay_total), "outstanding": fmt_cents(outstanding)}
     subject = (subject or db.get_setting(con, "email_subject")).format(**fields)
     body = (body or db.get_setting(con, "email_body")).format(**fields)
+    if pay_url:
+        body += f"\n\nPay online (bank transfer or card): {pay_url}\n"
 
     msg = EmailMessage()
     msg["From"] = user
