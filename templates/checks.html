@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Checks{% endblock %}
+{% block content %}
+<h1>Checks</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="toolbar">
+  {% if has_bank %}
+  <a class="btn" href="/checks/new">✎ Write a check</a>
+  {% else %}
+  <span class="muted">Add a bank account on the <a href="/accounts">Chart of Accounts</a> to write checks.</span>
+  {% endif %}
+  <a class="btn ghost" href="/payees">Manage payees</a>
+</div>
+<p class="muted">Writing a check prints it (for pre-printed 8.5×11 "check on top" stock) <strong>and</strong>
+records the payment in your books. When that check later clears on your bank statement, Review flags it
+as a possible duplicate so you don't count it twice — just Skip the statement copy.</p>
+
+<table class="sortable">
+  <tr><th class="num">Check #</th><th>Date</th><th>Payee</th><th>Account</th><th>Category</th>
+      <th class="num">Amount</th><th>Memo</th><th></th></tr>
+  {% for k in checks %}
+  <tr class="{{ 'row-dup' if k.status == 'void' else '' }}">
+    <td class="num">{{ k.check_number }}{% if k.status == 'void' %} <span class="warn">VOID</span>{% endif %}</td>
+    <td>{{ k.date }}</td>
+    <td>{{ k.payee_name }}</td>
+    <td class="muted">{{ k.account_name }}</td>
+    <td class="muted">{{ k.category_name or '' }}</td>
+    <td class="num">${{ k.amount_cents|money }}</td>
+    <td class="muted">{{ k.memo }}</td>
+    <td style="white-space:nowrap">
+      <a class="btn small ghost" href="/checks/{{ k.id }}/pdf" target="_blank">Reprint</a>
+      {% if k.status != 'void' %}
+      <form class="inline" method="post" action="/checks/{{ k.id }}/void"
+            onsubmit="return confirm('Void check #{{ k.check_number }}? Its ledger entry is removed. (Destroy the printed paper too.)')">
+        <button class="small danger" type="submit">Void</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">No checks written yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

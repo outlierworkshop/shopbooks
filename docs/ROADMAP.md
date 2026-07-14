@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Write & print checks (top-check 8.5×11) + payees
+- New Expenses → **Write Checks** and **Payees**. The check dialog: pick the bank account, payee
+  (existing or quick-add a new one — separate `payees` list that reuses the customer form/format,
+  so vendors never mix into customers/AR), amount, category, memo, and check number (defaults to one
+  past the last printed on that account). **Preview** renders the exact PDF; **Printed correctly →
+  record it** posts the payment (category debit / bank credit) and stores the check.
+- PDF (`checks.py`, fpdf2) is laid out for pre-printed "check on top" 8.5×11 stock: date top-right,
+  payee left, courtesy amount in the Fed-standard right box, written amount (new amount-to-words  helper) below, memo at the check bottom, plus two remittance stubs — with an X/Y print-alignment
+  nudge (`check_offset_x/y`) to match any printer. Verified field coordinates with pdfplumber.
+- Cash-basis honored: the posted check is caught by Review's existing duplicate detection when it
+  clears on the bank statement. New `checks`/`payees` tables; `ledger.delete_entry` now voids a check
+  when its entry is deleted (invariant 5 updated). `routes_checks.py`, three templates, nav links.
+  `test_checks.py` (18 checks): words, numbering, posting, void, PDF, payee resolve, full flow +
+  duplicate-number guard. Suite 68/68.
+
 ### 2026-07-14 — Invoice PDF: US Letter page size
 - Switched the invoice/estimate/credit-memo PDF from the fpdf2 default (A4) to **US Letter**
   (216 × 279 mm / 8.5 × 11 in) so it prints cleanly on US printers. Widened the layout margins to

@@ -238,6 +238,29 @@ CREATE TABLE IF NOT EXISTS customer_notes(
   note TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS payees(
+  id INTEGER PRIMARY KEY,                -- who you pay by check (vendors/contractors) — kept separate
+  name TEXT NOT NULL,                    -- from customers (who pay you) so the two never mix in dropdowns
+  email TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  notes TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS checks(
+  id INTEGER PRIMARY KEY,
+  check_number INTEGER NOT NULL,
+  account_id INTEGER NOT NULL REFERENCES accounts(id),   -- the bank account drawn on
+  payee_id INTEGER REFERENCES payees(id),                -- optional link to the saved payee
+  payee_name TEXT NOT NULL,                              -- snapshot of the name printed on the check
+  date TEXT NOT NULL,                                    -- ISO YYYY-MM-DD
+  amount_cents INTEGER NOT NULL,                         -- always positive
+  memo TEXT DEFAULT '',
+  category_id INTEGER REFERENCES accounts(id),           -- the expense category the payment books to
+  entry_id INTEGER REFERENCES entries(id),               -- the posted ledger entry (bank credit / category debit)
+  status TEXT NOT NULL DEFAULT 'printed',                -- 'printed' | 'void'
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_checks_account ON checks(account_id);
 CREATE TABLE IF NOT EXISTS invoices(
   id INTEGER PRIMARY KEY,
   number TEXT UNIQUE NOT NULL,
@@ -513,6 +536,8 @@ DEFAULT_SETTINGS = {
     "estimated_income_tax_rate": "15",
     "sales_tax_rate": "0",  # percent charged on taxable invoice lines; 0 = no sales tax
     "gsa_api_key": "",      # api.data.gov key for GSA per-diem lookups; blank = shared DEMO_KEY (rate-limited)
+    "check_offset_x": "0",  # printer alignment nudge for check printing, mm (right = +)
+    "check_offset_y": "0",  # printer alignment nudge for check printing, mm (down = +)
 }
 
 

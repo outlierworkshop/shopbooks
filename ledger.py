@@ -144,6 +144,8 @@ def delete_entry(con, entry_id):
 
     con.execute("UPDATE staged SET status='pending', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE documents SET status='unmatched', entry_id=NULL WHERE entry_id=?", (entry_id,))
+    # A printed check that referenced this entry becomes void — its payment is gone (invariant 5).
+    con.execute("UPDATE checks SET status='void', entry_id=NULL WHERE entry_id=?", (entry_id,))
     con.execute("UPDATE invoices SET paid_entry_id=NULL WHERE paid_entry_id=?", (entry_id,))
     con.execute("UPDATE invoices SET matched_entry_id=NULL WHERE matched_entry_id=?", (entry_id,))
     con.execute("DELETE FROM invoice_entry_links WHERE entry_id=?", (entry_id,))

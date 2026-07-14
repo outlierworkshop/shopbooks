@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Payees{% endblock %}
+{% block content %}
+<h1>Payees</h1>
+{% if msg %}<p class="note">{{ msg }}</p>{% endif %}
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+<p class="muted">People and businesses you write checks to (vendors, contractors, the shop's bills).
+Kept separate from <a href="/customers">Customers</a> (who pay you) so the two never mix. Same form,
+different list.</p>
+
+<h2>Add a payee</h2>
+<form method="post" action="/payees" class="formgrid" style="max-width:640px">
+  <label>Name</label><input type="text" name="name" placeholder="Vendor or person you pay" required>
+  <label>Email</label><input type="email" name="email" placeholder="optional">
+  <label>Address</label><input type="text" name="address" placeholder="optional — prints nothing; for your records">
+  <label>Phone</label><input type="text" name="phone" placeholder="optional">
+  <label>Notes</label><input type="text" name="notes" placeholder="optional">
+  <span></span><span><button type="submit">Add payee</button></span>
+</form>
+
+<h2>Your payees</h2>
+<table class="sortable">
+  <tr><th>Name</th><th>Email</th><th>Phone</th><th class="num">Checks</th><th></th></tr>
+  {% for p in payees %}
+  <tr>
+    <td>
+      <span class="view-mode">{{ p.name }}</span>
+      <input class="edit-mode" type="text" name="name" value="{{ p.name }}" form="edit-{{ p.id }}" style="display:none; width:100%" required>
+    </td>
+    <td class="muted">
+      <span class="view-mode">{{ p.email }}</span>
+      <input class="edit-mode" type="email" name="email" value="{{ p.email }}" form="edit-{{ p.id }}" style="display:none; width:100%">
+    </td>
+    <td class="muted">
+      <span class="view-mode">{{ p.phone }}</span>
+      <input class="edit-mode" type="text" name="phone" value="{{ p.phone }}" form="edit-{{ p.id }}" style="display:none; width:100%">
+    </td>
+    <td class="num">{{ p.check_count }}</td>
+    <td style="white-space:nowrap">
+      <span class="view-mode">
+        <button class="small ghost" type="button" onclick="editPayee({{ p.id }}, true)">Edit</button>
+        <form class="inline" method="post" action="/payees/{{ p.id }}/delete"
+              onsubmit="return confirm('Delete {{ p.name }}? Checks already written to them are kept.')">
+          <button class="small danger" type="submit">✕</button></form>
+      </span>
+      <span class="edit-mode" style="display:none">
+        <form id="edit-{{ p.id }}" method="post" action="/payees/update" class="inline">
+          <input type="hidden" name="payee_id" value="{{ p.id }}">
+          <input type="hidden" name="address" value="{{ p.address }}">
+          <input type="hidden" name="notes" value="{{ p.notes }}">
+          <button class="small" type="submit">Save</button>
+        </form>
+        <button class="small ghost" type="button" onclick="editPayee({{ p.id }}, false)">Cancel</button>
+      </span>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No payees yet — add one above, or create one on the fly while
+    <a href="/checks/new">writing a check</a>.</td></tr>
+  {% endfor %}
+</table>
+<script>
+function editPayee(id, on){
+  var row = document.getElementById('edit-'+id).closest('tr');
+  row.querySelectorAll('.view-mode').forEach(function(e){ e.style.display = on ? 'none' : ''; });
+  row.querySelectorAll('.edit-mode').forEach(function(e){ e.style.display = on ? '' : 'none'; });
+}
+</script>
+{% endblock %}

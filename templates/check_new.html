@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Write a check{% endblock %}
+{% block content %}
+<h1>Write a check</h1>
+<p class="muted"><a href="/checks">← All checks</a></p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<div class="help-layout">
+  <div style="flex:0 0 420px; max-width:420px">
+    <form id="checkform" method="post" action="/checks/preview" class="formgrid">
+      <label>Bank account</label>
+      <select name="account_id" id="account_id" onchange="setNextNumber()" required>
+        {% for a in accounts %}
+        <option value="{{ a.id }}" {{ 'selected' if form.account_id == a.id|string else '' }}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+
+      <label>Check #</label>
+      <input type="number" name="check_number" id="check_number" min="1" step="1"
+             value="{{ form.check_number or next_numbers[accounts[0].id] }}" required
+             title="Defaults to one past the last printed check on this account; pre-printed on your check stock">
+
+      <label>Date</label>
+      <input type="date" name="date" value="{{ form.date or today }}" required>
+
+      <label>Payee</label>
+      <select name="payee_id" id="payee_id" onchange="toggleNewPayee(this)">
+        <option value="">— New payee (enter below) —</option>
+        {% for p in payees %}
+        <option value="{{ p.id }}" {{ 'selected' if form.payee_id == p.id|string else '' }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      <label class="np-field">New payee name</label>
+      <input class="np-field" type="text" name="new_payee_name" value="{{ form.new_payee_name or '' }}"
+             placeholder="Who the check is to">
+      <label class="np-field">New payee email</label>
+      <input class="np-field" type="email" name="new_payee_email" value="{{ form.new_payee_email or '' }}"
+             placeholder="optional">
+
+      <label>Amount ($)</label>
+      <input type="text" name="amount" value="{{ form.amount or '' }}" placeholder="0.00" inputmode="decimal" required>
+
+      <label>Category (books to)</label>
+      <select name="category_id" required>
+        <option value="">- choose -</option>
+        {% for c in cats %}
+        <option value="{{ c.id }}" {{ 'selected' if form.category_id == c.id|string else '' }}>{{ c.label }} ({{ c.type }})</option>
+        {% endfor %}
+      </select>
+
+      <label>Memo</label>
+      <input type="text" name="memo" value="{{ form.memo or '' }}" placeholder="optional — prints on the check & stub">
+
+      <span></span>
+      <span class="toolbar">
+        <button type="submit">🔍 Preview check</button>
+        {% if preview %}
+        <button type="submit" formaction="/checks/print"
+                title="Records the check and posts the payment to your books">✓ Printed correctly — record it</button>
+        {% endif %}
+      </span>
+    </form>
+
+    <form method="post" action="/checks/align" class="formgrid" style="margin-top:22px; max-width:100%">
+      <span style="grid-column:1/-1"><strong style="font-size:13px">Print alignment</strong>
+        <span class="muted">nudge if fields don't land in the boxes (mm)</span></span>
+      <label>Right (+) / left (−)</label><input type="text" name="offset_x" value="{{ offset_x }}" style="width:80px">
+      <label>Down (+) / up (−)</label><input type="text" name="offset_y" value="{{ offset_y }}" style="width:80px">
+      <span></span><span><button class="ghost small" type="submit">Save alignment</button></span>
+    </form>
+  </div>
+
+  <div style="flex:1 1 auto; min-width:0">
+    {% if preview %}
+    <div class="note" style="margin-top:0">Preview below. Load your check stock, <strong>print this
+      page</strong> (use your browser's print on the PDF, 100% scale / "Actual size", no fit-to-page),
+      then click <strong>“Printed correctly — record it.”</strong> If a sheet jams, bump the Check #
+      and preview again.</div>
+    <p class="muted">Paying <strong>{{ preview_payee }}</strong> ${{ preview_amount }}.</p>
+    <iframe src="/checks/preview.pdf?{{ pdf_qs }}" title="Check preview"
+            style="width:100%; height:640px; border:1px solid var(--line); border-radius:8px; background:#fff"></iframe>
+    <p class="muted"><a href="/checks/preview.pdf?{{ pdf_qs }}" target="_blank">Open the PDF in a new tab</a>
+      if the embedded preview doesn't print cleanly.</p>
+    {% else %}
+    <div class="card" style="max-width:520px">
+      <p>Fill in the check on the left and hit <strong>Preview</strong> — you'll see exactly what prints
+        on your pre-printed <em>check-on-top</em> stock before anything is recorded.</p>
+      <p class="muted">The check draws on the bank account you pick; the amount books to the category you
+        pick (bank credit / category debit). The <strong>Check #</strong> defaults to one past the last
+        one printed on that account.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+var nextByAccount = {{ next_numbers|tojson }};
+function setNextNumber(){
+  var acct = document.getElementById('account_id').value;
+  var f = document.getElementById('check_number');
+  if (nextByAccount[acct] !== undefined && nextByAccount[acct] !== "") f.value = nextByAccount[acct];
+}
+function toggleNewPayee(sel){
+  var show = !sel.value;
+  document.querySelectorAll('.np-field').forEach(function(el){ el.style.display = show ? '' : 'none'; });
+}
+document.addEventListener('DOMContentLoaded', function(){
+  toggleNewPayee(document.getElementById('payee_id'));
+});
+</script>
+{% endblock %}
