@@ -490,6 +490,7 @@ DEFAULT_SETTINGS = {
     "business_address": "",
     "business_email": "",
     "business_phone": "",
+    "company_logo": "",          # uploaded logo filename in the data dir; shown on invoices + emails
     "invoice_terms": "Payment due within 30 days. Thank you for your business!",
     "next_invoice_number": "1001",
     "next_estimate_number": "1001",
@@ -707,3 +708,14 @@ def get_setting(con, key, default=""):
 
 def set_setting(con, key, value):
     con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+def company_logo_path(con):
+    """Full path to the uploaded company logo (shown on invoices + emails), or None if unset/missing.
+    Lives in the data dir alongside the books, so it syncs and survives app updates."""
+    name = get_setting(con, "company_logo", "")
+    if name:
+        p = DATA / name
+        if p.exists():
+            return p
+    return None

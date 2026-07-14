@@ -4,6 +4,26 @@
 <h1>Settings</h1>
 {% if msg %}<p class="note">{{ msg }}</p>{% endif %}
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<h2>Company logo</h2>
+<p class="muted">Shown on your invoices and on the emails ShopBooks sends. PNG, JPG, or GIF, under 3&nbsp;MB.</p>
+<div class="toolbar" style="align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:10px">
+  {% if s.company_logo %}
+    <img src="/settings/logo" alt="Company logo" style="max-height:56px; max-width:220px; border:1px solid var(--line); border-radius:8px; padding:6px; background:var(--card-2)">
+  {% else %}
+    <span class="muted">No logo uploaded yet.</span>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" action="/settings/logo" class="inline" style="gap:8px; align-items:center">
+    <input type="file" name="file" accept="image/png,image/jpeg,image/gif" required>
+    <button type="submit">Upload logo</button>
+  </form>
+  {% if s.company_logo %}
+  <form method="post" action="/settings/logo/remove" class="inline">
+    <button type="submit" class="ghost">Remove</button>
+  </form>
+  {% endif %}
+</div>
+
 <form method="post">
 
 <h2>Business</h2>

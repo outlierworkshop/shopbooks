@@ -2,8 +2,8 @@
 import sqlite3
 from datetime import date as date_cls
 from pathlib import Path
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 
 import ai
 import backup
@@ -348,6 +348,50 @@ async def settings_save(request: Request, con=Depends(get_con)):
             return safe_redirect("/settings", msg="Settings saved. Backup folder set and a backup was written there.")
         return safe_redirect("/settings", err="Settings saved, but that backup folder is not writable - check the path. Falling back to auto-detect.")
     return safe_redirect("/settings", msg="Settings saved.")
+
+
+@router.post("/settings/logo")
+async def settings_logo_upload(file: UploadFile = File(...), con=Depends(get_con)):
+    """Save an uploaded company logo (PNG/JPG/GIF) to the data dir; it appears on invoices + emails."""
+    data = await file.read()
+    ext = Path(file.filename or "").suffix.lower()
+    is_image = data[:8].startswith((b"\x89PNG", b"\xff\xd8\xff")) or data[:6] in (b"GIF87a", b"GIF89a")
+    if ext not in (".png", ".jpg", ".jpeg", ".gif") or not is_image:
+        return safe_redirect("/settings", err="Logo must be a PNG, JPG, or GIF image.")
+    if len(data) > 3_000_000:
+        return safe_redirect("/settings", err="That logo is too large - please use an image under 3 MB.")
+    for old in db.DATA.glob("company_logo.*"):  # drop any prior logo so nothing goes stale
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    name = "company_logo" + (".jpg" if ext == ".jpeg" else ext)
+    (db.DATA / name).write_bytes(data)
+    db.set_setting(con, "company_logo", name)
+    con.commit()
+    return safe_redirect("/settings", msg="Company logo updated - it'll appear on new invoices and emails.")
+
+
+@router.post("/settings/logo/remove")
+def settings_logo_remove(con=Depends(get_con)):
+    for old in db.DATA.glob("company_logo.*"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    db.set_setting(con, "company_logo", "")
+    con.commit()
+    return safe_redirect("/settings", msg="Company logo removed.")
+
+
+@router.get("/settings/logo")
+def settings_logo_get(con=Depends(get_con)):
+    """Serve the current company logo (for the Settings preview)."""
+    p = db.company_logo_path(con)
+    if not p:
+        return Response(status_code=404)
+    return FileResponse(str(p), headers={"Cache-Control": "no-store"})
+
 
 @router.post("/watch/scan-now")
 def watch_scan_now(con=Depends(get_con)):
