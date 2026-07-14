@@ -46,4 +46,13 @@ for kind, number in [("invoice", "INV-1"), ("estimate", "EST-1"), ("credit_memo"
     pdf = invoicing.render_pdf(con, inv, items, total)
     ok(pdf[:4] == b"%PDF" and len(pdf) > 1500, f"{kind} renders a valid PDF ({len(pdf)} bytes)")
 
+# ---- a normal one-item invoice fits on a SINGLE US-Letter page (the footer must not spill) ----
+import io  # noqa: E402
+import pdfplumber  # noqa: E402
+inv, items, total = invoicing.get_invoice(con, make("invoice", "INV-2"))
+doc = pdfplumber.open(io.BytesIO(invoicing.render_pdf(con, inv, items, total)))
+ok(len(doc.pages) == 1, f"a short invoice is a single page (got {len(doc.pages)})")
+ok(round(doc.pages[0].width / 72, 1) == 8.5 and round(doc.pages[0].height / 72, 1) == 11.0,
+   "page is 8.5 x 11 in (US Letter)")
+
 print("\nINVOICE PDF TESTS DONE")
