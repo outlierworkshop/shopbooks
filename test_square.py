@@ -86,8 +86,10 @@ ok(con.execute("SELECT square_customer_id FROM customers WHERE id=?", (cust,)).f
 # --- sync: the customer paid (PAID) + Square reports a 1% fee -----------------------------------
 def fake_get(con, path):
     if path == "/v2/invoices/SQINV1":
+        # Square reports the completed amount inside payment_requests, not top-level.
         return {"invoice": {"id": "SQINV1", "status": "PAID", "version": 3, "order_id": "ORD1",
-                            "total_completed_amount_money": {"amount": 11000, "currency": "USD"}}}
+                            "payment_requests": [{"total_completed_amount_money":
+                                                  {"amount": 11000, "currency": "USD"}}]}}
     if path == "/v2/orders/ORD1":
         return {"order": {"tenders": [{"payment_id": "PAY1"}]}}
     if path == "/v2/payments/PAY1":
