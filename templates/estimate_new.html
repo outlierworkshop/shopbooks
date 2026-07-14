@@ -3,15 +3,17 @@
 {% block content %}
 <h1>New estimate</h1>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
-{% if not customers %}
-<p class="note">Add a customer on the <a href="/invoices">Invoices</a> page first.</p>
-{% else %}
 <form method="post">
   <div class="formgrid" style="max-width:720px">
     <label>Customer</label>
-    <select name="customer_id" required>
+    <select name="customer_id" id="customer_id" onchange="toggleNewCustomer(this)">
+      <option value="">— New customer (enter below) —</option>
       {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
     </select>
+    <label class="nc-field">New customer name</label>
+    <input class="nc-field" type="text" name="new_customer_name" placeholder="Person or business the estimate is for">
+    <label class="nc-field">New customer email</label>
+    <input class="nc-field" type="email" name="new_customer_email" placeholder="name@example.com — optional, for emailing the estimate">
     <label>Estimate date</label><input type="date" name="date" value="{{ today }}" required>
     <label>Valid until</label><input type="date" name="valid_until" value="{{ today }}" required>
     <label>Memo (shown on estimate)</label><input type="text" name="memo" style="width:100%">
@@ -53,5 +55,12 @@ window.standardItems = [
   {% endfor %}
 ];
 </script>
-{% endif %}
+<script>
+/* Show the "new customer" name/email fields only when no existing customer is picked. */
+function toggleNewCustomer(sel){
+  var show = !sel.value;
+  document.querySelectorAll('.nc-field').forEach(function(el){ el.style.display = show ? '' : 'none'; });
+}
+document.addEventListener('DOMContentLoaded', function(){ toggleNewCustomer(document.getElementById('customer_id')); });
+</script>
 {% endblock %}
