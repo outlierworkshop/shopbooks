@@ -27,7 +27,7 @@
   <span class="muted">status: <strong>{{ 'partially paid' if inv.status == 'partially_paid' else inv.status }}</strong>{% if inv.paid_date %} on {{ inv.paid_date }}{% endif %}</span>
 </div>
 
-{% if square_on and inv.kind == 'invoice' and inv.status not in ('draft', 'void', 'paid') %}
+{% if square_on and inv.kind == 'invoice' and inv.status not in ('void', 'paid') %}
 <div class="toolbar">
   {% if square_map %}
   <span class="muted">💳 Square: <strong>{{ square_map.status or 'sent' }}</strong></span>
