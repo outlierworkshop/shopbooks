@@ -7,6 +7,7 @@ import db
 import invoicing
 import ledger
 import migrate
+import square
 from webutil import ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
@@ -415,6 +416,7 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
         available_credits=available_credits, remaining_credit=remaining_credit,
         applicable_invoices=applicable_invoices,
         msg=msg, err=err, email_on=invoicing.email_configured(con),
+        square_on=square.configured(con), square_map=square.get_mapping(con, invoice_id),
         biz_address=db.get_setting(con, "business_address", ""),
         biz_email=db.get_setting(con, "business_email", ""),
         biz_phone=db.get_setting(con, "business_phone", ""),
@@ -627,22 +629,9 @@ def invoice_pay(invoice_id: int, paid_date: str = Form(...), bank_id: int = Form
     if outstanding <= 0:
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
 
-    d = ledger.normalize_date(paid_date)
-    # Split the payment so collected sales tax lands in the Sales Tax Payable liability, not income
-    # (proportional to the invoice's tax on a partial payment).
-    sub = invoicing.invoice_subtotal(con, invoice_id)
-    tax = invoicing.invoice_tax(con, invoice_id)
-    inc_part, tax_part = invoicing.tax_allocation(sub, tax, outstanding)
-    tax_acct = invoicing.sales_tax_account_id(con)
-    if tax_part and tax_acct:
-        legs = [(bank_id, outstanding), (income_id, -inc_part), (tax_acct, -tax_part)]
-    else:  # no tax (or account missing) → the whole payment is income
-        legs = [(bank_id, outstanding), (income_id, -outstanding)]
-    entry_id = ledger.post_entry(con, d, f"Invoice {inv['number']} - {inv['customer']}",
-                                 legs, memo=f"invoice #{inv['number']}",
-                                 customer_id=inv["customer_id"])
-    con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
-                (d, entry_id, invoice_id))
+    # Split the payment so collected sales tax lands in the Sales Tax Payable liability, not income.
+    invoicing.record_invoice_payment(con, invoice_id, into_account_id=bank_id, income_id=income_id,
+                                     amount_cents=outstanding, date=paid_date)
     _update_entry_customers_for_invoice(con, invoice_id)
     con.commit()
     return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)

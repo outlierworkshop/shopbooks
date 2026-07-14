@@ -34,6 +34,27 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-14 — Accept digital payments via Square (ACH + cards) on invoices
+- Customers can pay invoices online by **ACH (~1%)** or **card** on a **Square-hosted** page. Since
+  ShopBooks is a local 127.0.0.1 app (no public URL, no webhooks possible), it uses the **Square
+  Invoices API + polling**: `square.py` (modeled on `feeds.py`) creates + publishes a Square invoice
+  (`delivery = SHARE_MANUALLY`), ShopBooks emails its own invoice with the Square `public_url` as a
+  **Pay online** link, and a **Sync Square payments** button polls Square for payment. REST via httpx
+  (no new dependency); auth is a Square access token + location id in settings; `square_environment`
+  picks sandbox vs production.
+- **Bookkeeping (cash basis):** a paid Square invoice is recorded against the ShopBooks invoice into a
+  **"Square" clearing account** (income booked gross, sales tax split), and Square's actual
+  `processing_fee` is booked as a **Square Fees** expense out of the clearing account — so the
+  clearing balance equals the net bank payout, which then reconciles in Review as a transfer. The
+  manual Record-Payment route and Square sync now share `invoicing.record_invoice_payment`.
+- New `square.py`, `routes_square.py` (`/square/test`, `/invoices/{id}/square-send`, `/square/sync`);
+  Settings **Online payments (Square)** section + Test-connection button; invoice-page Collect/Sync
+  controls; `square_invoices` table + `customers.square_customer_id` column. `test_square.py`
+  (mocked, no network): config gating, ACH+card payload with matching totals, payment→clearing with
+  the tax split + fee, idempotent re-sync. Suite 69/69.
+- Phase 2 (noted, not built): auto-import Square **payouts** to book the clearing→bank transfer + fee;
+  partial-payment/refund sync; background polling instead of a button.
+
 ### 2026-07-14 — Checks: QuickBooks-voucher alignment + DWE001 window address block
 - The CheckSimple **STCHK1** stock is cut to the standard **QuickBooks/Quicken voucher** template,
   so the check face now uses those positions (date top-right, pay-to, courtesy $ box, written

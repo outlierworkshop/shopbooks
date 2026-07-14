@@ -108,6 +108,39 @@ won't work). App Passwords only appear <strong>after you turn on 2-Step Verifica
 full step-by-step in
 <a href="/help/email">the Email setup guide</a>.</p>
 
+<h2 id="square">Online payments (Square)</h2>
+<p class="muted">Let customers pay invoices by <strong>bank transfer (ACH, ~1%)</strong> or card on a
+Square-hosted page. ShopBooks builds the payment page, emails your invoice with a "Pay online" link,
+and books the money (into a Square clearing account) when you click <em>Sync Square payments</em>.
+Create an app at <code>developer.squareup.com</code> and copy its <strong>Access token</strong> +
+<strong>Location id</strong>. Start in <strong>Sandbox</strong> to test with fake money, then switch
+to Production.</p>
+<div class="formgrid">
+  <label>Environment</label>
+  <select name="square_environment">
+    <option value="sandbox" {{ 'selected' if s.square_environment == 'sandbox' else '' }}>Sandbox (testing)</option>
+    <option value="production" {{ 'selected' if s.square_environment == 'production' else '' }}>Production (live)</option>
+  </select>
+  <label>Access token</label>
+  <input type="password" name="square_access_token"
+         placeholder="{{ 'saved - enter new to replace, CLEAR to remove' if square_set else 'Square access token' }}">
+  <label>Location id</label><input type="text" name="square_location_id" value="{{ s.square_location_id }}">
+  <label>Deposit into</label>
+  <select name="square_deposit_account_id">
+    <option value="">Square clearing account (auto-created)</option>
+    {% for a in bankcards %}
+    <option value="{{ a.id }}" {{ 'selected' if s.square_deposit_account_id == a.id|string else '' }}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+  <label>Also accept cards</label>
+  <label class="inline" style="justify-self:start"><input type="checkbox" name="square_enable_card" value="1"
+    {{ 'checked' if s.square_enable_card == '1' else '' }}>&nbsp;cards (2.9% + 30¢) in addition to ACH</label>
+</div>
+<div class="toolbar">
+  <button class="ghost" type="submit" formaction="/square/test" formmethod="post">Test connection</button>
+  <span class="muted">Save first, then test — it checks the token against your Square location.</span>
+</div>
+
 <h2>AI</h2>
 <div class="formgrid">
   <label>Claude API key</label>

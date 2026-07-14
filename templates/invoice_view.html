@@ -27,6 +27,25 @@
   <span class="muted">status: <strong>{{ 'partially paid' if inv.status == 'partially_paid' else inv.status }}</strong>{% if inv.paid_date %} on {{ inv.paid_date }}{% endif %}</span>
 </div>
 
+{% if square_on and inv.kind == 'invoice' and inv.status not in ('draft', 'void', 'paid') %}
+<div class="toolbar">
+  {% if square_map %}
+  <span class="muted">💳 Square: <strong>{{ square_map.status or 'sent' }}</strong></span>
+  {% if square_map.public_url %}<a class="btn ghost" href="{{ square_map.public_url }}" target="_blank">Payment page</a>{% endif %}
+  <form class="inline" method="post" action="/square/sync">
+    <input type="hidden" name="back" value="/invoices/{{ inv.id }}">
+    <button type="submit" class="ghost">Sync Square payments</button></form>
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-send"
+        onsubmit="return confirm('Re-create the Square payment page and email the link again?')">
+    <button type="submit" class="ghost">Resend link</button></form>
+  {% else %}
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-send">
+    <button type="submit">💳 Collect online (ACH / card)</button></form>
+  <span class="muted">Creates a Square-hosted payment page and emails the customer a pay link.</span>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card section" style="max-width:760px">
   <h1 style="margin-top:0">{{ business_name }}</h1>
   <p class="muted">{{ biz_address }}{% if biz_email %} · {{ biz_email }}{% endif %}{% if biz_phone %} · {{ biz_phone }}{% endif %}</p>

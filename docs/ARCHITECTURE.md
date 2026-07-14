@@ -199,6 +199,16 @@ PDF: `invoicing.render_pdf` (fpdf2, helvetica, latin-1 — `_latin()` sanitizes)
 Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in settings with
 `{number} {business} {customer} {total} {due_date} {date}` placeholders.
 
+**Online payments (Square, `square.py`).** ShopBooks is a 127.0.0.1 app, so it can't host a payment
+form or receive webhooks. Instead it uses the Square **Invoices API + polling**: create + publish a
+Square invoice (`SHARE_MANUALLY`), email our invoice with the Square `public_url` as a Pay-online
+link, and a **Sync** button polls `GetInvoice` for payment (mirrors the `feeds.py` SimpleFIN pattern;
+httpx, no new dep). A PAID Square invoice is recorded via the same `invoicing.record_invoice_payment`
+into a **"Square" clearing account** (income gross, tax split), and Square's `processing_fee` books to
+a **Square Fees** expense out of that clearing account — so the clearing balance equals the net Square
+payout, which reconciles in Review as a transfer when the bank deposit imports. Idempotency is tracked
+in `square_invoices` (`payment_recorded_cents`, `fee_recorded`).
+
 **Sales tax.** Items and invoice/estimate lines carry a `taxable` flag; a single business-wide
 `settings.sales_tax_rate` (percent) applies. `invoice_total` is **tax-inclusive** —
 `invoice_subtotal + invoice_tax` (tax = rate × the taxable lines) — so aging, outstanding balances,

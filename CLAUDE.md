@@ -118,8 +118,8 @@ existing example). Existing user data must always survive an upgrade.
   the old `(name, ctx)` signature was removed and fails with a bizarre
   "cannot use 'tuple' as a dict key" error inside Jinja.
 - **fpdf2 is latin-1 only** with built-in fonts: pass all strings through `invoicing._latin()`.
-- **Settings secrets**: blank input = keep current value, literal `CLEAR` = remove. Both
-  `anthropic_api_key` and `smtp_password` use this convention in `settings_save`.
+- **Settings secrets**: blank input = keep current value, literal `CLEAR` = remove.
+  `anthropic_api_key`, `smtp_password`, and `square_access_token` use this convention in `settings_save`.
 - **Claude structured outputs**: every JSON schema object needs `additionalProperties: false`;
   no `minLength`/`maximum`-style constraints. Model id default `claude-opus-4-8` (settings key
   `ai_model`). Don't send `temperature` — it 400s on Opus 4.7+.
@@ -140,7 +140,8 @@ existing example). Existing user data must always survive an upgrade.
 | `importer.py` | CSV parsing, PDF text extraction, regex statement fallback, rules engine, duplicate detection, staging |
 | `ai.py` | AI: statement extraction, receipt vision, categorization. Pluggable backend (`ai_backend`: claude/ollama/hybrid); all optional, return None on any failure |
 | `chat.py` | The Assistant (`/chat`): Opus tool-use loop that answers from `insights.py`/`timetracking` as read-only tools (cents→dollars in the tool layer; model never computes). Reuses `ai._claude_client`/`_claude_ok`; AI-optional |
-| `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email |
+| `invoicing.py` | Invoice queries, fpdf2 PDF rendering, SMTP email; `record_invoice_payment` (shared by the manual pay route + Square sync) |
+| `square.py` | Square online payments (Invoices API + polling): create/publish a hosted ACH+card pay page, `sync_payments` books the payment into the "Square" clearing account (income gross) + the fee as expense. httpx, AI-optional-style graceful degrade. Local-app constraint = no webhooks, so it polls |
 | `templates/`, `static/style.css` | Server-rendered UI (vanilla; no JS framework) |
 | `backup.py` | Startup snapshots, retention, cloud mirror, full-ZIP download |
 | `migrate.py` | QuickBooks Online CSV import (accounts, transactions, customers, mileage, opening balances) |
