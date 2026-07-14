@@ -27,6 +27,7 @@ ok(f'href="/register/{chk}"' in page, "each account tile links to its register")
 ok("Business Checking" in page, "the checking-account tile shows on the dashboard")
 ok(page.index('account-tiles') < page.index('Today at a glance'),
    "account tiles come before the day-brief hero (top row)")
+ok("Registers ▾" in page, "the nav has a Registers dropdown to reach each account's register")
 
 # ---- seed pending transactions via a CSV import ----
 csv = ("Date,Description,Amount\n"
