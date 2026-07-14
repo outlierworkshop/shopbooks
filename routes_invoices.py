@@ -104,7 +104,7 @@ def _insert_line_items(con, invoice_id, items):
 async def invoice_create(request: Request, con=Depends(get_con)):
     form = await request.form()
     try:
-        customer_id = int(form["customer_id"])
+        customer_id = invoicing.resolve_customer_id(con, form)
         inv_date = ledger.normalize_date(form["date"])
         due_date = ledger.normalize_date(form["due_date"])
         kind = form.get("kind", "invoice")

@@ -11,6 +11,21 @@ from ledger import fmt_cents
 SALES_TAX_ACCOUNT = "Sales Tax Payable"
 
 
+def resolve_customer_id(con, form):
+    """Customer id for a new invoice/estimate. Uses an existing customer when one is picked;
+    otherwise creates a brand-new customer from the name (+ optional email) typed on the form —
+    so you can bill someone who isn't in your customer list yet. Raises ValueError if neither an
+    existing customer nor a new-customer name is provided."""
+    picked = (form.get("customer_id") or "").strip()
+    if picked:
+        return int(picked)
+    name = (form.get("new_customer_name") or "").strip()
+    if not name:
+        raise ValueError("Pick an existing customer, or enter a new customer's name.")
+    email = (form.get("new_customer_email") or "").strip()
+    return con.execute("INSERT INTO customers(name, email) VALUES(?, ?)", (name, email)).lastrowid
+
+
 def sales_tax_rate(con):
     """Business-wide sales tax rate as a percent float (0 = no sales tax)."""
     try:

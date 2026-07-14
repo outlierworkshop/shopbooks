@@ -35,7 +35,7 @@ def estimate_new(request: Request, con=Depends(get_con)):
 async def estimate_create(request: Request, con=Depends(get_con)):
     form = await request.form()
     try:
-        customer_id = int(form["customer_id"])
+        customer_id = invoicing.resolve_customer_id(con, form)
         est_date = ledger.normalize_date(form["date"])
         valid_until = ledger.normalize_date(form["valid_until"])
         items = _parse_line_items(form)

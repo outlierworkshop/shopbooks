@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-13 — Bill a not-yet-a-customer on new invoices/estimates
+- The new-invoice and new-estimate forms required picking an *existing* customer (and hid the whole
+  form until you'd added one). Now the customer `<select>` includes a **"— New customer (enter
+  below) —"** option plus **name + optional email** fields; picking an existing customer hides them
+  (small `toggleNewCustomer` script). On submit, `invoicing.resolve_customer_id(con, form)` uses the
+  picked customer or creates one inline from the typed name/email. Wired into `invoice_create` and
+  `estimate_create` (edit routes unchanged). `test_new_customer.py` covers both flows, the
+  inline-error path, and that the existing-customer path still works.
+
+### 2026-07-13 — Dark mode: fix hardcoded-light fields that hid their text
+- Several panels used inline hardcoded light backgrounds (`#fff6f6`, `#fdfdfb`, `#fff`, `#f6f8f6`,
+  `#fdf3e4`, chat bubbles, …) with no explicit text color, so in dark mode the theme's light text
+  landed on a light box and became unreadable — most visibly the Settings → Data sync **conflict
+  card** (cloud-vs-local choice). Swapped them for the existing theme variables (`--bad-soft`,
+  `--card-2`, `--bg-2`, `--warn-soft`, `--good-soft`, `--line`) so they adapt. Touched
+  `settings.html`, the receipt/invoice/review **match drawers**, `insights.html`, `taxes.html`,
+  and `chat.html`. Verified the vars resolve to dark values in dark mode.
+
 ### 2026-07-13 — In-app Help menu (renders the guides; fixes private-repo links)
 - Added a **Help** nav dropdown and a `/help` hub that renders the project guides inside ShopBooks —
   User Guide, Email setup, and Automatic mileage — instead of linking to the (private) GitHub repo,
