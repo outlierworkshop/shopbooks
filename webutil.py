@@ -62,7 +62,12 @@ def safe_redirect(back, fallback="/", msg=None, err=None):
 def ctx(request, con, **kw):
     pending = con.execute("SELECT COUNT(*) c FROM staged WHERE status='pending'").fetchone()["c"]
     unmatched = con.execute("SELECT COUNT(*) c FROM documents WHERE status='unmatched'").fetchone()["c"]
+    # bank/card accounts for the nav "Registers" dropdown (every page shows the nav)
+    nav_accounts = con.execute(
+        "SELECT id, name, kind FROM accounts WHERE kind IN ('bank','card') AND active=1 "
+        "ORDER BY kind, name").fetchall()
     return {"request": request, "pending_count": pending, "unmatched_count": unmatched,
+            "nav_accounts": nav_accounts,
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
             "reset_suspected": backup.reset_suspected(),
             "sync_alert": sync.last_alert(),
