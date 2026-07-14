@@ -14,7 +14,9 @@ import sys
 
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = [("templates", "templates"), ("static", "static")]
+datas = [("templates", "templates"), ("static", "static"), ("docs", "docs")]
+# docs/ is bundled because the in-app Help menu (helpdocs.py) renders docs/*.md at runtime
+# (DOCS_DIR = Path(__file__).parent / "docs"); without it the Help guides 404 in the bundle.
 # package data loaded at runtime that PyInstaller can't see statically:
 datas += collect_data_files("pdfminer")    # cmap tables for PDF text extraction
 datas += collect_data_files("anthropic")   # SDK data files (tokenizer etc.)
