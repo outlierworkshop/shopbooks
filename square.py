@@ -276,6 +276,20 @@ def _processing_fee(con, order_id):
     return total
 
 
+def _paid_cents(con, sq, invoice_id, status):
+    """How much Square has collected on this invoice. Square reports the completed amount inside
+    `payment_requests[].total_completed_amount_money` (there's no reliable top-level field), so sum
+    those; if the invoice is fully PAID but the amount is absent, fall back to the ShopBooks invoice
+    total (a BALANCE request paid in full == the invoice total)."""
+    v = _money(sq.get("total_completed_amount_money"))
+    if not v:
+        v = sum(_money(pr.get("total_completed_amount_money"))
+                for pr in (sq.get("payment_requests") or []))
+    if not v and status == "PAID":
+        _, _, v = invoicing.get_invoice(con, invoice_id)
+    return v
+
+
 def _book_fee(con, invoice_id, number, fee_cents):
     ledger.post_entry(con, date.today().isoformat(), f"Square fee - Invoice {number}",
                       [(_fees_account_id(con), fee_cents), (clearing_account_id(con), -fee_cents)],
@@ -296,7 +310,7 @@ def sync_payments(con):
     for r in rows:
         sq = _get(con, f"/v2/invoices/{r['square_invoice_id']}").get("invoice", {})
         status = sq.get("status", "")
-        paid_cents = _money(sq.get("total_completed_amount_money"))
+        paid_cents = _paid_cents(con, sq, r["invoice_id"], status)
         con.execute("UPDATE square_invoices SET status=?, version=?, updated_at=datetime('now') "
                     "WHERE invoice_id=?", (status, sq.get("version", r["version"]), r["invoice_id"]))
         # Record the payment only once the Square invoice is fully PAID (partial payments: phase 2).
