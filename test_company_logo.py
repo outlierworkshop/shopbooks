@@ -41,7 +41,7 @@ ok("/settings/logo" in r.text and "Remove" in r.text, "settings now shows the pr
 client.post("/settings/logo/remove")
 r = client.post("/settings/logo", files={"file": ("x.png", b"totally not an image", "image/png")},
                 follow_redirects=True)
-ok("must be a PNG" in r.text, "a non-image upload is rejected with a clear message")
+ok("must be an SVG, PNG, JPG, or GIF" in r.text, "a non-image upload is rejected with a clear message")
 ok(db.company_logo_path(con()) is None, "nothing is stored after a rejected upload")
 
 # ---- Invoice PDF embeds the logo when one is set (and renders fine without) ----
@@ -71,5 +71,27 @@ invoicing._apply_email_body(msg, con(), "Hello\nyour invoice is attached.")
 types = [p.get_content_type() for p in msg.walk()]
 ok("text/plain" in types and "text/html" in types, "email has both plain-text and HTML parts")
 ok(any(t.startswith("image/") for t in types), "email carries the logo as an inline image part")
+
+# ---- SVG upload: true vector on the invoice, with a rasterized PNG companion for email ----
+client.post("/settings/logo/remove")
+svg = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 48">'
+       b'<rect width="120" height="48" rx="8" fill="#2f6f4f"/><circle cx="24" cy="24" r="12" fill="#fff"/></svg>')
+r = client.post("/settings/logo",
+                files={"file": ("logo.svg", svg, "image/svg+xml"), "raster": ("raster.png", png, "image/png")},
+                follow_redirects=False)
+ok(r.status_code == 303, "SVG upload (with browser PNG companion) redirects")
+lp, rp = db.company_logo_path(con()), db.company_logo_raster_path(con())
+ok(lp is not None and lp.suffix == ".svg", "invoice logo is the stored SVG (vector)")
+ok(rp is not None and rp.suffix == ".png", "email logo is the rasterized PNG companion")
+msg2 = EmailMessage()
+invoicing._apply_email_body(msg2, con(), "hi")
+imgs = [p.get_content_type() for p in msg2.walk() if p.get_content_type().startswith("image/")]
+ok(imgs == ["image/png"], "email uses the PNG raster, never the SVG")
+
+# ---- SVG with no browser companion (JS-off fallback): invoice logo set, no email raster ----
+client.post("/settings/logo/remove")
+client.post("/settings/logo", files={"file": ("logo.svg", svg, "image/svg+xml")}, follow_redirects=False)
+ok(db.company_logo_path(con()) is not None and db.company_logo_raster_path(con()) is None,
+   "SVG-only upload (no companion) sets the invoice logo but no email raster")
 
 print("\nCOMPANY LOGO TESTS DONE")

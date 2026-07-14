@@ -490,7 +490,8 @@ DEFAULT_SETTINGS = {
     "business_address": "",
     "business_email": "",
     "business_phone": "",
-    "company_logo": "",          # uploaded logo filename in the data dir; shown on invoices + emails
+    "company_logo": "",          # logo filename in the data dir (SVG or raster); shown on invoices
+    "company_logo_raster": "",   # a raster (PNG/JPG/GIF) logo for emails (clients can't render SVG)
     "invoice_terms": "Payment due within 30 days. Thank you for your business!",
     "next_invoice_number": "1001",
     "next_estimate_number": "1001",
@@ -711,9 +712,20 @@ def set_setting(con, key, value):
 
 
 def company_logo_path(con):
-    """Full path to the uploaded company logo (shown on invoices + emails), or None if unset/missing.
-    Lives in the data dir alongside the books, so it syncs and survives app updates."""
+    """The logo for the invoice PDF — an SVG (rendered as vector) when one was uploaded, else the
+    raster. Path or None. Lives in the data dir alongside the books, so it survives app updates."""
     name = get_setting(con, "company_logo", "")
+    if name:
+        p = DATA / name
+        if p.exists():
+            return p
+    return None
+
+
+def company_logo_raster_path(con):
+    """A raster (PNG/JPG/GIF) logo for emails — email clients can't render SVG, so an SVG upload
+    gets a rasterized companion. Path or None."""
+    name = get_setting(con, "company_logo_raster", "")
     if name:
         p = DATA / name
         if p.exists():
