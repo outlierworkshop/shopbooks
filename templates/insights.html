@@ -18,7 +18,7 @@
 
 {# ---- AI narrative (optional; numbers below always show) ---- #}
 {% if ai_on %}
-<div class="card section" style="max-width:760px; background:#f6f8f6">
+<div class="card section" style="max-width:760px; background:var(--card-2)">
   {% if narrative %}
     <div style="white-space:pre-wrap; line-height:1.5">{{ narrative }}</div>
     <p class="muted" style="margin-top:8px">✨ Written by Claude from the figures below.
@@ -56,7 +56,7 @@
   {% for m in trend %}
   <div style="display:flex; align-items:center; gap:10px; margin:3px 0">
     <span class="muted" style="width:64px; font-size:12px">{{ m.month }}</span>
-    <div style="flex:1; background:#eee; border-radius:4px; height:16px; position:relative">
+    <div style="flex:1; background:var(--bg-2); border-radius:4px; height:16px; position:relative">
       <div style="width:{{ (m.net|abs / maxnet * 100)|round(1) }}%; height:100%; border-radius:4px;
                   background:{{ '#c0392b' if m.net < 0 else '#3a7d44' }}"></div>
     </div>

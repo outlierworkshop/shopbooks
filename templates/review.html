@@ -107,9 +107,9 @@
       {% elif it.dup %}<br><span class="warn">possible duplicate</span>{% endif %}
 
       <!-- Inline Pairing Drawer -->
-      <div id="pair-{{ it.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left;">
+      <div id="pair-{{ it.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2); text-align: left;">
         <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair unmatched receipts with this transaction:</div>
-        <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+        <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; background: var(--card); margin-bottom: 8px;">
           {% for r in unmatched_receipts %}
             <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
               <input type="checkbox" name="docs_{{ it.id }}" value="{{ r.id }}" 

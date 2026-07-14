@@ -121,11 +121,11 @@
           <a href="#" onclick="togglePairPosted({{ it.doc.id }}); return false;" class="muted" style="font-size: 11px; text-decoration: underline; margin-left: 12px;">Pair Posted</a>
           
           <!-- Inline Transaction Pairing Drawer -->
-          <div id="pair-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+          <div id="pair-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2); text-align: left; max-width: 600px;">
             <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair pending staged transactions with this receipt:</div>
             <form method="post" action="/receipts/save-staged-matches">
               <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
-              <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+              <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; background: var(--card); margin-bottom: 8px;">
                 {% for st in pending_transactions %}
                   <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
                     <input type="checkbox" name="staged_{{ it.doc.id }}" value="{{ st.id }}" 
@@ -147,11 +147,11 @@
           </div>
 
           <!-- Inline Posted Transaction Pairing Drawer -->
-          <div id="pair-posted-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid #c9c6bd; border-radius: 6px; background: #fdfdfb; text-align: left; max-width: 600px;">
+          <div id="pair-posted-{{ it.doc.id }}" class="pair-row" style="display:none; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2); text-align: left; max-width: 600px;">
             <div style="font-weight: 600; margin-bottom: 6px; color: #444; font-size: 13px;">Pair already posted transactions with this receipt:</div>
             <form method="post" action="/receipts/save-entry-matches">
               <input type="hidden" name="doc_id" value="{{ it.doc.id }}">
-              <div style="max-height: 140px; overflow-y: auto; border: 1px solid #c9c6bd; border-radius: 4px; padding: 6px 10px; background: #fff; margin-bottom: 8px;">
+              <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; background: var(--card); margin-bottom: 8px;">
                 {% for e in it.posted_transactions %}
                   <label style="display: flex; align-items: center; margin-bottom: 5px; font-family: monospace; font-size: 12px; cursor: pointer; color: #333;">
                     <input type="checkbox" name="entry_{{ it.doc.id }}" value="{{ e.id }}" 
