@@ -2,7 +2,7 @@
 import sqlite3
 from datetime import date as date_cls
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 
 import ai
@@ -351,35 +351,62 @@ async def settings_save(request: Request, con=Depends(get_con)):
 
 
 @router.post("/settings/logo")
-async def settings_logo_upload(file: UploadFile = File(...), con=Depends(get_con)):
-    """Save an uploaded company logo (PNG/JPG/GIF) to the data dir; it appears on invoices + emails."""
-    data = await file.read()
-    ext = Path(file.filename or "").suffix.lower()
-    is_image = data[:8].startswith((b"\x89PNG", b"\xff\xd8\xff")) or data[:6] in (b"GIF87a", b"GIF89a")
-    if ext not in (".png", ".jpg", ".jpeg", ".gif") or not is_image:
-        return safe_redirect("/settings", err="Logo must be a PNG, JPG, or GIF image.")
+async def settings_logo_upload(request: Request, con=Depends(get_con)):
+    """Save an uploaded company logo. An SVG is stored as-is (vector on invoices) plus its
+    browser-rasterized PNG companion (form field `raster`) for emails; a raster upload serves both."""
+    form = await request.form()
+    upload = form.get("file")
+    if not hasattr(upload, "read"):
+        return safe_redirect("/settings", err="Choose a logo file to upload.")
+    data = await upload.read()
+    ext = Path(getattr(upload, "filename", "") or "").suffix.lower()
+    is_svg = ext == ".svg" and b"<svg" in data[:5000].lower()
+    is_raster = data[:8].startswith((b"\x89PNG", b"\xff\xd8\xff")) or data[:6] in (b"GIF87a", b"GIF89a")
+    if not (is_svg or is_raster):
+        return safe_redirect("/settings", err="Logo must be an SVG, PNG, JPG, or GIF image.")
     if len(data) > 3_000_000:
-        return safe_redirect("/settings", err="That logo is too large - please use an image under 3 MB.")
-    for old in db.DATA.glob("company_logo.*"):  # drop any prior logo so nothing goes stale
+        return safe_redirect("/settings", err="That logo is too large - please use a file under 3 MB.")
+
+    for old in db.DATA.glob("company_logo*"):  # drop any prior logo + rasterized companion
         try:
             old.unlink()
         except OSError:
             pass
+
+    if is_svg:
+        (db.DATA / "company_logo.svg").write_bytes(data)
+        db.set_setting(con, "company_logo", "company_logo.svg")
+        raster = form.get("raster")  # PNG the browser rasterized from the SVG, for emails
+        raster_bytes = await raster.read() if hasattr(raster, "read") else b""
+        if raster_bytes[:8].startswith(b"\x89PNG"):
+            (db.DATA / "company_logo_raster.png").write_bytes(raster_bytes)
+            db.set_setting(con, "company_logo_raster", "company_logo_raster.png")
+        else:
+            db.set_setting(con, "company_logo_raster", "")
+        con.commit()
+        msg = "Company logo updated - it'll appear on new invoices and emails."
+        if b"<text" in data.lower():
+            msg = ("Company logo updated. Heads up: your SVG has live text - outline it (convert text "
+                   "to paths) so it prints crisply on invoices.")
+        return safe_redirect("/settings", msg=msg)
+
     name = "company_logo" + (".jpg" if ext == ".jpeg" else ext)
     (db.DATA / name).write_bytes(data)
     db.set_setting(con, "company_logo", name)
+    db.set_setting(con, "company_logo_raster", name)  # a raster serves both invoice + email
     con.commit()
     return safe_redirect("/settings", msg="Company logo updated - it'll appear on new invoices and emails.")
 
 
 @router.post("/settings/logo/remove")
 def settings_logo_remove(con=Depends(get_con)):
-    for old in db.DATA.glob("company_logo.*"):
+    for old in db.DATA.glob("company_logo*"):
         try:
             old.unlink()
         except OSError:
             pass
     db.set_setting(con, "company_logo", "")
+    db.set_setting(con, "company_logo_raster", "")
     con.commit()
     return safe_redirect("/settings", msg="Company logo removed.")
 

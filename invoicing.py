@@ -525,7 +525,7 @@ def _apply_email_body(msg, con, plain_body):
     from email.utils import make_msgid
     msg.set_content(plain_body)
     biz = db.get_setting(con, "business_name", "My Business")
-    logo = db.company_logo_path(con)
+    logo = db.company_logo_raster_path(con)  # emails need a raster; SVG uploads get a PNG companion
     cid = make_msgid() if logo else None
     logo_html = (f'<img src="cid:{cid[1:-1]}" alt="{_h.escape(biz)}" '
                  'style="max-height:60px;max-width:220px;margin-bottom:18px">') if logo else ""

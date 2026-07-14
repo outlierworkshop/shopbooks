@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-14 — Company logo: SVG (vector) support
+- The logo upload now accepts **SVG** in addition to PNG/JPG/GIF. On invoices the SVG is rendered as
+  true vector via fpdf2 (crisp at any size; `pdf.image` handles SVG, `<text>`-outlining recommended
+  and warned about on upload). Because email clients can't render SVG and there's no server-side
+  rasterizer without a heavy native dep, the Settings upload **rasterizes the SVG to a PNG in the
+  browser** (canvas) and stores it as a companion (`company_logo_raster`) used only for emails —
+  one upload brands both. Raster uploads still serve invoice + email directly. Falls back to a
+  plain SVG-only upload if the browser can't rasterize (email then omits the logo). New helper
+  `db.company_logo_raster_path`; `test_company_logo.py` covers the SVG + companion paths.
+
 ### 2026-07-13 — Company logo: upload once, shows on invoices + emails
 - New **Settings → Company logo**: upload a PNG/JPG/GIF (validated, ≤3 MB, stored in the data dir)
   with a live preview and Remove. `render_pdf` puts the logo back in the invoice header (top-left,
