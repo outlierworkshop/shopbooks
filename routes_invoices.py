@@ -417,6 +417,7 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
         applicable_invoices=applicable_invoices,
         msg=msg, err=err, email_on=invoicing.email_configured(con),
         square_on=square.configured(con), square_map=square.get_mapping(con, invoice_id),
+        square_cards=square.card_enabled(con),
         biz_address=db.get_setting(con, "business_address", ""),
         biz_email=db.get_setting(con, "business_email", ""),
         biz_phone=db.get_setting(con, "business_phone", ""),

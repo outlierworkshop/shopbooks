@@ -40,7 +40,7 @@
     <button type="submit" class="ghost">Resend link</button></form>
   {% else %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-send">
-    <button type="submit">💳 Collect online (ACH / card)</button></form>
+    <button type="submit">{{ '💳 Collect online (ACH / card)' if square_cards else '🏦 Collect online (bank transfer)' }}</button></form>
   <span class="muted">Creates a Square-hosted payment page and emails the customer a pay link.</span>
   {% endif %}
 </div>

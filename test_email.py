@@ -101,8 +101,16 @@ try:
     cap.clear()
     invoicing.send_invoice_email(con, inv, total, b"%PDF-fake", "rb@x.com")   # no pay link
     ok("Pay here" not in cap["html"], "no Pay button when there's no pay link")
+    # cards off -> the button text says bank transfer only (no surcharge/card mention)
+    db.set_setting(con, "square_enable_card", "0")
+    cap.clear()
+    invoicing.send_invoice_email(con, inv, total, b"%PDF-fake", "rb@x.com",
+                                 pay_url="https://squareup.com/pay/ABC")
+    ok("bank transfer (ACH) via Square" in cap["html"] and "or card" not in cap["html"],
+       "with cards off, the pay button offers bank transfer only")
 finally:
     invoicing._smtp_send = _orig
+    db.set_setting(con, "square_enable_card", "1")
 
 con.close()
 print("\nEMAIL TESTS DONE")

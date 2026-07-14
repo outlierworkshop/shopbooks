@@ -615,6 +615,9 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
     INK, GRAY, MUTED, HAIR, BG, ACCENT = "#1f2421", "#696969", "#929292", "#e4e2db", "#f4f3ee", "#2f9e44"
     e = _h.escape
 
+    cards = db.get_setting(con, "square_enable_card", "1") == "1"
+    methods_txt = "bank transfer (ACH) or card" if cards else "bank transfer (ACH)"
+
     logo = db.company_logo_raster_path(con)
     cid = make_msgid() if logo else None
     logo_html = (f'<img src="cid:{cid[1:-1]}" alt="{e(biz)}" '
@@ -658,8 +661,8 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
             f'style="display:inline-block;padding:14px 34px;font-size:16px;font-weight:bold;'
             f'color:#ffffff;text-decoration:none;border-radius:8px">Pay here &nbsp;&#8226;&nbsp; ${fmt_cents(total)}</a>'
             f'</td></tr></table>'
-            f'<div style="font-size:12px;color:{MUTED};padding-top:8px">Pay securely by bank transfer '
-            f'(ACH) or card via Square. The PDF invoice is attached.</div></td></tr>')
+            f'<div style="font-size:12px;color:{MUTED};padding-top:8px">Pay securely by {methods_txt} '
+            f'via Square. The PDF invoice is attached.</div></td></tr>')
 
     note_html = e(note).replace("\n", "<br>")
     doc = (
