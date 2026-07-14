@@ -94,8 +94,9 @@ the user's real backup folder.
    Statement lines are MM/DD only — never trust the model's year; `importer.reconcile_years`
    derives it from the extracted `statement_end_date` and forbids future dates.
 5. **`ledger.delete_entry` must clear every FK that references entries** — currently
-   `staged.entry_id`, `documents.entry_id`, `invoices.paid_entry_id`. If you add a table
-   referencing `entries(id)`, update `delete_entry` or deletion will raise IntegrityError.
+   `staged.entry_id`, `documents.entry_id`, `invoices.paid_entry_id`, `checks.entry_id` (a printed
+   check whose entry is deleted is auto-voided). If you add a table referencing `entries(id)`, update
+   `delete_entry` or deletion will raise IntegrityError.
 6. **Cash basis.** Invoices touch the ledger ONLY when payment is recorded (bank debit /
    income credit). Do not post A/R entries on invoice creation.
 7. **AI is optional everywhere.** Every `ai.py` function returns `None` on missing key or any
