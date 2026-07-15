@@ -233,7 +233,8 @@ def sync_enable(on: str = Form("0"), con=Depends(get_con)):
     return safe_redirect("/settings", msg=msg)
 
 @router.post("/sync/now")
-def sync_now():
+def sync_now(back: str = Form("/settings")):
+    dest = back if back.startswith("/") else "/settings"
     r = sync.export_on_close()
     s = r.get("status")
     if s == "exported":
@@ -241,16 +242,16 @@ def sync_now():
     elif s == "unchanged":
         note = "Already in sync - nothing to push."
     elif s == "blocked_cloud_newer":
-        return safe_redirect("/settings", err=
+        return safe_redirect(dest, err=
             "The cloud copy is newer than your last sync - the other computer pushed changes. "
             "Use 'Pull from cloud now' to get them, or 'Keep this computer's books' to overwrite.")
     elif s == "no_cloud":
-        return safe_redirect("/settings", err="No cloud folder set - set a Backup folder in a synced location first.")
+        return safe_redirect(dest, err="No cloud folder set - set a Backup folder in a synced location first.")
     elif s == "disabled":
-        return safe_redirect("/settings", err="Turn cloud sync on first.")
+        return safe_redirect(dest, err="Turn cloud sync on first.")
     else:
         note = f"Sync: {s}" + (f" ({r['error']})" if r.get("error") else "")
-    return safe_redirect("/settings", msg=note)
+    return safe_redirect(dest, msg=note)
 
 @router.post("/sync/pull")
 def sync_pull():
