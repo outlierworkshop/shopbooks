@@ -157,10 +157,18 @@
 {% block content %}{% endblock %}
 </main>
 
-<form method="post" action="/backup/now" class="savebtn" title="Your work auto-saves; this also makes a restore point you can roll back to.">
-  <input type="hidden" name="back" value="{{ request.url.path }}">
-  <button type="submit">💾 Save</button>
-</form>
+<div class="savebtn">
+  {% if cloud_sync_on %}
+  <form method="post" action="/sync/now" class="cloud-upload" title="Push this computer's books to the cloud so your other computer can pull them.">
+    <input type="hidden" name="back" value="{{ request.url.path }}">
+    <button type="submit">☁ Upload to cloud</button>
+  </form>
+  {% endif %}
+  <form method="post" action="/backup/now" title="Your work auto-saves; this also makes a restore point you can roll back to.">
+    <input type="hidden" name="back" value="{{ request.url.path }}">
+    <button type="submit">💾 Save</button>
+  </form>
+</div>
 {% if request.query_params.get('saved') %}
 <div class="toast" id="savedToast">Saved ✓ restore point created</div>
 <script>setTimeout(function(){var t=document.getElementById('savedToast'); if(t) t.style.display='none';}, 2500);</script>

@@ -237,9 +237,17 @@ form.inline { display: inline; }
 .toolbar { display: flex; gap: 10px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
 
 /* ---------- floating save + toast ---------- */
-.savebtn { position: fixed; left: 18px; bottom: 18px; z-index: 50; margin: 0; }
+.savebtn { position: fixed; left: 18px; bottom: 18px; z-index: 50; margin: 0;
+           display: flex; flex-direction: column; align-items: flex-start; }
+.savebtn > form { margin: 0; }
 .savebtn button { box-shadow: var(--shadow-md); padding: 10px 17px; font-weight: 700; border-radius: var(--r); }
 .savebtn button:hover { transform: translateY(-1px); }
+/* Hovering the Save area reveals the "Upload to cloud" button just above it (no layout shift when hidden). */
+.savebtn .cloud-upload { max-height: 0; opacity: 0; overflow: hidden; pointer-events: none;
+           transition: max-height .18s ease, opacity .18s ease; }
+.savebtn:hover .cloud-upload, .savebtn:focus-within .cloud-upload {
+           max-height: 64px; opacity: 1; pointer-events: auto; }
+.savebtn .cloud-upload button { margin-bottom: 8px; background: var(--accent); color: #fff; }
 .toast { position: fixed; left: 18px; bottom: 64px; z-index: 51; background: var(--nav-bg); color: #fff;
          padding: 9px 15px; border-radius: var(--r); box-shadow: var(--shadow-md); font-size: 13px;
          animation: toast-in .25s ease; }

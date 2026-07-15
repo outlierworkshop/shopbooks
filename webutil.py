@@ -71,6 +71,7 @@ def ctx(request, con, **kw):
         "SELECT id, name FROM accounts WHERE type='income' AND active=1 ORDER BY name").fetchall()
     return {"request": request, "pending_count": pending, "unmatched_count": unmatched,
             "nav_accounts": nav_accounts, "income_accounts": income_accounts,
+            "cloud_sync_on": db.get_setting(con, "sync_enabled", "0") == "1",
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
             "reset_suspected": backup.reset_suspected(),
             "sync_alert": sync.last_alert(),
