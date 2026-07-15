@@ -1,6 +1,6 @@
 """Products & services catalog routes."""
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 import ledger
 import migrate
@@ -87,6 +87,33 @@ def items_update(item_id: int = Form(...), name: str = Form(...), sku: str = For
         return safe_redirect("/items", msg="Product/service updated successfully")
     except Exception as e:
         return safe_redirect("/items", err=str(e))
+
+@router.post("/items/quick-create")
+def items_quick_create(name: str = Form(""), unit_price: str = Form("0.00"),
+                       income_account_id: str = Form(""), description: str = Form(""),
+                       taxable: str = Form(""), con=Depends(get_con)):
+    """Create a catalog service on the fly from the invoice/estimate line editor, returning it as JSON
+    so the line can be filled without a full page reload. A service needs an income account (where the
+    sale posts / its tax line); price is optional."""
+    name = name.strip()
+    if not name:
+        return JSONResponse({"error": "Enter a name for the service."}, status_code=400)
+    try:
+        unit_cents = ledger.parse_amount_to_cents(unit_price) if unit_price.strip() else 0
+    except ValueError:
+        return JSONResponse({"error": "That price isn't a valid amount."}, status_code=400)
+    acct = int(income_account_id) if income_account_id.strip() else None
+    tax = 1 if str(taxable).strip() in ("1", "on", "true", "True") else 0
+    try:
+        cur = con.execute(
+            "INSERT INTO items(name, description, unit_cents, income_account_id, taxable) VALUES(?,?,?,?,?)",
+            (name, description.strip(), unit_cents, acct, tax))
+        con.commit()
+    except Exception as e:
+        return JSONResponse({"error": f"Couldn't save the service: {e}"}, status_code=400)
+    return {"id": cur.lastrowid, "name": name, "description": description.strip(),
+            "price": ledger.fmt_cents(unit_cents), "taxable": tax}
+
 
 @router.post("/items/import-qbo")
 async def items_import_qbo(file: UploadFile = File(...), con=Depends(get_con)):

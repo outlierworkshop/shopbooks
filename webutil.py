@@ -66,8 +66,11 @@ def ctx(request, con, **kw):
     nav_accounts = con.execute(
         "SELECT id, name, kind FROM accounts WHERE kind IN ('bank','card') AND active=1 "
         "ORDER BY kind, name").fetchall()
+    # income accounts for the "+ New service" mini-form in the invoice/estimate line editor
+    income_accounts = con.execute(
+        "SELECT id, name FROM accounts WHERE type='income' AND active=1 ORDER BY name").fetchall()
     return {"request": request, "pending_count": pending, "unmatched_count": unmatched,
-            "nav_accounts": nav_accounts,
+            "nav_accounts": nav_accounts, "income_accounts": income_accounts,
             "ai_on": ai.available(con), "today": date_cls.today().isoformat(),
             "reset_suspected": backup.reset_suspected(),
             "sync_alert": sync.last_alert(),

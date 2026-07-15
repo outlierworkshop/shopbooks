@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-15 — Invoice/estimate lines: autofill catalog items + inline "+ New service"
+- Each line's Product/Service picker autofills description/price/tax from the catalog (existing), and
+  a new **"+ New service"** mini-form lets you create a catalog item on the spot (name, price, and the
+  **income account it posts to** — which is also its tax line) without leaving the invoice/estimate.
+  It saves to Products & Services and fills the line; works even from an empty catalog.
+- `POST /items/quick-create` (JSON) backs it; `webutil.ctx` now supplies `income_accounts` to every
+  page so the three editors (invoice_new / invoice_edit — also reused by estimate edit / estimate_new)
+  can render the mini-form; behavior in `static/line-items.js`. `test_items_quick_create.py` covers the
+  endpoint (create, validation, nothing-saved-on-error) + the editor bootstrap. Suite 71/71.
+
 ### 2026-07-14 — Invoice email: branded HTML that mirrors the PDF + a "Pay here" button
 - The invoice email is now a rich, PDF-like HTML message (`invoicing._apply_invoice_email`): logo +
   business header, invoice number/dates, bill-to, a line-item table with subtotal/tax/total, the
