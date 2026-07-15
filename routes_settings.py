@@ -337,6 +337,11 @@ async def settings_save(request: Request, con=Depends(get_con)):
         except ValueError:
             rate = 0.0
         db.set_setting(con, "sales_tax_rate", str(rate))
+    # invoice/estimate starting numbers: accept only a positive integer (blank/garbage keeps current)
+    for k in ("next_invoice_number", "next_estimate_number"):
+        raw = str(form.get(k, "")).strip()
+        if raw.isdigit() and int(raw) > 0:
+            db.set_setting(con, k, str(int(raw)))
     # secrets: blank = keep current, "CLEAR" = remove
     for k in ("anthropic_api_key", "smtp_password", "square_access_token"):
         v = str(form.get(k, "")).strip()
