@@ -60,5 +60,8 @@ window.standardItems = [
     { id: {{ item.id }}, name: {{ item.name|tojson }}, description: {{ item.description|tojson }}, price: "{{ item.unit_cents|money }}", taxable: {{ 1 if item.taxable else 0 }} },
   {% endfor %}
 ];
+window.incomeAccounts = [
+  {% for a in income_accounts %}{ id: {{ a.id }}, name: {{ a.name|tojson }} },{% endfor %}
+];
 </script>
 {% endblock %}
