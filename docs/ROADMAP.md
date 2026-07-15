@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-15 — Desktop launcher: reclaim an orphaned app window on relaunch
+- Fixed the "app starts then exits" launch failure: `desktop.py` keeps the server alive by blocking
+  on the app-mode browser process, but if a previous run's app window lingered (server died, window
+  didn't), a fresh `--app --user-data-dir=<profile>` **handed off** to that orphaned window and
+  returned immediately — so the just-started server shut down at once. Now `close_orphan_window()`
+  kills any leftover browser process on **our** dedicated profile before opening (never the user's
+  normal browser), and if a hand-off still happens `app_window_open()` detects the still-open window
+  and keeps serving (polling until it closes) instead of exiting. Best-effort/cross-platform (PowerShell
+  on Windows, pgrep/pkill elsewhere); failures fall through safely. `test_desktop_launcher.py` (mocked).
+
 ### 2026-07-15 — Invoice/estimate lines: autofill catalog items + inline "+ New service"
 - Each line's Product/Service picker autofills description/price/tax from the catalog (existing), and
   a new **"+ New service"** mini-form lets you create a catalog item on the spot (name, price, and the

@@ -102,6 +102,49 @@ def open_app_window(browser):
                     "--no-first-run", "--no-default-browser-check"])
 
 
+def _profile_windows_ps():
+    """PowerShell 'where' clause selecting browser processes whose command line references OUR
+    dedicated app profile (matches the main window and its renderer/gpu children)."""
+    return ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
+            f"$_.CommandLine -like '*{app_profile_dir()}*' }}")
+
+
+def close_orphan_window():
+    """Kill any leftover browser process still holding OUR app profile. A window from a previous run
+    whose server has since died can linger; a fresh `--app --user-data-dir=<profile>` launch would
+    then just hand off to that dead window and return immediately, so open_app_window() wouldn't
+    block and the server we just started would shut down at once (the "app won't start / starts then
+    exits" bug). Best-effort and platform-specific — safe to fail (the hand-off guard in main() is
+    the backstop). Only call this when starting a fresh server: never when reusing a live one."""
+    profile = str(app_profile_dir())
+    try:
+        if os.name == "nt":
+            ps = _profile_windows_ps() + " | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=15)
+        else:
+            subprocess.run(["pkill", "-f", profile], capture_output=True, timeout=10)
+        time.sleep(0.4)
+    except Exception:
+        pass
+
+
+def app_window_open():
+    """True if a browser process is currently using our app profile (i.e. an app window is on
+    screen). Lets us tell a hand-off — the window is still open under another browser instance — from
+    a real window close, so we don't tear the server down while the app is still up. Best-effort;
+    any error returns False (fall through to a normal shutdown)."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", f"({_profile_windows_ps()} | Measure-Object).Count"],
+                capture_output=True, text=True, timeout=15).stdout.strip()
+            return out.isdigit() and int(out) > 0
+        return subprocess.run(["pgrep", "-f", str(app_profile_dir())],
+                              capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
 def free_port(port=PORT):
     """Always serve one clean instance: kill whatever already holds the port (stale server)."""
     try:
@@ -154,8 +197,18 @@ def main():
 
     browser = find_chromium()
     if browser:
-        # Blocks until the app window (its whole dedicated profile) closes.
+        # Clear a previous run's orphaned app window first so the one we open is ours to block on.
+        close_orphan_window()
+        # Blocks until the app window (its whole dedicated profile) closes...
         open_app_window(browser)
+        # ...unless the browser still handed off to another instance and returned immediately. If an
+        # app window is in fact still open, keep serving (polling until it closes) instead of exiting
+        # the moment we launched — otherwise the server would die and the window show a dead app.
+        while t.is_alive() and app_window_open():
+            try:
+                time.sleep(2)
+            except KeyboardInterrupt:
+                break
     else:
         # No Chromium browser: normal tab, keep serving until Ctrl-C (today's behavior).
         webbrowser.open(URL)
