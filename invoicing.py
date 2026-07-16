@@ -70,6 +70,47 @@ def invoice_total(con, invoice_id):
     return total
 
 
+def estimate_billed_subtotal(con, estimate_id):
+    """Pre-tax subtotal already billed against an estimate by its progress invoices (void ones don't
+    count). Progress billing tracks the PRE-TAX job amount so the portions always sum to the estimate
+    exactly — tax is added per invoice by the normal engine."""
+    rows = con.execute("SELECT id FROM invoices WHERE estimate_id=? AND kind='invoice' "
+                       "AND status!='void'", (estimate_id,)).fetchall()
+    return sum(invoice_subtotal(con, r["id"]) for r in rows)
+
+
+def estimate_remaining_subtotal(con, estimate_id):
+    """Pre-tax subtotal still un-billed on an estimate (0 once fully billed)."""
+    return max(0, invoice_subtotal(con, estimate_id) - estimate_billed_subtotal(con, estimate_id))
+
+
+def progress_info(con, invoice_id):
+    """Progress-billing context for an invoice billed against an estimate, else None for an ordinary
+    invoice. Carries the parent estimate's line items — the FULL job scope, shown for reference on the
+    invoice/PDF/email but NOT charged here — plus this invoice's share and the running billed/remaining
+    totals. One helper feeds the invoice page, the PDF and the email."""
+    row = con.execute("SELECT estimate_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    if not row or not row["estimate_id"]:
+        return None
+    est = con.execute("SELECT id, number FROM invoices WHERE id=?", (row["estimate_id"],)).fetchone()
+    if not est:
+        return None
+    job_sub = invoice_subtotal(con, est["id"])
+    this_sub = invoice_subtotal(con, invoice_id)
+    billed = estimate_billed_subtotal(con, est["id"])
+    scope = con.execute(
+        "SELECT ii.*, itm.name AS item_name FROM invoice_items ii "
+        "LEFT JOIN items itm ON itm.id = ii.item_id WHERE ii.invoice_id=? ORDER BY ii.id",
+        (est["id"],)).fetchall()
+    return {"estimate_id": est["id"], "estimate_number": est["number"], "scope_items": scope,
+            "job_subtotal": job_sub, "this_subtotal": this_sub, "billed_subtotal": billed,
+            "remaining_subtotal": max(0, job_sub - billed),
+            "percent": (round(this_sub * 100.0 / job_sub, 1) if job_sub else 0),
+            # A full conversion already lists the whole job as its own lines — only a PARTIAL invoice
+            # needs the scope block + progress note (it bills less than it shows).
+            "is_partial": this_sub < job_sub}
+
+
 def invoice_default_income_id(con, invoice_id):
     """Best income account to credit when an invoice is paid online (no interactive picker): the
     income account most of the invoice's catalog items map to, else the first active income
@@ -87,13 +128,19 @@ def invoice_default_income_id(con, invoice_id):
 
 def record_invoice_payment(con, invoice_id, *, into_account_id, income_id, amount_cents, date,
                            label=None, memo=None):
-    """Post a full customer payment against an invoice and mark it paid: debit the deposit account
-    (a bank account, or the Square clearing account for online payments), credit income, and split
-    any collected sales tax to Sales Tax Payable (tax_allocation). Sets status='paid' + paid_entry_id
-    and returns the entry id. Shared by the manual Record-Payment route and Square payment sync so
-    the tax-split posting lives in exactly one place."""
+    """Post a customer payment against an invoice: debit the deposit account (a bank account, or the
+    Square clearing account for online payments), credit income, and split any collected sales tax to
+    Sales Tax Payable. `tax_allocation` is proportional, so a PARTIAL payment splits its tax correctly.
+
+    A payment covering the whole outstanding balance closes the invoice: status='paid' + paid_entry_id
+    (the entry we own, so Undo payment can remove it) — today's behavior. Anything less is a partial:
+    it's linked through invoice_entry_links (the same machinery statement-matched deposits use) and the
+    invoice sits at 'partially_paid' until payments + credits cover the total. Both count, because
+    invoice_payments_total sums the union of the two. Returns the entry id. Shared by the manual
+    Record-Payment route and Square payment sync so the tax-split posting lives in exactly one place."""
     inv = con.execute("SELECT i.number, i.customer_id, c.name customer FROM invoices i "
                       "JOIN customers c ON c.id=i.customer_id WHERE i.id=?", (invoice_id,)).fetchone()
+    outstanding = invoice_outstanding_balance(con, invoice_id)
     sub = invoice_subtotal(con, invoice_id)
     tax = invoice_tax(con, invoice_id)
     inc_part, tax_part = tax_allocation(sub, tax, amount_cents)
@@ -106,8 +153,20 @@ def record_invoice_payment(con, invoice_id, *, into_account_id, income_id, amoun
     entry_id = ledger.post_entry(con, d, label or f"Invoice {inv['number']} - {inv['customer']}",
                                  legs, memo=memo or f"invoice #{inv['number']}",
                                  customer_id=inv["customer_id"])
-    con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
-                (d, entry_id, invoice_id))
+
+    if amount_cents >= outstanding:
+        con.execute("UPDATE invoices SET status='paid', paid_date=?, paid_entry_id=? WHERE id=?",
+                    (d, entry_id, invoice_id))
+        return entry_id
+
+    con.execute("INSERT OR IGNORE INTO invoice_entry_links(invoice_id, entry_id) VALUES(?, ?)",
+                (invoice_id, entry_id))
+    covered = invoice_payments_total(con, invoice_id) + invoice_applied_credits(con, invoice_id)
+    if covered >= invoice_total(con, invoice_id):
+        con.execute("UPDATE invoices SET status='paid', paid_date=? WHERE id=?", (d, invoice_id))
+    else:
+        con.execute("UPDATE invoices SET status='partially_paid', paid_date=NULL WHERE id=?",
+                    (invoice_id,))
     return entry_id
 
 
@@ -160,49 +219,51 @@ def _payment_leg_filter(con):
     return "a.type='income'", []
 
 
+def _payment_entry_ids(con, invoice_id, row=None):
+    """Distinct ledger entries counting as payments on an invoice: the payment we posted
+    (paid_entry_id) UNION every linked deposit (invoice_entry_links) — an invoice legitimately has
+    both once a partial payment (or matched deposit) is followed by a final Record-Payment — falling
+    back to the matched deposit when there are neither. Single source of truth for the payment set, so
+    invoice_payments_total and invoice_payment_entries can never disagree."""
+    if row is None:
+        row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?",
+                          (invoice_id,)).fetchone()
+    if not row:
+        return []
+    eids = []
+    if row["paid_entry_id"]:
+        eids.append(row["paid_entry_id"])
+    for r in con.execute("SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?",
+                         (invoice_id,)).fetchall():
+        if r["entry_id"] not in eids:
+            eids.append(r["entry_id"])
+    if not eids and row["matched_entry_id"]:
+        eids.append(row["matched_entry_id"])
+    return eids
+
+
 def invoice_payments_total(con, invoice_id):
     """Total payments matched to an invoice (integer cents), counting income + collected-sales-tax
-    legs so tax-inclusive invoices reconcile."""
-    row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
-    if not row:
+    legs so tax-inclusive invoices reconcile. Sums the UNION of the payment set (see
+    _payment_entry_ids): counting only paid_entry_id — as this used to — undercounted an invoice that
+    had a linked partial/matched deposit AND a final posted payment."""
+    eids = _payment_entry_ids(con, invoice_id)
+    if not eids:
         return 0
+    ph = ",".join("?" for _ in eids)
     cond, p = _payment_leg_filter(con)
-
-    if row["paid_entry_id"]:
-        val = con.execute(
-            f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
-            f"WHERE s.entry_id=? AND {cond}", [row["paid_entry_id"], *p]).fetchone()[0]
-        return val or 0
-
     val = con.execute(
         f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
-        f"JOIN invoice_entry_links iel ON iel.entry_id=s.entry_id "
-        f"WHERE iel.invoice_id=? AND {cond}", [invoice_id, *p]).fetchone()[0]
-
-    if not val and row["matched_entry_id"]:
-        val = con.execute(
-            f"SELECT SUM(abs(s.amount_cents)) FROM splits s JOIN accounts a ON a.id=s.account_id "
-            f"WHERE s.entry_id=? AND {cond}", [row["matched_entry_id"], *p]).fetchone()[0]
-
+        f"WHERE s.entry_id IN ({ph}) AND {cond}", [*eids, *p]).fetchone()[0]
     return val or 0
 
 
 def invoice_payment_entries(con, invoice_id):
     """Each payment posted against an invoice, as {entry_id, date, payee, amount_cents} (income legs,
-    positive cents), oldest first. Mirrors invoice_payments_total's priority so totals reconcile:
-    a single full-payment entry (paid_entry_id), else every entry linked via invoice_entry_links
-    (multi-payment), else the matched deposit. Callers that need per-payment rows (e.g. the customer
-    statement) use this instead of re-deriving the set from paid_entry_id/matched_entry_id alone."""
-    row = con.execute("SELECT paid_entry_id, matched_entry_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
-    if not row:
-        return []
-    if row["paid_entry_id"]:
-        eids = [row["paid_entry_id"]]
-    else:
-        eids = [r["entry_id"] for r in con.execute(
-            "SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?", (invoice_id,)).fetchall()]
-        if not eids and row["matched_entry_id"]:
-            eids = [row["matched_entry_id"]]
+    positive cents), oldest first — the same set invoice_payments_total sums, so the two reconcile.
+    Callers that need per-payment rows (e.g. the customer statement) use this instead of re-deriving
+    the set from paid_entry_id/matched_entry_id alone."""
+    eids = _payment_entry_ids(con, invoice_id)
     if not eids:
         return []
     ph = ",".join("?" for _ in eids)
@@ -460,6 +521,35 @@ def render_pdf(con, inv, items, total):
     pdf.cell(45, 8, final_label)
     pdf.cell(R - 115 - 45, 8, final_value, align="R", new_x="LMARGIN", new_y="NEXT")
 
+    # 4b. Progress billing: the full job from the parent estimate, shown for the customer's reference.
+    #     Only this invoice's portion (its own lines, above) is charged.
+    prog = progress_info(con, inv["id"]) if not is_est and not is_credit_memo else None
+    if prog and prog["is_partial"]:
+        pdf.ln(9)
+        pdf.set_font("helvetica", "", 8)
+        pdf.set_text_color(*MUTED)
+        pdf.cell(0, 5, _latin(f"FULL JOB - ESTIMATE {prog['estimate_number']}   "
+                              "(for reference - only this invoice's portion is charged)"),
+                 new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(*HAIR)
+        pdf.set_line_width(0.15)
+        pdf.line(L, pdf.get_y(), R, pdf.get_y())
+        pdf.ln(1.5)
+        pdf.set_font("helvetica", "", 9)
+        for it in prog["scope_items"]:
+            pdf.set_text_color(*GRAY)
+            pdf.cell(140, 5, _latin(str(it["description"])[:70]))
+            pdf.cell(R - L - 140, 5, f"${fmt_cents(round(it['qty'] * it['unit_cents']))}",
+                     align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        pdf.set_font("helvetica", "", 8.5)
+        pdf.set_text_color(*MUTED)
+        pdf.cell(0, 5, _latin(
+            f"Job total (before tax) ${fmt_cents(prog['job_subtotal'])}  -  this invoice "
+            f"{prog['percent']:g}% (${fmt_cents(prog['this_subtotal'])})  -  billed to date "
+            f"${fmt_cents(prog['billed_subtotal'])}  -  remaining ${fmt_cents(prog['remaining_subtotal'])}"),
+            align="R", new_x="LMARGIN", new_y="NEXT")
+
     # 5. Notes & terms
     if inv["memo"]:
         pdf.ln(9)
@@ -658,6 +748,32 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
         totals += total_row("Sales tax", fmt_cents(tax))
     totals += total_row("Total due", fmt_cents(total), strong=True)
 
+    # Progress billing: the full job from the parent estimate, for reference — not charged here.
+    prog = progress_info(con, inv["id"])
+    scope_html = ""
+    if prog and prog["is_partial"]:
+        rows_html = ""
+        for it in prog["scope_items"]:
+            rows_html += (
+                '<tr>'
+                f'<td style="padding:5px 0;border-bottom:1px solid #efeee7;color:{GRAY};font-size:12px">{e(it["description"])}</td>'
+                f'<td align="right" style="padding:5px 0;border-bottom:1px solid #efeee7;color:{GRAY};font-size:12px;white-space:nowrap">${fmt_cents(round(it["qty"] * it["unit_cents"]))}</td>'
+                '</tr>')
+        scope_html = (
+            f'<tr><td style="padding:22px 30px 0">'
+            f'<div style="font-size:11px;color:{MUTED};letter-spacing:1px">FULL JOB &mdash; ESTIMATE {e(prog["estimate_number"])}</div>'
+            f'<div style="font-size:12px;color:{MUTED};padding:2px 0 6px">For reference &mdash; only this '
+            f'invoice&rsquo;s portion is charged.</div>'
+            '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" '
+            'style="border-collapse:collapse">' + rows_html +
+            f'<tr><td style="padding:6px 0;color:{MUTED};font-size:12px">Job total (before tax)</td>'
+            f'<td align="right" style="padding:6px 0;color:{INK};font-size:12px;white-space:nowrap">${fmt_cents(prog["job_subtotal"])}</td></tr>'
+            '</table>'
+            f'<div style="font-size:12px;color:{MUTED};padding-top:6px">This invoice '
+            f'<strong>{prog["percent"]:g}%</strong> (${fmt_cents(prog["this_subtotal"])}) &middot; billed to date '
+            f'${fmt_cents(prog["billed_subtotal"])} &middot; remaining ${fmt_cents(prog["remaining_subtotal"])}</div>'
+            '</td></tr>')
+
     button = ""
     if pay_url:
         button = (
@@ -706,6 +822,8 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
         # totals
         '<tr><td style="padding:12px 30px 0"><table align="right" cellpadding="0" cellspacing="0" '
         f'role="presentation">{totals}</table></td></tr>'
+        # full job scope (progress billing only)
+        f'{scope_html}'
         # terms / footer
         f'<tr><td style="padding:26px 30px 26px"><div style="border-top:1px solid {HAIR};padding-top:12px;'
         f'font-size:11px;color:{MUTED};line-height:1.6">{e(terms)}</div></td></tr>'

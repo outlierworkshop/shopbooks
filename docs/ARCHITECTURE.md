@@ -199,6 +199,19 @@ PDF: `invoicing.render_pdf` (fpdf2, helvetica, latin-1 — `_latin()` sanitizes)
 Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in settings with
 `{number} {business} {customer} {total} {due_date} {date}` placeholders.
 
+**Progress billing (bill part of a quoted job).** An **estimate** is the "whole job"; invoices are
+billed against it via `invoices.estimate_id`. A progress invoice's own line **is** the portion, so an
+invoice is still worth the sum of its lines — `invoice_total` keeps its meaning and AR/Square/matching
+/reports need no special cases. The parent estimate carries the full scope, which the invoice page,
+PDF and email render for reference but do **not** charge (`invoicing.progress_info`, `is_partial`).
+Portions are of the estimate's **pre-tax subtotal** (tax is added per invoice by the normal engine), so
+portions sum to the estimate exactly; a mixed taxable/non-taxable estimate bills one line per tax
+treatment, split proportionally with the rounding remainder in the last line. Billed-to-date =
+`estimate_billed_subtotal` (Σ non-void invoice subtotals); billing is clamped to the remainder.
+**Partial payments** link through `invoice_entry_links` and sit at `partially_paid`; a payment covering
+the balance owns `paid_entry_id` (so Undo can remove it). `invoice_payments_total` sums the **union** of
+both (`_payment_entry_ids`) — counting only `paid_entry_id` undercounted invoices that had both.
+
 **Online payments (Square, `square.py`).** ShopBooks is a 127.0.0.1 app, so it can't host a payment
 form or receive webhooks. Instead it uses the Square **Invoices API + polling**: create + publish a
 Square invoice (`SHARE_MANUALLY`), email our invoice with the Square `public_url` as a Pay-online
