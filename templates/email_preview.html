@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Review email{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{% if err %}<p class="error">{{ err }}</p>{% endif %}
+
+<div class="card section" style="max-width:820px">
+  <div class="formgrid" style="max-width:660px">
+    <label>To</label><div><strong>{{ to }}</strong></div>
+    <label>Subject</label><div>{{ subject }}</div>
+    <label>Attached</label>
+    <div><a href="{{ pdf_url }}" target="_blank">{{ inv.number }}.pdf</a> — open it to check the document itself</div>
+  </div>
+  <div class="toolbar" style="margin-top:14px">
+    <form method="post" action="{{ send_action }}" class="inline">
+      {% for k, v in hidden.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <button type="submit">✉ Send it now</button>
+    </form>
+    <a class="btn ghost" href="{{ cancel_url }}">Cancel</a>
+    <span class="muted">Nothing has been sent yet.</span>
+  </div>
+</div>
+
+<p class="muted" style="max-width:820px; margin-bottom:6px">Exactly what
+  <strong>{{ inv.customer }}</strong> will see:</p>
+<iframe src="{{ iframe_src }}" title="Email preview"
+        style="width:100%; max-width:820px; height:780px; border:1px solid var(--line);
+               border-radius:8px; background:#fff"></iframe>
+{% endblock %}

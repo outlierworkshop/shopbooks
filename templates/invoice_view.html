@@ -15,8 +15,8 @@
     <button name="action" value="delete" type="submit" class="danger">Delete</button></form>
   {% elif inv.status == 'sent' %}
   {% if email_on and inv.customer_email %}
-  <form class="inline" method="post" action="/invoices/{{ inv.id }}/remind">
-    <button name="action" value="remind" type="submit" class="ghost">Send reminder</button></form>
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/remind/preview">
+    <button type="submit" class="ghost">Send reminder…</button></form>
   {% endif %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/status">
     <button name="action" value="void" type="submit" class="ghost">Void</button></form>
@@ -32,16 +32,20 @@
   {% if square_map %}
   <span class="muted">💳 Square: <strong>{{ square_map.status or 'sent' }}</strong></span>
   {% if square_map.public_url %}<a class="btn ghost" href="{{ square_map.public_url }}" target="_blank">Payment page</a>{% endif %}
+  {% if email_on and inv.customer_email %}
+  <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-email/preview">
+    <button type="submit">✉ Preview &amp; send pay link…</button></form>
+  {% endif %}
   <form class="inline" method="post" action="/square/sync">
     <input type="hidden" name="back" value="/invoices/{{ inv.id }}">
     <button type="submit" class="ghost">Sync Square payments</button></form>
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-send"
-        onsubmit="return confirm('Re-create the Square payment page and email the link again?')">
-    <button type="submit" class="ghost">Resend link</button></form>
+        onsubmit="return confirm('Re-create the Square payment page? (You preview the email separately.)')">
+    <button type="submit" class="ghost">Re-create page</button></form>
   {% else %}
   <form class="inline" method="post" action="/invoices/{{ inv.id }}/square-send">
     <button type="submit">{{ '💳 Collect online (ACH / card)' if square_cards else '🏦 Collect online (bank transfer)' }}</button></form>
-  <span class="muted">Creates a Square-hosted payment page and emails the customer a pay link.</span>
+  <span class="muted">Creates the Square payment page — you then preview the email before it's sent.</span>
   {% endif %}
 </div>
 {% endif %}
@@ -319,13 +323,14 @@
 <div class="card section" style="max-width:760px">
   <h2 style="margin-top:0">Email invoice</h2>
   {% if email_on %}
-  <form method="post" action="/invoices/{{ inv.id }}/email">
+  <form method="post" action="/invoices/{{ inv.id }}/email/preview">
     <div class="toolbar">
       <input type="email" name="to_addr" value="{{ inv.customer_email }}" placeholder="to" required style="width:260px">
       <input type="text" name="subject" placeholder="(default subject)" style="width:300px">
     </div>
     <textarea name="body" placeholder="(default message)" rows="4" style="width:100%; max-width:700px"></textarea>
-    <div class="toolbar"><button type="submit">Send with PDF attached</button></div>
+    <div class="toolbar"><button type="submit">🔍 Preview email →</button>
+      <span class="muted">You'll see exactly what's sent (with the PDF) before it goes.</span></div>
   </form>
   {% else %}
   <p class="muted">Set up SMTP in <a href="/settings">Settings</a> to send email. Meanwhile, download the

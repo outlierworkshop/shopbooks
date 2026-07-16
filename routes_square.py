@@ -1,10 +1,12 @@
 """Square online-payment routes: test the connection, send an invoice for online payment (ACH +
 card) via a Square-hosted page, and sync received payments into the ledger. Logic lives in square.py;
 these handlers stay thin and reuse the invoice email + payment machinery in invoicing.py."""
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse
 
 import invoicing
 import square
+from routes_invoices import _email_preview_page
 from webutil import get_con, safe_redirect
 
 router = APIRouter()
@@ -21,8 +23,9 @@ def square_test(con=Depends(get_con)):
 
 @router.post("/invoices/{invoice_id}/square-send")
 def square_send(invoice_id: int, con=Depends(get_con)):
-    """Create + publish a Square invoice for this invoice (ACH + card), then email the customer our
-    invoice with the Square 'Pay online' link."""
+    """Create + publish the Square payment page for this invoice (ACH + card). It does NOT email —
+    the pay link only exists once the page is made, so the email gets its own preview step
+    (square-email/preview) and nothing goes out unseen."""
     try:
         res = square.create_and_publish_invoice(con, invoice_id)
     except ValueError as e:
@@ -30,25 +33,47 @@ def square_send(invoice_id: int, con=Depends(get_con)):
     except Exception as e:
         return safe_redirect(f"/invoices/{invoice_id}", err=f"Square error: {e}")
     con.commit()
+    return safe_redirect(f"/invoices/{invoice_id}", msg=(
+        f"Payment page created — {res.get('public_url') or 'link ready'}. "
+        "Use 'Preview & send email' to send the customer the pay link."))
 
-    inv, items, total = invoicing.get_invoice(con, invoice_id)
-    pay_url = res.get("public_url") or ""
+
+@router.post("/invoices/{invoice_id}/square-email/preview", response_class=HTMLResponse)
+def square_email_preview(request: Request, invoice_id: int, con=Depends(get_con)):
+    """Preview the invoice email carrying the Square pay link, before sending it."""
+    inv, _items, total = invoicing.get_invoice(con, invoice_id)
+    m = square.get_mapping(con, invoice_id)
+    if not inv or not m or not m["public_url"]:
+        return safe_redirect(f"/invoices/{invoice_id}",
+                             err="Create the payment page first (Collect online).")
     to = (inv["customer_email"] or "").strip()
-    if to and invoicing.email_configured(con):
-        try:
-            pdf = invoicing.render_pdf(con, inv, items, total)
-            invoicing.send_invoice_email(con, inv, total, pdf, to, pay_url=pay_url)
-            con.execute("UPDATE invoices SET status='sent' WHERE id=? AND status='draft'", (invoice_id,))
-            con.commit()
-            return safe_redirect(f"/invoices/{invoice_id}",
-                                 msg=f"Online payment enabled and invoice emailed to {to}.")
-        except Exception as e:
-            return safe_redirect(f"/invoices/{invoice_id}",
-                                 err=f"Payment page created ({pay_url}), but emailing failed: {e}")
-    hint = " Add a customer email (and set up SMTP) to email it automatically." if not to else \
-        " Set up SMTP in Settings to email it automatically."
-    return safe_redirect(f"/invoices/{invoice_id}",
-                         msg=f"Online payment page created — share this link: {pay_url}.{hint}")
+    if not to:
+        return safe_redirect(f"/invoices/{invoice_id}", err="This customer has no email address.")
+    if not invoicing.email_configured(con):
+        return safe_redirect(f"/invoices/{invoice_id}", err="Set up SMTP in Settings to send email.")
+    return _email_preview_page(request, con, inv, total, to=to, subject="", body="",
+                               pay_url=m["public_url"],
+                               send_action=f"/invoices/{invoice_id}/square-email",
+                               cancel_url=f"/invoices/{invoice_id}",
+                               heading="Review the pay-link email before it goes out", hidden={})
+
+
+@router.post("/invoices/{invoice_id}/square-email")
+def square_email(invoice_id: int, con=Depends(get_con)):
+    """Send the invoice email with the Square pay link (confirmed from the preview)."""
+    inv, items, total = invoicing.get_invoice(con, invoice_id)
+    m = square.get_mapping(con, invoice_id)
+    if not inv or not m or not m["public_url"]:
+        return safe_redirect(f"/invoices/{invoice_id}", err="Create the payment page first.")
+    to = (inv["customer_email"] or "").strip()
+    try:
+        pdf = invoicing.render_pdf(con, inv, items, total)
+        invoicing.send_invoice_email(con, inv, total, pdf, to, pay_url=m["public_url"])
+    except Exception as e:
+        return safe_redirect(f"/invoices/{invoice_id}", err=f"Email failed: {e}")
+    con.execute("UPDATE invoices SET status='sent' WHERE id=? AND status='draft'", (invoice_id,))
+    con.commit()
+    return safe_redirect(f"/invoices/{invoice_id}", msg=f"Invoice with the pay link emailed to {to}.")
 
 
 @router.post("/square/sync")
