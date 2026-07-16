@@ -34,6 +34,28 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-16 — Progress billing: bill (and receive) part of a quoted job
+- **Bill a portion of an estimate** — on an estimate, "Billing this job" shows the job total, billed
+  to date, remaining, and every invoice raised against it, with a **Bill this portion** form taking a
+  **percent or a dollar amount**. Each progress invoice's own line **is** the portion (so an invoice is
+  still worth the sum of its lines — `invoice_total` semantics, AR, Square, matching and reports are
+  untouched), while the invoice/PDF/email additionally show the **full job scope from the estimate,
+  for reference and not charged** (`invoicing.progress_info`).
+- **Exact by construction:** portions are of the estimate's **pre-tax subtotal** and tax is added per
+  invoice, so two 50% invoices sum to the estimate to the cent; a mixed taxable/non-taxable estimate
+  bills one line per tax treatment split proportionally (remainder into the last line); billing is
+  clamped to the remainder. New `invoices.estimate_id` (guarded ALTER) links invoice → job; a full
+  Convert now sets it too, so it counts as billed.
+- **Receive a partial payment** — Record payment takes an amount (blank = the whole balance, or
+  `500.00` / `50%`). A partial links through `invoice_entry_links` and sits at *partially paid*, with
+  sales tax split proportionally; the closing payment marks it paid.
+- **Bug fixed on the way:** `invoice_payments_total`/`invoice_payment_entries` used a *priority*
+  (paid_entry_id won, links ignored), so an invoice with a matched/partial deposit **and** a final
+  posted payment undercounted its payments. They now sum the **union** (`_payment_entry_ids`).
+- `test_progress_billing.py` (30 checks): exact sums with 6.25% tax, $-amount portions, clamping,
+  mixed-tax splits, scope shown but not charged (page + PDF + email), partial payment status/ledger/tax
+  split, and the closing payment. Suite 74/74.
+
 ### 2026-07-15 — Desktop launcher: reclaim an orphaned app window on relaunch
 - Fixed the "app starts then exits" launch failure: `desktop.py` keeps the server alive by blocking
   on the app-mode browser process, but if a previous run's app window lingered (server died, window

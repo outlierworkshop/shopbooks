@@ -90,6 +90,14 @@ async def estimate_update(request: Request, estimate_id: int, con=Depends(get_co
         return templates.TemplateResponse(request, "invoice_edit.html", ctx(
             request, con, inv=est, items=items, customers=customers, standard_items=_active_items(con), error=str(e)))
 
+def _progress_invoices(con, estimate_id):
+    """The invoices billed against this estimate, oldest first, each with its own total."""
+    rows = con.execute("SELECT id, number, date, status FROM invoices WHERE estimate_id=? "
+                       "AND kind='invoice' ORDER BY id", (estimate_id,)).fetchall()
+    return [{**dict(r), "total": invoicing.invoice_total(con, r["id"]),
+             "subtotal": invoicing.invoice_subtotal(con, r["id"])} for r in rows]
+
+
 @router.get("/estimates/{estimate_id}", response_class=HTMLResponse)
 def estimate_view(request: Request, estimate_id: int, msg: str = "", err: str = "", con=Depends(get_con)):
     est, items, total = invoicing.get_invoice(con, estimate_id)
@@ -102,6 +110,9 @@ def estimate_view(request: Request, estimate_id: int, msg: str = "", err: str = 
     return templates.TemplateResponse(request, "estimate_view.html", ctx(
         request, con, inv=est, items=items, total=total, converted=converted, msg=msg, err=err,
         subtotal=invoicing.invoice_subtotal(con, estimate_id), tax=invoicing.invoice_tax(con, estimate_id),
+        billed_subtotal=invoicing.estimate_billed_subtotal(con, estimate_id),
+        remaining_subtotal=invoicing.estimate_remaining_subtotal(con, estimate_id),
+        progress_invoices=_progress_invoices(con, estimate_id),
         email_on=invoicing.email_configured(con),
         biz_address=db.get_setting(con, "business_address", ""),
         biz_email=db.get_setting(con, "business_email", ""),
@@ -148,6 +159,80 @@ def estimate_email(estimate_id: int, to_addr: str = Form(...), subject: str = Fo
     con.commit()
     return safe_redirect(f"/estimates/{estimate_id}", msg=f"Emailed to {to_addr}")
 
+def _billed_lines(portion, job_sub, items):
+    """Split a portion of the job's PRE-TAX subtotal into billed line(s) — one per tax treatment the
+    estimate uses — proportional to its taxable vs non-taxable mix, so the tax the engine adds is
+    right. The rounding remainder goes to the last line, so the lines sum to `portion` exactly.
+    Returns [(amount_cents, taxable), ...]."""
+    taxable_sub = sum(round(it["qty"] * it["unit_cents"]) for it in items if it["taxable"])
+    nontax_sub = job_sub - taxable_sub
+    if taxable_sub and nontax_sub:                      # mixed estimate → two lines
+        tax_part = round(portion * taxable_sub / job_sub)
+        return [(tax_part, 1), (portion - tax_part, 0)]
+    return [(portion, 1 if taxable_sub else 0)]         # all taxable, or none
+
+
+@router.post("/estimates/{estimate_id}/bill")
+def estimate_bill(estimate_id: int, portion_kind: str = Form("percent"), portion_value: str = Form(""),
+                  con=Depends(get_con)):
+    """Progress-bill part of an estimate: create an invoice for a percentage OR a dollar amount of the
+    job's PRE-TAX subtotal (tax is then added per invoice by the normal engine, so the portions sum to
+    the estimate exactly). The invoice's line(s) ARE the portion, so it's worth exactly what it bills;
+    the estimate keeps the full scope and tracks billed-to-date."""
+    from datetime import timedelta
+    est, items, _ = invoicing.get_invoice(con, estimate_id)
+    if not est or est["kind"] != "estimate":
+        return RedirectResponse("/estimates", status_code=303)
+    job_sub = invoicing.invoice_subtotal(con, estimate_id)
+    remaining = invoicing.estimate_remaining_subtotal(con, estimate_id)
+    if job_sub <= 0:
+        return safe_redirect(f"/estimates/{estimate_id}", err="This estimate has nothing to bill.")
+    if remaining <= 0:
+        return safe_redirect(f"/estimates/{estimate_id}", err="This estimate is already fully billed.")
+    try:
+        if portion_kind == "percent":
+            portion = round(job_sub * float(portion_value) / 100.0)
+        else:
+            portion = ledger.parse_amount_to_cents(portion_value)
+    except (ValueError, TypeError):
+        return safe_redirect(f"/estimates/{estimate_id}",
+                             err="Enter a percentage or a dollar amount to bill.")
+    if portion <= 0:
+        return safe_redirect(f"/estimates/{estimate_id}", err="Enter an amount greater than zero.")
+    portion = min(portion, remaining)   # never bill past the job
+
+    today = date_cls.today()
+    number = invoicing.next_number(con)
+    cur = con.execute(
+        "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind,estimate_id) "
+        "VALUES(?,?,?,?,?,'invoice',?)",
+        (number, est["customer_id"], today.isoformat(), (today + timedelta(days=30)).isoformat(),
+         est["memo"], estimate_id))
+    inv_id = cur.lastrowid
+    lines = _billed_lines(portion, job_sub, items)
+    pct = round(portion * 100.0 / job_sub, 1)
+    pct_txt = f"{pct:g}%"
+    for amt, taxable in lines:
+        if amt <= 0:
+            continue
+        desc = f"{pct_txt} of estimate {est['number']}"
+        if len(lines) > 1:
+            desc += " (taxable)" if taxable else " (non-taxable)"
+        con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id,taxable) "
+                    "VALUES(?,?,1,?,NULL,?)", (inv_id, desc, amt, taxable))
+    # Accepted once anything is billed; converted_invoice_id keeps pointing at the FIRST invoice so the
+    # existing "View invoice" link on the estimate still works.
+    if est["converted_invoice_id"]:
+        con.execute("UPDATE invoices SET status='accepted' WHERE id=?", (estimate_id,))
+    else:
+        con.execute("UPDATE invoices SET status='accepted', converted_invoice_id=? WHERE id=?",
+                    (inv_id, estimate_id))
+    con.commit()
+    return safe_redirect(f"/invoices/{inv_id}", msg=(
+        f"Invoice {number} bills {pct_txt} of estimate {est['number']} "
+        f"(${ledger.fmt_cents(portion)} of ${ledger.fmt_cents(job_sub)} before tax)."))
+
+
 @router.post("/estimates/{estimate_id}/convert")
 def estimate_convert(estimate_id: int, con=Depends(get_con)):
     from datetime import timedelta
@@ -158,10 +243,13 @@ def estimate_convert(estimate_id: int, con=Depends(get_con)):
         return RedirectResponse(f"/invoices/{est['converted_invoice_id']}", status_code=303)
     today = date_cls.today()
     number = invoicing.next_number(con)
+    # estimate_id links it back to the job so billed-to-date is accurate (a full convert bills 100%,
+    # which correctly leaves nothing to progress-bill).
     cur = con.execute(
-        "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind) VALUES(?,?,?,?,?,'invoice')",
+        "INSERT INTO invoices(number,customer_id,date,due_date,memo,kind,estimate_id) "
+        "VALUES(?,?,?,?,?,'invoice',?)",
         (number, est["customer_id"], today.isoformat(), (today + timedelta(days=30)).isoformat(),
-         est["memo"]))
+         est["memo"], estimate_id))
     inv_id = cur.lastrowid
     for it in items:
         con.execute("INSERT INTO invoice_items(invoice_id,description,qty,unit_cents,item_id,taxable) VALUES(?,?,?,?,?,?)",

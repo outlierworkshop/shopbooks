@@ -417,7 +417,7 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
         applicable_invoices=applicable_invoices,
         msg=msg, err=err, email_on=invoicing.email_configured(con),
         square_on=square.configured(con), square_map=square.get_mapping(con, invoice_id),
-        square_cards=square.card_enabled(con),
+        square_cards=square.card_enabled(con), progress=invoicing.progress_info(con, invoice_id),
         biz_address=db.get_setting(con, "business_address", ""),
         biz_email=db.get_setting(con, "business_email", ""),
         biz_phone=db.get_setting(con, "business_phone", ""),
@@ -620,19 +620,35 @@ def credit_application_delete(application_id: int, back: str = Form(...), con=De
 
 @router.post("/invoices/{invoice_id}/pay")
 def invoice_pay(invoice_id: int, paid_date: str = Form(...), bank_id: int = Form(...),
-                income_id: int = Form(...), con=Depends(get_con)):
+                income_id: int = Form(...), amount: str = Form(""), con=Depends(get_con)):
+    """Record a payment received. `amount` is blank for the whole balance, a dollar amount ("500.00"),
+    or a share of the balance ("50%") — a partial leaves the invoice 'partially paid'."""
     inv, items, total = invoicing.get_invoice(con, invoice_id)
     if not inv or inv["status"] == "paid" or total <= 0:
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
 
-    payments_total = invoicing.invoice_payments_total(con, invoice_id)
-    outstanding = max(0, total - payments_total)
+    outstanding = invoicing.invoice_outstanding_balance(con, invoice_id)
     if outstanding <= 0:
         return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
 
-    # Split the payment so collected sales tax lands in the Sales Tax Payable liability, not income.
+    raw = (amount or "").strip()
+    try:
+        if not raw:
+            pay = outstanding
+        elif raw.endswith("%"):
+            pay = round(outstanding * float(raw[:-1].strip()) / 100.0)
+        else:
+            pay = ledger.parse_amount_to_cents(raw)
+    except (ValueError, TypeError):
+        return safe_redirect(f"/invoices/{invoice_id}", err="Enter an amount like 500.00 or 50%.")
+    if pay <= 0:
+        return safe_redirect(f"/invoices/{invoice_id}", err="Enter an amount greater than zero.")
+    pay = min(pay, outstanding)   # never take more than is owed
+
+    # record_invoice_payment splits collected sales tax to Sales Tax Payable (proportionally, so a
+    # partial is split correctly) and sets paid / partially_paid.
     invoicing.record_invoice_payment(con, invoice_id, into_account_id=bank_id, income_id=income_id,
-                                     amount_cents=outstanding, date=paid_date)
+                                     amount_cents=pay, date=paid_date)
     _update_entry_customers_for_invoice(con, invoice_id)
     con.commit()
     return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)

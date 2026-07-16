@@ -653,6 +653,10 @@ def _column_migrations(con):
     invc = {r["name"] for r in con.execute("PRAGMA table_info(invoices)").fetchall()}
     if "matched_entry_id" not in invc:
         con.execute("ALTER TABLE invoices ADD COLUMN matched_entry_id INTEGER REFERENCES entries(id)")
+    if "estimate_id" not in invc:
+        # Progress billing: a partial invoice billed against a parent estimate (the "whole job").
+        # The invoice is still worth the sum of ITS lines; the estimate carries the full scope.
+        con.execute("ALTER TABLE invoices ADD COLUMN estimate_id INTEGER REFERENCES invoices(id)")
     stg = {r["name"] for r in con.execute("PRAGMA table_info(staged)").fetchall()}
     if "memo" not in stg:
         con.execute("ALTER TABLE staged ADD COLUMN memo TEXT NOT NULL DEFAULT ''")

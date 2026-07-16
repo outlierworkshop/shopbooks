@@ -58,9 +58,49 @@
   {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
 </div>
 
-{% if inv.converted_invoice_id %}
-<p class="pos">✓ This estimate was converted to invoice
-  <a href="/invoices/{{ inv.converted_invoice_id }}">{{ converted.number if converted }}</a>.</p>
+{% if subtotal > 0 %}
+<div class="card section" style="max-width:760px">
+  <h2 style="margin-top:0">Billing this job</h2>
+  <p class="muted">Bill this estimate in stages — say a 50% deposit now and the balance on completion.
+  The percentage or amount is of the <strong>${{ subtotal|money }}</strong> job (before tax){% if tax and tax > 0 %};
+  sales tax is added to each invoice{% endif %}. Each invoice shows the full job for the customer's
+  reference but only charges its portion.</p>
+  <table style="max-width:360px">
+    <tr><td class="muted">Job (before tax)</td><td class="num">${{ subtotal|money }}</td></tr>
+    <tr><td class="muted">Billed to date</td><td class="num">${{ billed_subtotal|money }}</td></tr>
+    <tr><td><strong>Remaining to bill</strong></td><td class="num"><strong>${{ remaining_subtotal|money }}</strong></td></tr>
+  </table>
+
+  {% if progress_invoices %}
+  <table style="margin-top:12px">
+    <tr><th>Invoice</th><th>Date</th><th>Status</th><th class="num">Billed (pre-tax)</th><th class="num">Invoice total</th></tr>
+    {% for p in progress_invoices %}
+    <tr>
+      <td><a href="/invoices/{{ p.id }}">{{ p.number }}</a></td>
+      <td>{{ p.date }}</td>
+      <td class="muted">{{ 'partially paid' if p.status == 'partially_paid' else p.status }}</td>
+      <td class="num">${{ p.subtotal|money }}</td>
+      <td class="num">${{ p.total|money }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if remaining_subtotal > 0 %}
+  <form method="post" action="/estimates/{{ inv.id }}/bill" class="toolbar" style="margin-top:12px">
+    <select name="portion_kind">
+      <option value="percent">Percent (%)</option>
+      <option value="amount">Amount ($)</option>
+    </select>
+    <input type="text" name="portion_value" placeholder="50" style="width:110px" required
+           title="A percent of the job (e.g. 50), or a dollar amount (e.g. 1000.00)">
+    <button type="submit">Bill this portion →</button>
+    <span class="muted">Remaining ${{ remaining_subtotal|money }} — leave nothing over and the job is fully billed.</span>
+  </form>
+  {% else %}
+  <p class="pos" style="margin-bottom:0">✓ Fully billed.</p>
+  {% endif %}
+</div>
 {% endif %}
 
 <div class="card section" style="max-width:760px">

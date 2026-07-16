@@ -73,6 +73,32 @@
   {% if terms %}<p class="muted"><em>{{ terms }}</em></p>{% endif %}
 </div>
 
+{# Progress billing: the whole job for context (from the parent estimate) — shown, not charged. #}
+{% if progress and progress.is_partial %}
+<div class="card section" style="max-width:760px">
+  <h2 style="margin-top:0">Full job — estimate {{ progress.estimate_number }}</h2>
+  <p class="muted">This invoice bills <strong>{{ '%g'|format(progress.percent) }}%</strong> of the job
+    below. The scope is shown for reference — <strong>only the portion on this invoice is charged</strong>.</p>
+  <table>
+    <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr>
+    {% for it in progress.scope_items %}
+    <tr>
+      <td>{{ it.description }}{% if it.taxable %} <span class="muted" style="font-size:11px">(tax)</span>{% endif %}</td>
+      <td class="num">{{ '%g'|format(it.qty) }}</td>
+      <td class="num">${{ it.unit_cents|money }}</td>
+      <td class="num">${{ (it.qty * it.unit_cents)|round|int|money }}</td>
+    </tr>
+    {% endfor %}
+    <tr><td colspan="3" class="num muted">Job total (before tax)</td>
+        <td class="num">${{ progress.job_subtotal|money }}</td></tr>
+  </table>
+  <p class="muted" style="margin-bottom:0">This invoice <strong>${{ progress.this_subtotal|money }}</strong>
+    · billed to date <strong>${{ progress.billed_subtotal|money }}</strong>
+    · remaining <strong>${{ progress.remaining_subtotal|money }}</strong>
+    &nbsp;<a href="/estimates/{{ progress.estimate_id }}">view estimate →</a></p>
+</div>
+{% endif %}
+
 <!-- Credit Applications / Applied Credits Section -->
 {% if applied_credits_list or credit_applications_list or available_credits or remaining_credit > 0 or (inv.kind == 'invoice' and outstanding_balance > 0 and available_credits) %}
 <div class="card section" style="max-width:760px">
@@ -277,8 +303,13 @@
       <select name="income_id">
         {% for a in income %}<option value="{{ a.id }}" {{ 'selected' if 'ACH' in a.name else '' }}>{{ a.name }}</option>{% endfor %}
       </select>
-      <button type="submit">Record ${{ outstanding_balance|money }} received</button>
+      <input type="text" name="amount" style="width:120px" placeholder="${{ outstanding_balance|money }}"
+             title="Blank = the whole balance. Or part of it: 500.00, or 50%">
+      <button type="submit">Record payment</button>
     </form>
+    <p class="muted" style="margin-top:6px">Leave the amount blank to record the full
+      <strong>${{ outstanding_balance|money }}</strong>, or enter part of it (e.g. <code>500.00</code>
+      or <code>50%</code>) — the invoice then shows as <em>partially paid</em> until the rest arrives.</p>
     <p class="muted">Use this only if the deposit is <em>not</em> already on your books — it posts a new entry.
     If the deposit was imported from a statement, use "Match" above instead so you don't double-count.</p>
   </div>
