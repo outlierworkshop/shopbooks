@@ -531,6 +531,11 @@ def render_pdf(con, inv, items, total):
         pdf.cell(0, 5, _latin(f"FULL JOB - ESTIMATE {prog['estimate_number']}   "
                               "(for reference - only this invoice's portion is charged)"),
                  new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("helvetica", "", 7.5)   # column headers, matching the billed line-items table
+        pdf.cell(102, 4.5, "DESCRIPTION")
+        pdf.cell(16, 4.5, "QTY", align="R")
+        pdf.cell(30, 4.5, "UNIT", align="R")
+        pdf.cell(32, 4.5, "AMOUNT", align="R", new_x="LMARGIN", new_y="NEXT")
         pdf.set_draw_color(*HAIR)
         pdf.set_line_width(0.15)
         pdf.line(L, pdf.get_y(), R, pdf.get_y())
@@ -538,8 +543,10 @@ def render_pdf(con, inv, items, total):
         pdf.set_font("helvetica", "", 9)
         for it in prog["scope_items"]:
             pdf.set_text_color(*GRAY)
-            pdf.cell(140, 5, _latin(str(it["description"])[:70]))
-            pdf.cell(R - L - 140, 5, f"${fmt_cents(round(it['qty'] * it['unit_cents']))}",
+            pdf.cell(102, 5, _latin(str(it["description"])[:64]))
+            pdf.cell(16, 5, f"{it['qty']:g}", align="R")
+            pdf.cell(30, 5, f"${fmt_cents(it['unit_cents'])}", align="R")
+            pdf.cell(32, 5, f"${fmt_cents(round(it['qty'] * it['unit_cents']))}",
                      align="R", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         pdf.set_font("helvetica", "", 8.5)
@@ -766,10 +773,13 @@ def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
     if prog and prog["is_partial"]:
         rows_html = ""
         for it in prog["scope_items"]:
+            cell = f'padding:5px 0;border-bottom:1px solid #efeee7;color:{GRAY};font-size:12px'
             rows_html += (
                 '<tr>'
-                f'<td style="padding:5px 0;border-bottom:1px solid #efeee7;color:{GRAY};font-size:12px">{e(it["description"])}</td>'
-                f'<td align="right" style="padding:5px 0;border-bottom:1px solid #efeee7;color:{GRAY};font-size:12px;white-space:nowrap">${fmt_cents(round(it["qty"] * it["unit_cents"]))}</td>'
+                f'<td style="{cell}">{e(it["description"])}</td>'
+                f'<td align="right" style="{cell};padding-left:10px;white-space:nowrap">{_qty_str(it["qty"])}</td>'
+                f'<td align="right" style="{cell};padding-left:10px;white-space:nowrap">${fmt_cents(it["unit_cents"])}</td>'
+                f'<td align="right" style="{cell};padding-left:12px;white-space:nowrap">${fmt_cents(round(it["qty"] * it["unit_cents"]))}</td>'
                 '</tr>')
         scope_html = (
             f'<tr><td style="padding:22px 30px 0">'
@@ -777,8 +787,14 @@ def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
             f'<div style="font-size:12px;color:{MUTED};padding:2px 0 6px">For reference &mdash; only this '
             f'invoice&rsquo;s portion is charged.</div>'
             '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" '
-            'style="border-collapse:collapse">' + rows_html +
-            f'<tr><td style="padding:6px 0;color:{MUTED};font-size:12px">Job total (before tax)</td>'
+            'style="border-collapse:collapse">'
+            f'<tr style="font-size:10px;color:{MUTED};letter-spacing:.5px">'
+            f'<td style="padding:0 0 4px;border-bottom:1px solid {HAIR}">DESCRIPTION</td>'
+            f'<td align="right" style="padding:0 0 4px 10px;border-bottom:1px solid {HAIR}">QTY</td>'
+            f'<td align="right" style="padding:0 0 4px 10px;border-bottom:1px solid {HAIR}">UNIT</td>'
+            f'<td align="right" style="padding:0 0 4px 12px;border-bottom:1px solid {HAIR}">AMOUNT</td></tr>'
+            + rows_html +
+            f'<tr><td colspan="3" style="padding:6px 0;color:{MUTED};font-size:12px">Job total (before tax)</td>'
             f'<td align="right" style="padding:6px 0;color:{INK};font-size:12px;white-space:nowrap">${fmt_cents(prog["job_subtotal"])}</td></tr>'
             '</table>'
             f'<div style="font-size:12px;color:{MUTED};padding-top:6px">This invoice '
