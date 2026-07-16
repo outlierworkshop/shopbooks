@@ -75,12 +75,18 @@ con.commit()
 # --- watcher ingest ------------------------------------------------------------
 inbox = Path(tempfile.mkdtemp(prefix="trips_inbox_"))
 db.set_setting(con, "trips_watch_folder", str(inbox))
-(inbox / "w1.txt").write_text("connect,2026-07-15T10:00:00,36.1627,-86.7816")
-(inbox / "w2.txt").write_text("disconnect,2026-07-15T10:35:00,35.9251,-86.8689")
+# Timestamps must be RECENT, not a fixed date: the watcher ingests w1 then w2, and pair_events
+# orphans a connect that has no partner once it's older than MAX_TRIP_HOURS. A hardcoded past date
+# orphaned the connect before its disconnect file was scanned, so this only passed on that one day.
+w_start = (datetime.now() - timedelta(hours=2)).replace(microsecond=0)
+w_end = w_start + timedelta(minutes=35)
+(inbox / "w1.txt").write_text(f"connect,{w_start.isoformat(timespec='seconds')},36.1627,-86.7816")
+(inbox / "w2.txt").write_text(f"disconnect,{w_end.isoformat(timespec='seconds')},35.9251,-86.8689")
 con.commit()
 r = watcher.run_once(con, lambda *a: ("skipped", ""), lambda *a: ("skipped", ""), trips._watch_trip_event)
 ok(r["trips"]["enabled"] and r["trips"]["scanned"] == 2, "watcher scans the trips folder")
-ok(con.execute("SELECT COUNT(*) c FROM trip_candidates WHERE start_ts LIKE '2026-07-15%'").fetchone()["c"] == 1,
+ok(con.execute("SELECT COUNT(*) c FROM trip_candidates WHERE start_ts=?",
+               (w_start.isoformat(timespec="seconds"),)).fetchone()["c"] == 1,
    "watcher-ingested events paired into a candidate")
 r2 = watcher.run_once(con, lambda *a: ("skipped", ""), lambda *a: ("skipped", ""), trips._watch_trip_event)
 ok(r2["trips"]["scanned"] == 0, "re-scan is idempotent (watched_files dedup)")
