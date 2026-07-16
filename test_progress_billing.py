@@ -104,12 +104,17 @@ ok("FULL JOB" in txt and "Custom bracket" in txt and "Finishing" in txt,
    "PDF shows the full job scope from the estimate")
 ok("EST-9001" in txt, "PDF names the parent estimate")
 ok(ledger.fmt_cents(106250) in txt, "PDF still charges only this invoice's portion")
+# the scope must carry qty/unit, not just a lump amount (a bare total tells the customer nothing)
+ok("QTY" in txt and "UNIT" in txt, "PDF scope has Qty/Unit columns")
+ok(ledger.fmt_cents(50000) in txt, "PDF scope shows the $500 unit price of the 2x bracket line")
 
 msg = EmailMessage()
 invoicing._apply_invoice_email(msg, con, inv, total, "note", "plain")
 html = [pt.get_content() for pt in msg.walk() if pt.get_content_type() == "text/html"][0]
 ok("FULL JOB" in html and "Custom bracket" in html, "email shows the full job scope")
 ok("Total due" in html and ledger.fmt_cents(106250) in html, "email charges only the portion")
+ok(">QTY<" in html and ">UNIT<" in html, "email scope has Qty/Unit columns")
+ok(f">${ledger.fmt_cents(50000)}<" in html, "email scope shows the unit price, not just a lump sum")
 
 # --- receiving a PARTIAL payment ---------------------------------------------------------------
 bank = con.execute("INSERT INTO accounts(name,kind,type,active) VALUES('Prog Bank','bank','asset',1)").lastrowid
