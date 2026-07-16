@@ -690,15 +690,29 @@ def _qty_str(q):
     return str(int(q)) if q == int(q) else f"{q:g}"
 
 
-def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
-    """Set the plain-text fallback and a rich HTML alternative that mirrors the PDF invoice: logo +
-    business header, invoice number/dates, bill-to, a line-item table with totals, the owner's note,
-    and — when `pay_url` is set — a prominent 'Pay here' button (ACH/card via Square). Email-safe:
-    table layout with inline styles only, logo embedded inline (cid). The logo is best-effort and
-    never blocks sending; the plain text stays the universal fallback."""
+def resolve_email_text(con, inv, total, subject=None, body=None):
+    """The subject + message that will actually go out: the given text, else the saved template, with
+    {placeholders} filled in. Preview and send both call this, so what you review is what sends."""
+    biz = db.get_setting(con, "business_name", "My Business")
+    pay_total = invoice_payments_total(con, inv["id"])
+    outstanding = max(0, total - pay_total)
+    fields = {"number": inv["number"], "business": biz, "customer": inv["customer"],
+              "total": fmt_cents(total), "due_date": inv["due_date"], "date": inv["date"],
+              "payments_total": fmt_cents(pay_total), "outstanding": fmt_cents(outstanding)}
+    subject = (subject or db.get_setting(con, "email_subject")).format(**fields)
+    note = (body or db.get_setting(con, "email_body")).format(**fields)
+    return subject, note
+
+
+def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
+    """The branded HTML email body that mirrors the PDF invoice: logo + business header, number/dates,
+    bill-to, line items with totals, the owner's note, the full job scope for a progress invoice, and —
+    when `pay_url` is set — a prominent 'Pay here' button. Email-safe: table layout, inline styles only.
+
+    `logo_src` is whatever goes in the logo <img src>: a `cid:` reference when building a real message,
+    or `/settings/logo` when rendering this same markup for the on-screen preview — so what you preview
+    is literally what gets sent."""
     import html as _h
-    from email.utils import make_msgid
-    msg.set_content(plain_body)
 
     biz = db.get_setting(con, "business_name", "My Business")
     addr = db.get_setting(con, "business_address", "")
@@ -715,10 +729,8 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
     cards = db.get_setting(con, "square_enable_card", "1") == "1"
     methods_txt = "bank transfer (ACH) or card" if cards else "bank transfer (ACH)"
 
-    logo = db.company_logo_raster_path(con)
-    cid = make_msgid() if logo else None
-    logo_html = (f'<img src="cid:{cid[1:-1]}" alt="{e(biz)}" '
-                 f'style="max-height:56px;max-width:220px;margin-bottom:12px">') if logo else ""
+    logo_html = (f'<img src="{e(logo_src)}" alt="{e(biz)}" '
+                 f'style="max-height:56px;max-width:220px;margin-bottom:12px">') if logo_src else ""
 
     contact = "<br>".join(e(x) for x in (addr.splitlines() + [bemail, bphone]) if x.strip())
     cust = [e(x) for x in (inv["customer_address"] or "").splitlines()]
@@ -828,8 +840,21 @@ def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
         f'<tr><td style="padding:26px 30px 26px"><div style="border-top:1px solid {HAIR};padding-top:12px;'
         f'font-size:11px;color:{MUTED};line-height:1.6">{e(terms)}</div></td></tr>'
         '</table></td></tr></table></div>')
+    return doc
 
-    msg.add_alternative(doc, subtype="html")
+
+def _apply_invoice_email(msg, con, inv, total, note, plain_body, pay_url=None):
+    """Set the plain-text fallback plus the branded HTML alternative (invoice_email_html), embedding
+    the company logo inline via cid. The logo is best-effort and never blocks sending; the plain text
+    stays the universal fallback."""
+    from email.utils import make_msgid
+    msg.set_content(plain_body)
+    logo = db.company_logo_raster_path(con)   # emails need a raster; SVG uploads get a PNG companion
+    cid = make_msgid() if logo else None
+    msg.add_alternative(
+        invoice_email_html(con, inv, total, note, pay_url,
+                           logo_src=(f"cid:{cid[1:-1]}" if logo else "")),
+        subtype="html")
     if logo:
         subtype = logo.suffix.lower().lstrip(".")
         subtype = "jpeg" if subtype == "jpg" else subtype
@@ -864,14 +889,7 @@ def send_invoice_email(con, inv, total, pdf_bytes, to_addr, subject=None, body=N
     password = db.get_setting(con, "smtp_password", "")
     if not (user and password):
         raise RuntimeError("Email isn't set up - add SMTP details in Settings first.")
-    biz = db.get_setting(con, "business_name", "My Business")
-    pay_total = invoice_payments_total(con, inv["id"])
-    outstanding = max(0, total - pay_total)
-    fields = {"number": inv["number"], "business": biz, "customer": inv["customer"],
-              "total": fmt_cents(total), "due_date": inv["due_date"], "date": inv["date"],
-              "payments_total": fmt_cents(pay_total), "outstanding": fmt_cents(outstanding)}
-    subject = (subject or db.get_setting(con, "email_subject")).format(**fields)
-    note = (body or db.get_setting(con, "email_body")).format(**fields)
+    subject, note = resolve_email_text(con, inv, total, subject, body)
     plain = note + (f"\n\nPay online (bank transfer or card): {pay_url}\n" if pay_url else "")
 
     msg = EmailMessage()

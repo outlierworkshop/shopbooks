@@ -1,5 +1,12 @@
-"""Invoice routes: CRUD, payments, credits, PDF/email, AR reminders."""
+"""Invoice routes: CRUD, payments, credits, PDF/email, AR reminders.
+
+Every outgoing email goes through a preview step: the form posts to a `/preview` route which renders
+email_preview.html (recipient, resolved subject, the attached PDF, and the real HTML body in an
+iframe), and only its Send button posts to the actual sender. Nothing leaves without being seen.
+"""
 from datetime import date as date_cls
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 
@@ -693,6 +700,64 @@ def invoice_unpay(invoice_id: int, con=Depends(get_con)):
     con.commit()
     return RedirectResponse(f"/invoices/{invoice_id}", status_code=303)
 
+@router.get("/documents/{doc_id}/email.html", response_class=HTMLResponse)
+def document_email_html(doc_id: int, subject: str = "", body: str = "", pay_url: str = "",
+                        con=Depends(get_con)):
+    """The exact HTML body that will be emailed, rendered standalone for the preview iframe — the logo
+    is served from /settings/logo here instead of the cid: part a real message carries."""
+    inv, _items, total = invoicing.get_invoice(con, doc_id)
+    if not inv:
+        return HTMLResponse("<p>Not found.</p>", status_code=404)
+    _subj, note = invoicing.resolve_email_text(con, inv, total, subject or None, body or None)
+    return HTMLResponse(invoicing.invoice_email_html(
+        con, inv, total, note, pay_url or None, logo_src="/settings/logo"))
+
+
+def _email_preview_page(request, con, inv, total, *, to, subject, body, send_action, cancel_url,
+                        pay_url="", heading="Review this email before it goes out", hidden=None):
+    """The shared 'review before sending' screen. `subject`/`body` are the text to send (blank = the
+    saved template); the same resolver the sender uses fills them in, so the preview can't drift from
+    what actually goes out."""
+    subj, _note = invoicing.resolve_email_text(con, inv, total, subject or None, body or None)
+    qs = urlencode({"subject": subject or "", "body": body or "", "pay_url": pay_url or ""})
+    kind = "estimates" if inv["kind"] == "estimate" else "invoices"
+    if hidden is None:
+        hidden = {"to_addr": to, "subject": subject or "", "body": body or ""}
+    return templates.TemplateResponse(request, "email_preview.html", ctx(
+        request, con, inv=inv, to=to, subject=subj, heading=heading,
+        iframe_src=f"/documents/{inv['id']}/email.html?{qs}",
+        pdf_url=f"/{kind}/{inv['id']}/pdf",
+        send_action=send_action, cancel_url=cancel_url, hidden=hidden))
+
+
+@router.post("/invoices/{invoice_id}/email/preview", response_class=HTMLResponse)
+def invoice_email_preview(request: Request, invoice_id: int, to_addr: str = Form(...),
+                          subject: str = Form(""), body: str = Form(""), con=Depends(get_con)):
+    inv, _items, total = invoicing.get_invoice(con, invoice_id)
+    if not inv:
+        return RedirectResponse("/invoices", status_code=303)
+    return _email_preview_page(request, con, inv, total, to=to_addr.strip(), subject=subject.strip(),
+                               body=body.strip(), send_action=f"/invoices/{invoice_id}/email",
+                               cancel_url=f"/invoices/{invoice_id}")
+
+
+@router.post("/invoices/{invoice_id}/remind/preview", response_class=HTMLResponse)
+def invoice_remind_preview(request: Request, invoice_id: int, con=Depends(get_con)):
+    """Preview the overdue reminder (its own saved subject/message templates) before it goes."""
+    inv, _items, total = invoicing.get_invoice(con, invoice_id)
+    if not inv:
+        return RedirectResponse("/invoices", status_code=303)
+    to = (inv["customer_email"] or "").strip()
+    if not to:
+        return safe_redirect(f"/invoices/{invoice_id}", err="This customer has no email address.")
+    return _email_preview_page(
+        request, con, inv, total, to=to,
+        subject=db.get_setting(con, "reminder_subject", ""),
+        body=db.get_setting(con, "reminder_body", ""),
+        send_action=f"/invoices/{invoice_id}/remind", cancel_url=f"/invoices/{invoice_id}",
+        heading="Review this reminder before it goes out", hidden={})
+
+
 @router.post("/invoices/{invoice_id}/email")
 def invoice_email(invoice_id: int, to_addr: str = Form(...), subject: str = Form(""), body: str = Form(""),
                   con=Depends(get_con)):
@@ -723,6 +788,38 @@ def invoice_remind(invoice_id: int, con=Depends(get_con)):
     msg = ("That customer has no email address — add one on the Invoices page."
            if res == "no_email" else "Nothing to remind — the invoice isn't open.")
     return safe_redirect(f"/invoices/{invoice_id}", err=msg)
+
+def _reminder_candidates(con, today, skip_days=7):
+    """Dry run of remind-all: every overdue invoice with what WOULD happen ('send' | 'no email' |
+    'skipped - reminded recently'), so the confirm list matches what the send actually does."""
+    from datetime import datetime
+    out = []
+    for r in invoicing.ar_aging(con, today)["rows"]:
+        if not r["overdue"]:
+            continue
+        last = r["last_reminder_date"]
+        if not (r["customer_email"] or "").strip():
+            why = "no email address"
+        elif last and (datetime.strptime(today, "%Y-%m-%d")
+                       - datetime.strptime(last, "%Y-%m-%d")).days < skip_days:
+            why = f"reminded {last} - skipped"
+        else:
+            why = ""
+        out.append({**r, "skip_reason": why})
+    return out
+
+
+@router.post("/invoices/remind-all/preview", response_class=HTMLResponse)
+def invoices_remind_all_preview(request: Request, con=Depends(get_con)):
+    """Confirm list for the bulk send: who gets a reminder, what they owe, who's skipped and why.
+    They all use the saved reminder template, so this lists recipients rather than N previews."""
+    if not invoicing.email_configured(con):
+        return safe_redirect("/invoices", err="Set up SMTP in Settings to send reminders.")
+    today = date_cls.today().isoformat()
+    rows = _reminder_candidates(con, today)
+    return templates.TemplateResponse(request, "remind_all_preview.html", ctx(
+        request, con, rows=rows, sending=[r for r in rows if not r["skip_reason"]], today=today))
+
 
 @router.post("/invoices/remind-all")
 def invoices_remind_all(con=Depends(get_con)):

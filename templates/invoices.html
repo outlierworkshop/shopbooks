@@ -18,9 +18,8 @@
     <button type="submit" class="ghost" title="Link each unpaid invoice to a matching deposit already on your books, without posting any entry">Match to deposits</button>
   </form>
   {% if aging.overdue_count and email_on %}
-  <form class="inline" method="post" action="/invoices/remind-all"
-        onsubmit="return confirm('Email a reminder for each overdue invoice? (Skips any reminded in the last 7 days.)')">
-    <button type="submit" title="Email a reminder for every overdue invoice that has a customer email">Send reminders to overdue ({{ aging.overdue_count }})</button>
+  <form class="inline" method="post" action="/invoices/remind-all/preview">
+    <button type="submit" title="Review who gets a reminder before anything is sent">Send reminders to overdue ({{ aging.overdue_count }})…</button>
   </form>
   {% endif %}
 </div>

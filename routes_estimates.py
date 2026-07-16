@@ -7,7 +7,7 @@ import db
 import invoicing
 import ledger
 from webutil import ctx, get_con, safe_redirect, templates
-from routes_invoices import _active_items, _insert_line_items, _parse_line_items
+from routes_invoices import _active_items, _email_preview_page, _insert_line_items, _parse_line_items
 
 router = APIRouter()
 
@@ -139,17 +139,37 @@ def estimate_pdf(estimate_id: int, con=Depends(get_con)):
     return StreamingResponse(iter([pdf]), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={est['number']}.pdf"})
 
+def _estimate_email_text(con, est, total, subject, body):
+    """The quote's subject/message: what was typed, else the estimate defaults. Shared by the preview
+    and the send so they can't drift apart."""
+    biz = db.get_setting(con, "business_name", "My Business")
+    subj = (subject or "").strip() or f"Estimate {est['number']} from {biz}"
+    msg = (body or "").strip() or (f"Hi {est['customer']},\n\nAttached is estimate {est['number']} for "
+                                   f"${ledger.fmt_cents(total)}, valid until {est['due_date']}. "
+                                   "Let me know if you'd like to proceed.\n\nThank you!")
+    return subj, msg
+
+
+@router.post("/estimates/{estimate_id}/email/preview", response_class=HTMLResponse)
+def estimate_email_preview(request: Request, estimate_id: int, to_addr: str = Form(...),
+                           subject: str = Form(""), body: str = Form(""), con=Depends(get_con)):
+    est, _items, total = invoicing.get_invoice(con, estimate_id)
+    if not est or est["kind"] != "estimate":
+        return RedirectResponse("/estimates", status_code=303)
+    subj, msg = _estimate_email_text(con, est, total, subject, body)
+    return _email_preview_page(request, con, est, total, to=to_addr.strip(), subject=subj, body=msg,
+                               send_action=f"/estimates/{estimate_id}/email",
+                               cancel_url=f"/estimates/{estimate_id}",
+                               heading="Review this quote email before it goes out")
+
+
 @router.post("/estimates/{estimate_id}/email")
 def estimate_email(estimate_id: int, to_addr: str = Form(...), subject: str = Form(""), body: str = Form(""),
                    con=Depends(get_con)):
     est, items, total = invoicing.get_invoice(con, estimate_id)
     if not est or est["kind"] != "estimate":
         return RedirectResponse("/estimates", status_code=303)
-    biz = db.get_setting(con, "business_name", "My Business")
-    subj = subject.strip() or f"Estimate {est['number']} from {biz}"
-    msg = body.strip() or (f"Hi {est['customer']},\n\nAttached is estimate {est['number']} for "
-                           f"${ledger.fmt_cents(total)}, valid until {est['due_date']}. "
-                           "Let me know if you'd like to proceed.\n\nThank you!")
+    subj, msg = _estimate_email_text(con, est, total, subject, body)
     pdf = invoicing.render_pdf(con, est, items, total)
     try:
         invoicing.send_invoice_email(con, est, total, pdf, to_addr.strip(), subj, msg)

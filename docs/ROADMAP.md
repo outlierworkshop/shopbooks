@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-16 — Preview step on every outgoing email
+- Nothing leaves unseen. Each send path now posts to a **/preview** route that renders
+  `email_preview.html` — recipient, the resolved subject, the attached PDF, and **the real HTML body in
+  an iframe** — and only its **Send it now** button hits the actual sender: invoice email, quote
+  email, single overdue reminder, and the Square pay-link email.
+- **Same markup, previewed and sent:** `invoicing.invoice_email_html(..., logo_src)` is extracted from
+  `_apply_invoice_email`, so the preview renders the very body that gets mailed (logo via
+  `/settings/logo` instead of the `cid:` part). `resolve_email_text` fills the subject/message
+  templates for both, so preview and send can't drift.
+- **Remind-all** gets a **confirm list** instead (they share one template): who'd be reminded, what
+  they owe, days overdue, and who's skipped and why (`_reminder_candidates` dry-runs the same rules).
+- **Square split in two:** "Collect online" now only creates the payment page (the pay link can't exist
+  before it does); the email is a separate **Preview & send pay link** step.
+- `test_email_preview.py` (24 checks) asserts every preview route sends **nothing** and each confirm
+  sends exactly one. Suite 75/75.
+
 ### 2026-07-16 — Progress billing: bill (and receive) part of a quoted job
 - **Bill a portion of an estimate** — on an estimate, "Billing this job" shows the job total, billed
   to date, remaining, and every invoice raised against it, with a **Bill this portion** form taking a

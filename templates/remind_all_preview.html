@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Review reminders{% endblock %}
+{% block content %}
+<h1>Review overdue reminders</h1>
+<p class="muted" style="max-width:820px">These all use your saved reminder template (edit it in
+  <a href="/settings">Settings</a>), so here's who would receive one. <strong>Nothing has been sent
+  yet.</strong> To see the exact wording, preview a single reminder from any invoice.</p>
+
+{% if rows %}
+<table style="max-width:900px">
+  <tr><th>Invoice</th><th>Customer</th><th class="num">Outstanding</th><th class="num">Days overdue</th><th>Reminder</th></tr>
+  {% for r in rows %}
+  <tr class="{{ 'row-dup' if r.skip_reason else '' }}">
+    <td><a href="/invoices/{{ r.id }}">{{ r.number }}</a></td>
+    <td>{{ r.customer }}{% if r.customer_email %} <span class="muted" style="font-size:11px">{{ r.customer_email }}</span>{% endif %}</td>
+    <td class="num">${{ r.outstanding|money }}</td>
+    <td class="num">{{ r.days_overdue }}</td>
+    <td>{% if r.skip_reason %}<span class="muted">{{ r.skip_reason }}</span>{% else %}<span class="pos">will send</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No overdue invoices — nothing to remind anyone about.</p>
+{% endif %}
+
+<div class="toolbar" style="margin-top:14px">
+  {% if sending %}
+  <form method="post" action="/invoices/remind-all" class="inline">
+    <button type="submit">✉ Send {{ sending|length }} reminder{{ '' if sending|length == 1 else 's' }} now</button>
+  </form>
+  {% endif %}
+  <a class="btn ghost" href="/invoices">Cancel</a>
+  {% if rows and not sending %}<span class="muted">Everyone overdue was reminded within the last 7 days.</span>{% endif %}
+</div>
+{% endblock %}

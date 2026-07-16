@@ -199,6 +199,15 @@ PDF: `invoicing.render_pdf` (fpdf2, helvetica, latin-1 — `_latin()` sanitizes)
 Email: stdlib `smtplib` STARTTLS + app password; subject/body templates in settings with
 `{number} {business} {customer} {total} {due_date} {date}` placeholders.
 
+**Preview before send.** No outgoing email skips review: each form posts to a `/preview` route that
+renders `email_preview.html` (recipient, resolved subject, attached PDF, and the real HTML body in an
+iframe served by `/documents/{id}/email.html`); only its Send button posts to the real sender.
+`invoicing.invoice_email_html(..., logo_src)` builds the body for both — `cid:` for a real message,
+`/settings/logo` for the preview — and `resolve_email_text` resolves subject/message for both, so the
+preview cannot drift from what sends. Bulk **remind-all** shows a confirm list instead (one shared
+template; `_reminder_candidates` dry-runs the skip rules). The Square flow is split: create the payment
+page, then preview + send the pay-link email (the link doesn't exist until the page does).
+
 **Progress billing (bill part of a quoted job).** An **estimate** is the "whole job"; invoices are
 billed against it via `invoices.estimate_id`. A progress invoice's own line **is** the portion, so an
 invoice is still worth the sum of its lines — `invoice_total` keeps its meaning and AR/Square/matching
