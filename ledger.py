@@ -351,7 +351,13 @@ def register(con, account_id):
         others = con.execute(
             "SELECT a.name FROM splits s JOIN accounts a ON a.id=s.account_id "
             "WHERE s.entry_id=? AND s.account_id!=?", (r["entry_id"], account_id)).fetchall()
-        doc = con.execute("SELECT id FROM documents WHERE entry_id=?", (r["entry_id"],)).fetchone()
+        # A receipt matched to several transactions links each one via document_entry_links (the
+        # many-to-many); documents.entry_id only ever holds the FIRST, so read the links here or the
+        # receipt would show on just one row of the register. Legacy single-FK links are unioned in.
+        doc = con.execute(
+            "SELECT document_id id FROM document_entry_links WHERE entry_id=? "
+            "UNION SELECT id FROM documents WHERE entry_id=? LIMIT 1",
+            (r["entry_id"], r["entry_id"])).fetchone()
         out.append({
             "entry_id": r["entry_id"], "date": r["date"], "payee": r["payee"], "memo": r["memo"],
             "amount": display_balance(acct["type"], r["amount_cents"]),
