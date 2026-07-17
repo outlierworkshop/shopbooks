@@ -11,24 +11,24 @@ from logutil import log
 from webutil import categories
 
 def _link_staged_receipt(con, staged_id, entry_id):
-    """Find the receipt(s) matched to a staged transaction and link them directly to the posted entry."""
-    matches = staged_receipt_matches(con)
-    docs = matches.get(staged_id)
-    if not docs:
-        return
-    for doc in docs:
-        con.execute(
-            "UPDATE documents SET status='matched', entry_id=?, staged_id=NULL WHERE id=?",
-            (entry_id, doc["id"])
-        )
-        con.execute(
-            "INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) VALUES(?, ?)",
-            (doc["id"], entry_id)
-        )
-        con.execute(
-            "DELETE FROM document_staged_links WHERE document_id=? AND staged_id=?",
-            (doc["id"], staged_id)
-        )
+    """Link every receipt matched to this staged transaction to the just-posted entry. Sources:
+    (a) receipts hard-linked to this staged row (document_staged_links), included even if the receipt
+        is ALREADY 'matched' — the case where one receipt is split across several transactions: posting
+        the first flips the receipt to 'matched', and staged_receipt_matches (unmatched-only) would then
+        never surface it for the others, so it linked to one entry and left stale staged links (the
+        "shows on one register row, not all" bug); and
+    (b) auto-matched (amount/date) unmatched receipts from staged_receipt_matches."""
+    doc_ids = {r["document_id"] for r in con.execute(
+        "SELECT document_id FROM document_staged_links WHERE staged_id=?", (staged_id,)).fetchall()}
+    for doc in staged_receipt_matches(con).get(staged_id, []):
+        doc_ids.add(doc["id"])
+    for did in doc_ids:
+        con.execute("UPDATE documents SET status='matched', entry_id=?, staged_id=NULL WHERE id=?",
+                    (entry_id, did))
+        con.execute("INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) VALUES(?, ?)",
+                    (did, entry_id))
+        con.execute("DELETE FROM document_staged_links WHERE document_id=? AND staged_id=?",
+                    (did, staged_id))
 
 def _post_staged(con, staged_id, category_id, remember=False, splits=None):
     """Post one staged row to the ledger. Returns True if it posted (or intentionally skipped a
