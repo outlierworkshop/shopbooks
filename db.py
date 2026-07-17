@@ -609,6 +609,27 @@ def _column_migrations(con):
                 "SELECT id, entry_id FROM documents WHERE entry_id IS NOT NULL"
             )
 
+    # Repair receipts left pointing at a STAGED transaction that has since posted: a receipt matched to
+    # several staged rows used to link only to the first entry (staged_receipt_matches skips a receipt
+    # once it's 'matched'), leaving stale document_staged_links to posted rows — so it showed on one
+    # register row, not all. Transfer each such link to the posted entry, mark the receipt matched, and
+    # drop the stale staged link. Idempotent: once transferred there are no posted staged links left.
+    stg_cols = {r["name"] for r in con.execute("PRAGMA table_info(staged)").fetchall()}
+    if "entry_id" in stg_cols and con.execute(
+            "SELECT 1 FROM document_staged_links dsl JOIN staged s ON s.id=dsl.staged_id "
+            "WHERE s.status='posted' AND s.entry_id IS NOT NULL LIMIT 1").fetchone():
+        con.execute(
+            "INSERT OR IGNORE INTO document_entry_links(document_id, entry_id) "
+            "SELECT dsl.document_id, s.entry_id FROM document_staged_links dsl "
+            "JOIN staged s ON s.id=dsl.staged_id WHERE s.status='posted' AND s.entry_id IS NOT NULL")
+        con.execute(
+            "UPDATE documents SET status='matched' WHERE status='unmatched' AND id IN "
+            "(SELECT dsl.document_id FROM document_staged_links dsl JOIN staged s ON s.id=dsl.staged_id "
+            " WHERE s.status='posted' AND s.entry_id IS NOT NULL)")
+        con.execute(
+            "DELETE FROM document_staged_links WHERE staged_id IN "
+            "(SELECT id FROM staged WHERE status='posted' AND entry_id IS NOT NULL)")
+
     cust = {r["name"] for r in con.execute("PRAGMA table_info(customers)").fetchall()}
     if "square_customer_id" not in cust:
         con.execute("ALTER TABLE customers ADD COLUMN square_customer_id TEXT")
