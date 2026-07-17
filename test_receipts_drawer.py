@@ -82,7 +82,36 @@ def test_posted_manual_matching():
     ok(len(links) == 0, "All links cleared in document_entry_links")
     con.close()
 
+
+def test_receipt_matched_to_multiple_shows_on_every_register_row():
+    """A receipt split across two transactions must show on BOTH in the register — not just the first
+    (documents.entry_id only stores the first; the register reads document_entry_links)."""
+    con = db.connect()
+    checking = con.execute("SELECT id FROM accounts WHERE name='Business Checking'").fetchone()["id"]
+    supplies = con.execute("SELECT id FROM accounts WHERE name='Materials & Supplies'").fetchone()["id"]
+    e1 = ledger.post_entry(con, "2026-06-10", "Lumber - part 1", [(supplies, 8000), (checking, -8000)])
+    e2 = ledger.post_entry(con, "2026-06-11", "Lumber - part 2", [(supplies, 4000), (checking, -4000)])
+    doc_id = con.execute(
+        "INSERT INTO documents(filename,path,vendor,doc_date,amount_cents,status) VALUES(?,?,?,?,?,?)",
+        ("lumber.jpg", "l.jpg", "Lumber Co", "2026-06-10", 12000, "unmatched")).lastrowid
+    con.commit()
+    con.close()
+
+    r = client.post("/receipts/save-entry-matches",
+                    data={"doc_id": str(doc_id), f"entry_{doc_id}": [str(e1), str(e2)]},
+                    follow_redirects=False)
+    ok(r.status_code == 303, "matched the receipt to two transactions")
+
+    con = db.connect()
+    _acct, rows = ledger.register(con, checking)
+    by_entry = {row["entry_id"]: row for row in rows}
+    ok(by_entry[e1]["doc_id"] == doc_id, "receipt shows on the first matched transaction")
+    ok(by_entry[e2]["doc_id"] == doc_id, "receipt ALSO shows on the second matched transaction")
+    con.close()
+
+
 if __name__ == "__main__":
     test_posted_manual_matching()
+    test_receipt_matched_to_multiple_shows_on_every_register_row()
     shutil.rmtree(os.environ["SHOPBOOKS_DATA_DIR"], ignore_errors=True)
     print("\nPOSTED TRANSACTION MANUAL PAIRING TESTS DONE")
