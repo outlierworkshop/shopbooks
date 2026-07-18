@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-16 — Fix: cloud conflict banner lingered after a successful sync
+- The app-wide ⚠ sync banner (base.html, from `sync.last_alert()`) reads a module-level `_LAST`
+  that was only set at **boot**. Resolving a conflict or syncing from the UI (`take_cloud`,
+  `keep_local`, `export_on_close`/"Sync now") updated the sidecar state but never refreshed `_LAST`,
+  so a stale "Sync conflict" banner stuck on every page until the next app launch. Added
+  `sync._clear_stale_alert()` (refreshes `_LAST = plan()`) and call it on the success paths of
+  `take_cloud` and `export_on_close`. The Settings sync *card* was already correct (it recomputes
+  `plan()` live). `test_sync.py` now asserts the banner shows on conflict and clears after
+  take-cloud / keep-local / Sync-now — no restart needed.
+
 ### 2026-07-16 — Preview step on every outgoing email
 - Nothing leaves unseen. Each send path now posts to a **/preview** route that renders
   `email_preview.html` — recipient, the resolved subject, the attached PDF, and **the real HTML body in

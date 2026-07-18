@@ -116,10 +116,22 @@ c = db.connect(); ok(db.get_setting(c, "business_name") == "Mac edits A",
 use(PC); set_name("PC local change")     # PC edits, unexported
 use(MAC); set_name("Mac pushed"); close()  # Mac pushes, cloud advances
 use(PC); ok(boot()["status"] == "conflict", "second conflict detected on PC")
+ok(sync.last_alert() is not None, "an unresolved conflict shows the app-wide banner")
 sync.take_cloud(cdir=CLOUD)
+ok(sync.last_alert() is None, "'take cloud' clears the stale conflict banner (no restart needed)")
 c = db.connect(); ok(db.get_setting(c, "business_name") == "Mac pushed",
                      "'take cloud' discarded PC's local edit for the cloud copy"); c.close()
 ok(boot()["status"] == "up_to_date", "after 'take cloud', PC is up to date")
+
+# 5c. 'Keep local' and a plain 'Sync now' also clear the stale conflict banner (regression).
+use(PC); set_name("PC change again")            # PC edits, unexported
+use(MAC); set_name("Mac pushed 2"); close()     # Mac advances the cloud
+use(PC); ok(boot()["status"] == "conflict" and sync.last_alert() is not None,
+            "conflict again -> banner shows")
+sync.keep_local(cdir=CLOUD)                      # overwrite cloud with local
+ok(sync.last_alert() is None, "'keep local' clears the stale conflict banner")
+sync.export_on_close(cdir=CLOUD)                # a subsequent plain 'Sync now'
+ok(sync.last_alert() is None, "a successful 'Sync now' leaves no banner")
 
 # 6. A pre-sync restore point is stashed before any import overwrites data. -------
 pre = list((PC / "backups").glob("pre-sync-*.db"))
