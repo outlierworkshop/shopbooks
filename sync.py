@@ -394,6 +394,17 @@ def pull(cdir=None, attempts=8, delay=1.5):
     return _import(cdir, attempts=attempts, delay=delay)
 
 
+def _clear_stale_alert(cdir=None):
+    """After a successful sync/resolve, refresh the cached boot banner (_LAST) so a now-stale
+    conflict/alert doesn't linger app-wide (base.html shows it on every page) until the next
+    launch. Never raises."""
+    global _LAST
+    try:
+        _LAST = plan(cdir)
+    except Exception:
+        _LAST = None
+
+
 def export_on_close(cdir=None, force=False):
     """Run at shutdown (or 'Sync now'). Pushes the live DB to the cloud copy and
     bumps the version, unless the cloud is newer than our base — then it blocks
@@ -417,6 +428,7 @@ def export_on_close(cdir=None, force=False):
 
         if man and man.get("sha256") == local_sha:
             _adopt(max(base_v, cloud_v), local_sha)    # cloud already has our content
+            _clear_stale_alert(cdir)
             return {"status": "unchanged", "version": max(base_v, cloud_v)}
         if man and cloud_v > base_v and not force:
             return {"status": "blocked_cloud_newer",
@@ -429,6 +441,7 @@ def export_on_close(cdir=None, force=False):
                     "sha256": local_sha}
         (cdir / SYNC_MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         _adopt(version, local_sha)
+        _clear_stale_alert(cdir)
         return {"status": "exported", "version": version}
     except Exception as e:
         log.warning("cloud sync export failed: %s", e)
@@ -445,6 +458,7 @@ def take_cloud(cdir=None):
         return {"status": "no_cloud"}
     _apply_import(Path(cdir) / SYNC_DB)
     _adopt(int(man["version"]), content_hash())
+    _clear_stale_alert(cdir)
     return {"status": "took_cloud", "version": int(man["version"])}
 
 
