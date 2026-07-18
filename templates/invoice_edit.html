@@ -18,8 +18,19 @@
 
   <h2>Line items</h2>
   <table id="items" style="max-width:720px">
-    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th><th style="width:48px" title="Charge sales tax on this line">Tax</th><th style="width:50px"></th></tr>
+    <tr><th>Description</th><th style="width:80px">Qty</th><th style="width:120px">Unit price ($)</th><th style="width:48px" title="Charge sales tax on this line">Tax</th></tr>
     {% for it in items %}
+    {% if not it.description %}
+    {# a blank spacer line: round-trip it via the sentinel so it survives a save #}
+    <tr class="spacer-row">
+      <td><em class="muted">— blank spacer line —</em>
+        <input type="hidden" name="item_id" value="">
+        <input type="hidden" name="item_desc" value="__SB_SPACER__"></td>
+      <td><input type="hidden" name="item_qty" value="0"></td>
+      <td><input type="hidden" name="item_price" value="0"></td>
+      <td style="text-align:center"><input type="hidden" name="item_taxable" value="0"></td>
+    </tr>
+    {% else %}
     <tr>
       <td>
         {% if standard_items %}
@@ -42,8 +53,8 @@
         <input type="checkbox" class="tax-check" {{ 'checked' if it.taxable else '' }} onchange="syncTax(this)">
         <input type="hidden" name="item_taxable" value="{{ 1 if it.taxable else 0 }}">
       </td>
-      <td><button type="button" class="small danger" onclick="deleteRow(this)">✕</button></td>
     </tr>
+    {% endif %}
     {% endfor %}
   </table>
   <div class="toolbar">

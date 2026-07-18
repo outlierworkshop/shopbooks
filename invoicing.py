@@ -456,6 +456,9 @@ def render_pdf(con, inv, items, total):
     pdf.set_font("helvetica", "", 10)
     pdf.set_text_color(*INK)
     for it in items:
+        if not (it["description"] or "").strip():   # blank spacer line — leave a gap, no rule
+            pdf.ln(6)
+            continue
         amt = round(it["qty"] * it["unit_cents"])
         qty = f"{it['qty']:g}"
         pdf.cell(102, 8, _latin(it["description"])[:64])
