@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-16 — Invoice/estimate lines: reorder (drag + arrows) and blank spacer lines
+- The shared line-item editor (`static/line-items.js`, used by invoice_new / invoice_edit /
+  estimate_new) grew a reorder column — a drag grip (hold to drag the row) plus ▲/▼ buttons — and a
+  **"+ Blank line"** button that inserts a blank spacer for legibility. Order needs no schema: items
+  render `ORDER BY id`, so the parser reads the rows in DOM order and re-inserts them, preserving
+  whatever arrangement you leave. The controls are injected by JS, so only `invoice_edit.html` needed
+  markup changes (it re-renders existing rows).
+- A spacer is stored as an **empty-description** `invoice_items` row (qty/price 0), submitted via the
+  `__SB_SPACER__` sentinel so `_parse_line_items` keeps it while still dropping genuinely blank rows.
+  It contributes nothing to subtotal/tax and renders as a gap on the PDF and the invoice/estimate
+  views, and round-trips through the edit form. `test_line_items.py` covers order preservation, the
+  spacer's storage/totals/render/round-trip, and that accidental blank rows are still skipped.
+
 ### 2026-07-16 — Fix: cloud conflict banner lingered after a successful sync
 - The app-wide ⚠ sync banner (base.html, from `sync.last_alert()`) reads a module-level `_LAST`
   that was only set at **boot**. Resolving a conflict or syncing from the UI (`take_cloud`,

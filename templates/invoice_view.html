@@ -60,12 +60,16 @@
   <table>
     <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr>
     {% for it in items %}
+    {% if not it.description %}
+    <tr class="spacer-row"><td colspan="4">&nbsp;</td></tr>
+    {% else %}
     <tr>
       <td>{{ it.description }}{% if it.taxable %} <span class="muted" style="font-size:11px">(tax)</span>{% endif %}</td>
       <td class="num">{{ '%g'|format(it.qty) }}</td>
       <td class="num">${{ it.unit_cents|money }}</td>
       <td class="num">${{ (it.qty * it.unit_cents)|round|int|money }}</td>
     </tr>
+    {% endif %}
     {% endfor %}
     {% if tax and tax > 0 and (inv.kind or 'invoice') == 'invoice' %}
     <tr><td colspan="3" class="num muted">Subtotal</td><td class="num">${{ subtotal|money }}</td></tr>

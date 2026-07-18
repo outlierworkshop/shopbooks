@@ -19,6 +19,11 @@ from webutil import ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
 
+# A blank spacer line is stored as an empty-description invoice_items row; the editor submits this
+# sentinel in item_desc so _parse_line_items keeps it (a genuinely empty row is still dropped).
+# Must match SPACER_MARKER in static/line-items.js.
+SPACER_MARKER = "__SB_SPACER__"
+
 def _invoice_rows(con):
     rows = con.execute(
         "SELECT i.*, c.name customer, c.email customer_email FROM invoices i "
@@ -95,7 +100,10 @@ def _parse_line_items(form):
         taxables = ["0"] * len(descs)
     out = []
     for d, q, p, iid, tx in zip(descs, qtys, prices, item_ids, taxables):
-        if not d.strip():
+        if d.strip() == SPACER_MARKER:   # an intentional blank spacer line (kept for legibility)
+            out.append(("", 0.0, 0, None, 0))
+            continue
+        if not d.strip():                # a genuinely empty row — drop it
             continue
         out.append((d.strip(), float(q or 1), ledger.parse_amount_to_cents(p),
                     int(iid) if (iid and iid.strip()) else None,
