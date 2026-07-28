@@ -83,7 +83,7 @@ STATEMENT_SCHEMA = {
                 "properties": {
                     "date": {"type": "string", "description": "YYYY-MM-DD"},
                     "description": {"type": "string"},
-                    "amount": {"type": "number", "description": "dollars; positive = money out (charge/withdrawal), negative = money in (payment/deposit/refund)"},
+                    "amount": {"type": "number", "description": "the amount in dollars with the sign EXACTLY as the statement shows it: positive for money IN (deposit, credit, refund, a green or + amount), negative for money OUT (purchase, charge, withdrawal, fee, card payment, a red / minus / (parenthesized) amount). Copy the printed sign; do NOT infer direction from the description."},
                 },
                 "required": ["date", "description", "amount"],
                 "additionalProperties": False,
@@ -119,8 +119,16 @@ RECEIPT_PROMPT = ("Read this receipt. Return the vendor name, the date as YYYY-M
 _STATEMENT_RULES = (
     "Extract every individual transaction (skip running balances, summary totals, "
     "interest-rate tables, and payment-due boilerplate). "
-    "Sign convention: positive amount = money out (purchase, charge, withdrawal, fee); "
-    "negative amount = money in (deposit, payment received, credit, refund). "
+    "AMOUNT SIGN — copy it straight from the statement; do NOT reason it out from the description. "
+    "Report each amount with the sign the statement itself shows: money IN (deposits, credits, refunds, "
+    "payments received) is POSITIVE; money OUT (purchases, charges, withdrawals, fees, card payments, "
+    "checks, bill pay) is NEGATIVE. Read the sign from whichever of these you can actually see, in "
+    "order: the +/- printed on the amount; its colour (green = money in / positive, red = money out / "
+    "negative); a Debit/Withdrawal vs Credit/Deposit column; or the running-balance direction (balance "
+    "went UP = money in). The printed sign or colour is AUTHORITATIVE — a row whose description reads "
+    "'Credit Card Payment', 'Online Services', 'Transfer', etc. can be EITHER direction, so trust the "
+    "sign you SEE, never the wording. A real statement mixes both directions; do not output every row "
+    "with the same sign. "
     "IMPORTANT ABOUT YEARS: transaction lines usually show only month and day (MM/DD); the full "
     "year appears only in the statement header (the statement/closing/period date). First read "
     "that closing date into statement_end_date (YYYY-MM-DD). For each transaction use the month "
@@ -362,20 +370,35 @@ def _ollama_categorize(con, txns, names, examples=None):
 
 # ---------------------------------------------------------------- public dispatch
 
+def _to_internal_signs(txns):
+    """The statement prompt/schema ask the model to copy the sign AS SHOWN (money in = positive, money
+    out = negative — what a person reads off the statement). Flip once, here, to the app's internal
+    convention (positive = money out) that staging expects. Doing the flip in code — not in the model's
+    head — is what fixes signs: the model kept inverting the wrong rows, reading direction from the
+    description ('Credit Card Payment', 'Online Services') instead of the printed sign. None/empty and
+    rows missing an amount pass through untouched."""
+    if not txns:
+        return txns
+    for t in txns:
+        if t.get("amount") is not None:
+            t["amount"] = -t["amount"]
+    return txns
+
+
 def extract_statement(con, text, account_name):
     if not available(con):
         return None
     if _task_backend(con, "statement") == "ollama":
-        return _ollama_statement(con, text, account_name)
-    return _claude_statement(con, text, account_name)
+        return _to_internal_signs(_ollama_statement(con, text, account_name))
+    return _to_internal_signs(_claude_statement(con, text, account_name))
 
 
 def extract_statement_pdf(con, pdf_path, account_name):
     if not available(con):
         return None
     if _task_backend(con, "statement") == "ollama":
-        return _ollama_statement_pdf(con, pdf_path, account_name)
-    return _claude_statement_pdf(con, pdf_path, account_name)
+        return _to_internal_signs(_ollama_statement_pdf(con, pdf_path, account_name))
+    return _to_internal_signs(_claude_statement_pdf(con, pdf_path, account_name))
 
 
 def extract_statement_image(con, path, account_name):
@@ -384,8 +407,8 @@ def extract_statement_image(con, path, account_name):
     if not available(con):
         return None
     if _task_backend(con, "statement") == "ollama":
-        return _ollama_statement_image(con, path, account_name)
-    return _claude_statement_image(con, path, account_name)
+        return _to_internal_signs(_ollama_statement_image(con, path, account_name))
+    return _to_internal_signs(_claude_statement_image(con, path, account_name))
 
 
 def extract_receipt(con, path):
