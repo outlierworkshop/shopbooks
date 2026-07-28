@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-18 — Import a statement SCREENSHOT (image → transactions to review)
+- `/import` now accepts **PNG/JPG/GIF/WebP** alongside PDF and CSV, so a screen grab of part of a
+  statement (online banking, a phone screenshot) becomes reviewable transactions — for filling gaps
+  a downloadable statement doesn't cover. New `ai.extract_statement_image` reuses the existing
+  vision plumbing (`_claude_statement_image` sends an image block; `_ollama_statement_image` works
+  locally too — unlike scanned PDFs, a screenshot *is* readable by a local vision model) and the
+  existing `STATEMENT_SCHEMA`.
+- Screenshot-specific prompt (`_STATEMENT_IMAGE_RULES`): a partial grab usually has no header, so
+  the model is told to return an **empty `statement_end_date`** rather than guess a year, and not to
+  invent cut-off rows. `importer.reconcile_years` then anchors to today ("most recent MM/DD on or
+  before today, never the future"), and the confirm screen warns to double-check dates.
+- Images are **vision-only** — there's no text to regex — so with AI off the upload is a clear hard
+  stop ("needs AI …") instead of a silent no-op; an unreadable image says so. The screenshot is kept
+  as a `temp_stmt_*` working file and deleted after import (real statement PDFs are still archived).
+- Fixed alongside: a rejected upload used to **leave its temp working file in `docs/`** — the error
+  path now cleans up `temp_stmt_*`. `test_import_image.py` covers the vision path end-to-end, the
+  AI-off stop, unreadable images, staged sign convention, and cleanup.
+
 ### 2026-07-16 — Invoice/estimate lines: reorder (drag + arrows) and blank spacer lines
 - The shared line-item editor (`static/line-items.js`, used by invoice_new / invoice_edit /
   estimate_new) grew a reorder column — a drag grip (hold to drag the row) plus ▲/▼ buttons — and a
