@@ -14,11 +14,14 @@
 {% endif %}
 <form method="post" enctype="multipart/form-data" class="formgrid">
   <label>Statement file</label>
-  <input type="file" name="file" accept=".pdf,.csv" required>
+  <input type="file" name="file" accept=".pdf,.csv,.png,.jpg,.jpeg,.gif,.webp" required>
   <span></span>
   <span><button type="submit">Upload</button></span>
 </form>
 <p class="muted">PDF statements are parsed {{ 'with Claude (AI on)' if ai_on else 'with a basic text parser - add an API key in Settings for much better results' }}.
 CSV exports from your bank also work and are the most reliable. After import, transactions land in
 <a href="/review">Review</a> where you confirm categories before anything is posted to the books.</p>
+<p class="muted">📷 <strong>Screenshot of a statement</strong> (PNG/JPG) works too - handy for filling
+a gap your downloadable statements don't cover. It's read by AI vision{{ '' if ai_on else ', so it needs an API key (or Ollama) in Settings' }};
+since a screen grab rarely shows the statement's year, check the dates in Review before posting.</p>
 {% endblock %}

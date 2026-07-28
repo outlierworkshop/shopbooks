@@ -129,6 +129,17 @@ _STATEMENT_RULES = (
 )
 
 
+# A screen grab is usually a PARTIAL statement (a few rows, often no header), so the closing-date
+# rule above can't apply — tell the model to leave statement_end_date empty rather than invent one.
+# reconcile_years() then anchors to today ("most recent MM/DD on or before today, never the future").
+_STATEMENT_IMAGE_RULES = (
+    _STATEMENT_RULES
+    + " This is a partial screenshot, so the statement header may not be visible: if you cannot SEE "
+      "a closing/period-end date, return an empty string for statement_end_date rather than guessing. "
+      "Read only the transaction rows you can actually see; do not invent rows that are cut off."
+)
+
+
 def _statement_prompt(text, account_name):
     return (
         f"This is the text of a bank or credit card statement for the account '{account_name}'. "
@@ -222,6 +233,25 @@ def _claude_statement_pdf(con, pdf_path, account_name):
         return None
 
 
+def _claude_statement_image(con, path, account_name):
+    ext = os.path.splitext(path)[1].lower()
+    mt = MEDIA_TYPES.get(ext)
+    if mt not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        return None
+    data_b64 = base64.standard_b64encode(open(path, "rb").read()).decode()
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": mt, "data": data_b64}},
+        {"type": "text", "text": f"This is a SCREENSHOT of part of a bank or credit card statement "
+                                 f"for '{account_name}'. " + _STATEMENT_IMAGE_RULES},
+    ]
+    try:
+        data = _claude_json(con, content, STATEMENT_SCHEMA)
+        return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
+    except Exception as e:
+        log.warning("Claude statement-image extraction failed: %s", e)
+        return None
+
+
 def _claude_receipt(con, path):
     ext = os.path.splitext(path)[1].lower()
     mt = MEDIA_TYPES.get(ext)
@@ -296,6 +326,20 @@ def _ollama_statement_pdf(con, pdf_path, account_name):
     return None
 
 
+def _ollama_statement_image(con, path, account_name):
+    """Unlike a scanned PDF, a screenshot IS something the local vision model can read."""
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTS:
+        return None
+    try:
+        prompt = (f"This is a SCREENSHOT of part of a bank or credit card statement for "
+                  f"'{account_name}'. " + _STATEMENT_IMAGE_RULES)
+        data = _ollama_chat_json(con, prompt, STATEMENT_SCHEMA, image_bytes=open(path, "rb").read())
+        return importer.reconcile_years(data.get("transactions", []), data.get("statement_end_date", ""))
+    except Exception as e:
+        log.warning("Ollama statement-image extraction failed: %s", e)
+        return None
+
+
 def _ollama_receipt(con, path):
     if os.path.splitext(path)[1].lower() not in IMAGE_EXTS:
         return None  # local vision path takes images, not PDFs
@@ -332,6 +376,16 @@ def extract_statement_pdf(con, pdf_path, account_name):
     if _task_backend(con, "statement") == "ollama":
         return _ollama_statement_pdf(con, pdf_path, account_name)
     return _claude_statement_pdf(con, pdf_path, account_name)
+
+
+def extract_statement_image(con, path, account_name):
+    """Transactions read off a screenshot of a statement (filling gaps a full statement can't).
+    Vision-only — returns None when AI is off, so the caller must say so rather than fall back."""
+    if not available(con):
+        return None
+    if _task_backend(con, "statement") == "ollama":
+        return _ollama_statement_image(con, path, account_name)
+    return _claude_statement_image(con, path, account_name)
 
 
 def extract_receipt(con, path):

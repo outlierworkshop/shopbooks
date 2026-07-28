@@ -15,6 +15,10 @@ from webutil import categories, ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
 
+# Statement screenshots (e.g. a phone/online-banking grab) can be imported too — read by vision,
+# handy for filling gaps a downloadable statement doesn't cover. Tuple so str.endswith() takes it.
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
 @router.get("/import", response_class=HTMLResponse)
 def import_page(request: Request, con=Depends(get_con)):
     sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
@@ -23,16 +27,20 @@ def import_page(request: Request, con=Depends(get_con)):
 
 @router.post("/import")
 async def do_import(request: Request, file: UploadFile = File(...), account_id: int = Form(None), con=Depends(get_con)):
+    tmp = None
     try:
         raw = await file.read()
         name = (file.filename or "statement").lower()
-        if not (name.endswith(".csv") or name.endswith(".pdf")):
-            raise ValueError("Upload a .pdf or .csv file.")
+        is_image = name.endswith(IMAGE_EXTS)
+        if not (name.endswith(".csv") or name.endswith(".pdf") or is_image):
+            raise ValueError("Upload a .pdf, .csv, or an image (PNG/JPG) of a statement.")
 
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         if name.endswith(".pdf"):
             tmp = db.DOCS / f"stmt_{timestamp}_{Path(name).name}"
         else:
+            # CSVs and screenshots are working files, not the statement of record: the confirm
+            # step deletes anything named temp_stmt_*.
             tmp = db.DOCS / f"temp_stmt_{timestamp}_{Path(name).name}"
 
         db.DOCS.mkdir(parents=True, exist_ok=True)
@@ -41,6 +49,8 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
         # 1. Text extraction & Account Auto-detection:
         if name.endswith(".pdf"):
             text = importer.pdf_text(tmp)
+        elif is_image:
+            text = ""          # nothing to read without vision; detection falls back to the filename
         else:
             text = raw.decode("utf-8-sig", errors="replace")
 
@@ -56,6 +66,24 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
         txns, note = [], ""
         if name.endswith(".csv"):
             txns = importer.parse_csv(raw)
+        elif is_image:
+            # Vision-only: there's no text to regex, so an unavailable model is a hard stop.
+            if not ai.available(con):
+                raise ValueError("Reading a statement image needs AI - add an Anthropic API key "
+                                 "(or set up Ollama) in Settings, then try again.")
+            extracted = ai.extract_statement_image(con, str(tmp), acct["name"])
+            if not extracted:
+                raise ValueError("Couldn't read any transactions from that image. Try a sharper or "
+                                 "less cropped screenshot showing the date, description, and amount.")
+            for t in extracted:
+                try:
+                    txns.append({"date": ledger.normalize_date(t["date"]),
+                                 "description": str(t["description"]).strip(),
+                                 "amount_cents": round(float(t["amount"]) * 100)})
+                except (ValueError, KeyError):
+                    continue
+            note = ("Read from an image - the year isn't on a screenshot, so double-check dates "
+                    "(and amounts) before posting.")
         elif name.endswith(".pdf"):
             extracted = None
             if ai.available(con):
@@ -130,6 +158,13 @@ async def do_import(request: Request, file: UploadFile = File(...), account_id: 
         ))
 
     except ValueError as e:
+        # Don't leave the working copy behind when the upload was rejected (a screenshot that AI
+        # couldn't read, a CSV with no rows, ...). Real statement PDFs (stmt_*) are kept on purpose.
+        if tmp is not None and "temp_stmt_" in str(tmp):
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except OSError:
+                pass
         sources = con.execute("SELECT * FROM accounts WHERE kind IN ('bank','card') AND active=1 ORDER BY name").fetchall()
         return templates.TemplateResponse(request, "import.html", ctx(request, con, sources=sources, error=str(e)))
 
