@@ -166,5 +166,30 @@ ok("Full job" in inv_page and "Custom bracket" in inv_page and "Finishing" in in
 ok("only the portion on this invoice is charged" in inv_page, "the scope is labelled as not charged")
 ok("Job total (before tax)" in inv_page, "the scope shows the job total")
 
+# --- deleting a progress invoice must not hit the estimate's converted_invoice_id FK -------------
+est9 = make_estimate("EST-9009", [("Job", 1, 100000, 1)])
+r = bill(est9, "percent", "50")
+pinv = inv_id_from(r)
+ok(con.execute("SELECT converted_invoice_id FROM invoices WHERE id=?", (est9,)).fetchone()[0] == pinv,
+   "the estimate points at its first progress invoice")
+# the invoice is a draft — delete it (this used to 500 on a FOREIGN KEY constraint)
+d = client.post(f"/invoices/{pinv}/status", data={"action": "delete"}, follow_redirects=False)
+ok(d.status_code == 303, "deleting a progress invoice succeeds (no FK error)")
+ok(con.execute("SELECT COUNT(*) c FROM invoices WHERE id=?", (pinv,)).fetchone()["c"] == 0,
+   "the progress invoice is gone")
+est_row = con.execute("SELECT status, converted_invoice_id FROM invoices WHERE id=?", (est9,)).fetchone()
+ok(est_row["converted_invoice_id"] is None and est_row["status"] == "sent",
+   "with nothing left billed, the estimate is billable again (sent, link cleared)")
+ok(invoicing.estimate_remaining_subtotal(con, est9) == 100000, "the whole job is billable again")
+
+# deleting the estimate itself with a progress invoice present doesn't FK-error either
+est10 = make_estimate("EST-9010", [("Job", 1, 50000, 0)])
+pinv2 = inv_id_from(bill(est10, "percent", "50"))
+de = client.post(f"/estimates/{est10}/status", data={"action": "delete"}, follow_redirects=False)
+ok(de.status_code == 303 and con.execute("SELECT COUNT(*) c FROM invoices WHERE id=?", (est10,)).fetchone()["c"] == 0,
+   "deleting the parent estimate succeeds")
+ok(con.execute("SELECT estimate_id FROM invoices WHERE id=?", (pinv2,)).fetchone()[0] is None,
+   "its progress invoice survives, just un-linked")
+
 con.close()
 print("\nPROGRESS BILLING TESTS DONE")

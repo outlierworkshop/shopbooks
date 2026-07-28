@@ -122,7 +122,9 @@ def estimate_view(request: Request, estimate_id: int, msg: str = "", err: str = 
 @router.post("/estimates/{estimate_id}/status")
 def estimate_status(estimate_id: int, action: str = Form(...), con=Depends(get_con)):
     if action == "delete":
-        con.execute("DELETE FROM invoices WHERE id=? AND kind='estimate'", (estimate_id,))
+        row = con.execute("SELECT kind FROM invoices WHERE id=?", (estimate_id,)).fetchone()
+        if row and row["kind"] == "estimate":
+            invoicing.delete_invoice(con, estimate_id)   # clears progress invoices' estimate_id link first
         con.commit()
         return RedirectResponse("/estimates", status_code=303)
     if action in ("draft", "sent", "accepted", "declined"):
