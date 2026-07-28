@@ -559,7 +559,9 @@ def invoice_status(invoice_id: int, action: str = Form(...), con=Depends(get_con
             "SELECT invoice_id FROM credit_applications WHERE credit_invoice_id=?",
             (invoice_id, invoice_id)
         ).fetchall()
-        con.execute("DELETE FROM invoices WHERE id=? AND status IN ('draft','void')", (invoice_id,))
+        row = con.execute("SELECT status FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        if row and row["status"] in ("draft", "void"):
+            invoicing.delete_invoice(con, invoice_id)   # clears non-cascading invoice→invoice refs first
         for r in linked:
             _update_document_status(con, r[0])
         con.commit()

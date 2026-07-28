@@ -291,6 +291,26 @@ def get_invoice(con, invoice_id):
     return inv, items, invoice_total(con, invoice_id)
 
 
+def delete_invoice(con, invoice_id):
+    """Delete an invoice or estimate row, first clearing the invoice→invoice links that DON'T cascade
+    (an estimate's converted_invoice_id pointing at the invoice it billed, and a progress invoice's
+    estimate_id pointing at its parent) — otherwise SQLite raises FOREIGN KEY constraint failed. If
+    deleting a progress invoice leaves its parent estimate with nothing billed, the estimate becomes
+    billable again ('sent'). Item/link/credit rows cascade on their own. The caller enforces any
+    status/kind guard before calling."""
+    row = con.execute("SELECT estimate_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    parent_est = row["estimate_id"] if row else None
+    con.execute("UPDATE invoices SET converted_invoice_id=NULL WHERE converted_invoice_id=?", (invoice_id,))
+    con.execute("UPDATE invoices SET estimate_id=NULL WHERE estimate_id=?", (invoice_id,))
+    con.execute("DELETE FROM invoices WHERE id=?", (invoice_id,))
+    if parent_est:
+        left = con.execute("SELECT COUNT(*) c FROM invoices WHERE estimate_id=? AND kind='invoice'",
+                           (parent_est,)).fetchone()["c"]
+        if left == 0:
+            con.execute("UPDATE invoices SET status='sent', converted_invoice_id=NULL "
+                        "WHERE id=? AND status='accepted'", (parent_est,))
+
+
 def next_number(con):
     n = int(db.get_setting(con, "next_invoice_number", "1001"))
     db.set_setting(con, "next_invoice_number", str(n + 1))
