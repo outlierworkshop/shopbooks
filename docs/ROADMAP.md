@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-29 — Fix: installed app's console/taskbar "kept flashing"
+- The Windows desktop launcher (`desktop.py`) shells out to `powershell`/`netstat`/`taskkill` for its
+  orphan-window cleanup and hand-off detection. From the windowed (`console=False`) build, each of
+  those popped a console window for a split second. The app-window poll ran `powershell` **every 2s**
+  the whole time the app was open, so the terminal "kept flashing" — and kept flashing after the
+  window closed, because Edge leaves background processes on our profile for a few seconds and the
+  poll read those as "still open", spinning instead of shutting down.
+- Fix: a `_run()` wrapper sets **`CREATE_NO_WINDOW`** on every helper subprocess (Windows), so none of
+  them ever flash a console. And `main()` now times `open_app_window()` — it only enters the
+  keep-serving poll on a genuine near-instant browser *hand-off*; after a real session it shuts down
+  promptly instead of polling on Edge's lingering profile processes. Covered in `test_desktop_launcher.py`.
+
 ### 2026-07-18 — Import a statement SCREENSHOT (image → transactions to review)
 - `/import` now accepts **PNG/JPG/GIF/WebP** alongside PDF and CSV, so a screen grab of part of a
   statement (online banking, a phone screenshot) becomes reviewable transactions — for filling gaps
