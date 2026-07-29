@@ -40,6 +40,24 @@ from app import app  # noqa: E402  runs db.init() -> sync fast-forward -> backup
 PORT = 8765
 URL = f"http://127.0.0.1:{PORT}/"
 
+# On Windows the bundled app is a windowed build (console=False), so every helper we shell out to
+# (powershell/netstat/taskkill) would otherwise flash its own console window for a split second.
+# CREATE_NO_WINDOW (0x08000000) suppresses that. GUI programs (the browser) ignore the flag, so it's
+# safe as a blanket default. Before this, the app-window poll below ran powershell every 2s and the
+# taskbar/terminal "kept flashing" the whole time the app was open.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+# How quickly open_app_window() must return for us to treat it as a browser *hand-off* (the launch
+# was absorbed by an existing instance on our profile) rather than a real, now-closed window session.
+_HANDOFF_SECONDS = 4
+
+
+def _run(cmd, **kw):
+    """subprocess.run that never pops a console window on the Windows GUI build."""
+    if os.name == "nt":
+        kw.setdefault("creationflags", _NO_WINDOW)
+    return subprocess.run(cmd, **kw)
+
 _CHROMIUM_MAC = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
@@ -120,9 +138,9 @@ def close_orphan_window():
     try:
         if os.name == "nt":
             ps = _profile_windows_ps() + " | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=15)
+            _run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=15)
         else:
-            subprocess.run(["pkill", "-f", profile], capture_output=True, timeout=10)
+            _run(["pkill", "-f", profile], capture_output=True, timeout=10)
         time.sleep(0.4)
     except Exception:
         pass
@@ -135,12 +153,12 @@ def app_window_open():
     any error returns False (fall through to a normal shutdown)."""
     try:
         if os.name == "nt":
-            out = subprocess.run(
+            out = _run(
                 ["powershell", "-NoProfile", "-Command", f"({_profile_windows_ps()} | Measure-Object).Count"],
                 capture_output=True, text=True, timeout=15).stdout.strip()
             return out.isdigit() and int(out) > 0
-        return subprocess.run(["pgrep", "-f", str(app_profile_dir())],
-                              capture_output=True, timeout=10).returncode == 0
+        return _run(["pgrep", "-f", str(app_profile_dir())],
+                    capture_output=True, timeout=10).returncode == 0
     except Exception:
         return False
 
@@ -149,13 +167,13 @@ def free_port(port=PORT):
     """Always serve one clean instance: kill whatever already holds the port (stale server)."""
     try:
         if os.name == "nt":
-            out = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True).stdout
+            out = _run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True).stdout
             pids = {line.split()[-1] for line in out.splitlines()
                     if f":{port}" in line and "LISTENING" in line}
             for pid in pids:
-                subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
+                _run(["taskkill", "/F", "/PID", pid], capture_output=True)
         else:
-            subprocess.run(f"lsof -ti:{port} | xargs kill 2>/dev/null", shell=True, capture_output=True)
+            _run(f"lsof -ti:{port} | xargs kill 2>/dev/null", shell=True, capture_output=True)
         time.sleep(0.5)
     except Exception:
         pass  # a bound port will surface as a bind error with its own message
@@ -199,16 +217,22 @@ def main():
     if browser:
         # Clear a previous run's orphaned app window first so the one we open is ours to block on.
         close_orphan_window()
-        # Blocks until the app window (its whole dedicated profile) closes...
+        # Normally blocks until the app window (its whole dedicated profile) closes...
+        started = time.monotonic()
         open_app_window(browser)
-        # ...unless the browser still handed off to another instance and returned immediately. If an
-        # app window is in fact still open, keep serving (polling until it closes) instead of exiting
-        # the moment we launched — otherwise the server would die and the window show a dead app.
-        while t.is_alive() and app_window_open():
-            try:
-                time.sleep(2)
-            except KeyboardInterrupt:
-                break
+        blocked = time.monotonic() - started
+        # ...but if the browser handed off to an existing instance on our profile it returns almost
+        # immediately. ONLY in that case do we poll to keep serving until the handed-off window
+        # closes. After a real session (blocked >= _HANDOFF_SECONDS) the window is already closed, so
+        # we must NOT poll: Edge leaves background processes referencing the profile for several
+        # seconds after close, which app_window_open() would read as "still open", spinning this loop
+        # (and, pre-fix, flashing a console every 2s) instead of shutting down.
+        if blocked < _HANDOFF_SECONDS:
+            while t.is_alive() and app_window_open():
+                try:
+                    time.sleep(2)
+                except KeyboardInterrupt:
+                    break
     else:
         # No Chromium browser: normal tab, keep serving until Ctrl-C (today's behavior).
         webbrowser.open(URL)
