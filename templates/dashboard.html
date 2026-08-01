@@ -328,14 +328,13 @@
         </svg>
       </div>
 
+      {# Every other month, plus always the last one. Robust to the list length: the forecast
+         horizon yields a variable number of months (usually 3-4), so cash_flow_chart isn't always
+         12 long -- hardcoding [11] here used to 500 the whole dashboard when it was shorter. #}
       <div class="chart-axis">
-        <span>{{ cash_flow_chart[0].label }}</span>
-        <span>{{ cash_flow_chart[2].label }}</span>
-        <span>{{ cash_flow_chart[4].label }}</span>
-        <span>{{ cash_flow_chart[6].label }}</span>
-        <span>{{ cash_flow_chart[8].label }}</span>
-        <span>{{ cash_flow_chart[10].label }}</span>
-        <span>{{ cash_flow_chart[11].label }}</span>
+        {% for item in cash_flow_chart %}
+          {% if loop.index0 % 2 == 0 or loop.last %}<span>{{ item.label }}</span>{% endif %}
+        {% endfor %}
       </div>
     </div>
     <div class="dash-card-footer">

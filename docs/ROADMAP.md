@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-07-29 — Fix: dashboard 500'd (home page wouldn't open) some months
+- The cash-flow chart's **axis** hardcoded `cash_flow_chart[11]`, assuming the list is always 12
+  months. But the route builds it as **8 historical + a variable forecast** (the 90-day horizon
+  yields 3 *or* 4 months depending on the date), so it's often only 11 long — and then Jinja raised
+  `UndefinedError: list object has no element 11`, which 500'd the **entire dashboard** (the home
+  page). It rendered fine in months the forecast happened to return 4, then broke in months it
+  returned 3, which is why it "suddenly won't open".
+- Fix: the axis is now loop-driven (every other month + always the last), robust to any length.
+  Regression test `test_dashboard_cashflow_axis.py` renders the real axis block across lengths 3–13.
+
 ### 2026-07-29 — Fix: installed app's console/taskbar "kept flashing"
 - The Windows desktop launcher (`desktop.py`) shells out to `powershell`/`netstat`/`taskkill` for its
   orphan-window cleanup and hand-off detection. From the windowed (`console=False`) build, each of
