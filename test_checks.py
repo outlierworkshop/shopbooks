@@ -94,6 +94,7 @@ ok(client.get("/payees").status_code == 200, "payees page renders")
 client.post("/payees", data={"name": "Route Payee", "email": "", "address": "", "phone": "", "notes": ""},
             follow_redirects=False)
 ok(con.execute("SELECT COUNT(*) c FROM payees WHERE name='Route Payee'").fetchone()["c"] == 1, "payee added via route")
+rp_id = con.execute("SELECT id FROM payees WHERE name='Route Payee'").fetchone()["id"]
 
 check_form = {"account_id": str(bank), "payee_id": "", "new_payee_name": "Flow Payee", "new_payee_email": "",
               "date": "2026-07-15", "amount": "250.00", "category_id": str(exp), "memo": "flow test",
@@ -101,10 +102,36 @@ check_form = {"account_id": str(bank), "payee_id": "", "new_payee_name": "Flow P
 
 prev = client.post("/checks/preview", data=check_form)
 ok(prev.status_code == 200 and b"record it" in prev.content and b"/checks/preview.pdf" in prev.content,
-   "preview shows the PDF iframe and the confirm button")
+   "the no-JS preview post still links the PDF and shows the confirm button")
 pdfr = client.get("/checks/preview.pdf", params={"account_id": bank, "payee_name": "Flow Payee",
                   "date": "2026-07-15", "amount_cents": 25000, "category_id": exp, "memo": "x", "check_number": 2001})
 ok(pdfr.status_code == 200 and pdfr.headers["content-type"] == "application/pdf", "preview.pdf returns a PDF")
+
+# --- preview opens in its OWN window, not an iframe crowding the form ----------
+page = client.get("/checks/new").text
+ok("<iframe" not in page, "the write-a-check page no longer embeds the preview in an iframe")
+ok("openPreview()" in page and "window.open(" in page, "Preview opens the PDF in a separate window")
+ok("shopbooks-check-preview" in page, "the preview window is named, so re-previewing reuses it")
+ok('id="recordbtn"' in page and "display:none" in page,
+   "the 'record it' button stays hidden until you've previewed")
+
+# the preview window builds its URL straight from the form: payee_id + the raw amount string, both
+# resolved server-side so the preview can never disagree with what gets booked
+pv = client.get("/checks/preview.pdf", params={"account_id": bank, "payee_id": rp_id, "date": "2026-07-15",
+                "amount": "$1,234.56", "category_id": exp, "memo": "m", "check_number": 2100})
+ok(pv.status_code == 200 and pv.content[:4] == b"%PDF", "preview.pdf accepts payee_id + a dollar string")
+
+# a BRAND-NEW payee isn't in the list yet, so the page sends payee_id empty -- this must still render
+# (an `int` query param 422'd on "", which broke preview for exactly the common new-payee case)
+pv_new = client.get("/checks/preview.pdf", params={"account_id": bank, "payee_id": "",
+                    "payee_name": "Brand New Co", "payee_addr": "1 New St\nBoston, MA 02101",
+                    "date": "2026-07-15", "amount": "$1,234.56", "category_id": exp,
+                    "memo": "m", "check_number": 2101})
+ok(pv_new.status_code == 200 and pv_new.content[:4] == b"%PDF",
+   "preview.pdf renders with an empty payee_id (a new, not-yet-saved payee)")
+ok(checks.render_check_pdf(con, {"account_id": bank, "payee_name": "Route Payee", "date": "2026-07-15",
+   "amount_cents": 123456, "memo": "m", "category_id": exp, "check_number": 2100}) is not None,
+   "the same amount parses to the cents the recording step would use")
 
 r = client.post("/checks/print", data=check_form, follow_redirects=False)
 ok(r.status_code == 303, "printing confirms with a redirect")
@@ -120,6 +147,41 @@ dup = client.post("/checks/print", data=check_form)
 ok(b"already recorded" in dup.content, "a duplicate check number on the same account is refused")
 ok(con.execute("SELECT COUNT(*) c FROM checks WHERE account_id=? AND check_number=2001 AND status='printed'",
                (bank,)).fetchone()["c"] == 1, "the duplicate was not double-recorded")
+
+# --- payees are remembered automatically, and never duplicated ----------------
+# writing the check above to a typed name remembered it as a payee
+ok(con.execute("SELECT COUNT(*) c FROM payees WHERE name='Flow Payee'").fetchone()["c"] == 1,
+   "a check written to a typed name remembers them as a payee")
+
+# typing that same name again (instead of picking it from the dropdown) REUSES the payee
+pid_first = con.execute("SELECT id FROM payees WHERE name='Flow Payee'").fetchone()["id"]
+pid2, name2 = checks.resolve_payee(con, {"payee_id": "", "new_payee_name": "Flow Payee"})
+con.commit()
+ok(pid2 == pid_first, "retyping a known payee reuses them instead of creating a duplicate")
+ok(con.execute("SELECT COUNT(*) c FROM payees WHERE name='Flow Payee'").fetchone()["c"] == 1,
+   "still exactly one 'Flow Payee' row")
+
+# matching ignores case, and a newly typed email/address backfills blanks on the remembered payee
+pid3, _ = checks.resolve_payee(con, {"payee_id": "", "new_payee_name": "  flow payee  ",
+                                     "new_payee_email": "flow@example.com",
+                                     "new_payee_address": "9 Shop Rd\nSomerville, MA 02143"})
+con.commit()
+ok(pid3 == pid_first, "payee matching is case- and whitespace-insensitive")
+row = con.execute("SELECT email, address FROM payees WHERE id=?", (pid_first,)).fetchone()
+ok(row["email"] == "flow@example.com", "an email typed later fills in the blank on the remembered payee")
+ok(row["address"].startswith("9 Shop Rd"), "an address typed later fills in the blank too")
+
+# ...but details already stored are never clobbered by a later check
+checks.resolve_payee(con, {"payee_id": "", "new_payee_name": "Flow Payee",
+                           "new_payee_email": "typo@example.com", "new_payee_address": "wrong"})
+con.commit()
+row = con.execute("SELECT email, address FROM payees WHERE id=?", (pid_first,)).fetchone()
+ok(row["email"] == "flow@example.com" and row["address"].startswith("9 Shop Rd"),
+   "a stored email/address is never overwritten by a later check")
+
+# picking an existing payee from the dropdown still wins outright
+pid4, name4 = checks.resolve_payee(con, {"payee_id": str(rp_id), "new_payee_name": "ignored"})
+ok(pid4 == rp_id and name4 == "Route Payee", "a payee picked from the dropdown is used as-is")
 
 con.close()
 print("\nCHECK TESTS DONE")

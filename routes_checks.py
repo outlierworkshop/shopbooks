@@ -137,9 +137,22 @@ async def check_preview(request: Request, con=Depends(get_con)):
 
 
 @router.get("/checks/preview.pdf")
-def check_preview_pdf(account_id: int, payee_name: str, date: str, amount_cents: int,
-                      category_id: int = 0, memo: str = "", check_number: int = 0,
-                      payee_addr: str = "", con=Depends(get_con)):
+def check_preview_pdf(account_id: int, date: str, payee_name: str = "", amount_cents: int = 0,
+                      amount: str = "", category_id: int = 0, memo: str = "", check_number: int = 0,
+                      payee_addr: str = "", payee_id: str = "", con=Depends(get_con)):
+    """The preview PDF. The Write-a-check page opens this in its own window, so it passes the form as
+    it stands: `payee_id` (name/address come from the payee record) and the raw `amount` string, which
+    is parsed HERE with the same helper the recording step uses -- so the preview can never disagree
+    with what gets booked. `payee_name`/`amount_cents` remain for the stored-check PDF route.
+
+    payee_id is a STRING on purpose: a brand-new payee isn't in the list yet, so the page sends it
+    empty, and an `int` parameter 422s on "" instead of rendering the check."""
+    if str(payee_id).strip().isdigit():
+        p = con.execute("SELECT name, address FROM payees WHERE id=?", (int(payee_id),)).fetchone()
+        if p:
+            payee_name, payee_addr = p["name"], (p["address"] or "")
+    if amount:
+        amount_cents = abs(ledger.parse_amount_to_cents(amount))
     chk = {"account_id": account_id, "payee_name": payee_name, "payee_addr": payee_addr, "date": date,
            "amount_cents": amount_cents, "memo": memo, "category_id": category_id or None,
            "check_number": check_number}
