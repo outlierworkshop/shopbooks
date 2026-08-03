@@ -81,6 +81,18 @@ def resolve_payee(con, form):
         raise ValueError("Pick a payee, or enter a new payee's name.")
     email = (form.get("new_payee_email") or "").strip()
     address = (form.get("new_payee_address") or "").strip()
+    # Anyone you write a check to is remembered as a payee automatically. Reuse one we already know by
+    # name (case-insensitively) rather than inserting a duplicate -- retyping a name instead of picking
+    # it from the dropdown used to create a second "Home Depot" every time. Any email/address typed now
+    # backfills blanks on the remembered payee, but never overwrites what's already stored.
+    existing = con.execute("SELECT id, name, email, address FROM payees WHERE lower(name)=lower(?)",
+                           (name,)).fetchone()
+    if existing:
+        if email and not (existing["email"] or "").strip():
+            con.execute("UPDATE payees SET email=? WHERE id=?", (email, existing["id"]))
+        if address and not (existing["address"] or "").strip():
+            con.execute("UPDATE payees SET address=? WHERE id=?", (address, existing["id"]))
+        return existing["id"], existing["name"]
     pid = con.execute("INSERT INTO payees(name, email, address) VALUES(?, ?, ?)",
                       (name, email, address)).lastrowid
     return pid, name

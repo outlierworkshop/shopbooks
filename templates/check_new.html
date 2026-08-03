@@ -56,11 +56,10 @@
 
       <span></span>
       <span class="toolbar">
-        <button type="submit">🔍 Preview check</button>
-        {% if preview %}
-        <button type="submit" formaction="/checks/print"
+        <button type="button" onclick="openPreview()">🔍 Preview check (new window)</button>
+        <button type="submit" formaction="/checks/print" id="recordbtn"
+                {% if not preview %}style="display:none"{% endif %}
                 title="Records the check and posts the payment to your books">✓ Printed correctly — record it</button>
-        {% endif %}
       </span>
     </form>
 
@@ -75,24 +74,22 @@
 
   <div style="flex:1 1 auto; min-width:0">
     {% if preview %}
-    <div class="note" style="margin-top:0">Preview below. Load your check stock, <strong>print this
-      page</strong> (use your browser's print on the PDF, 100% scale / "Actual size", no fit-to-page),
-      then click <strong>“Printed correctly — record it.”</strong> If a sheet jams, bump the Check #
-      and preview again.</div>
-    <p class="muted">Paying <strong>{{ preview_payee }}</strong> ${{ preview_amount }}.</p>
-    <iframe src="/checks/preview.pdf?{{ pdf_qs }}" title="Check preview"
-            style="width:100%; height:640px; border:1px solid var(--line); border-radius:8px; background:#fff"></iframe>
-    <p class="muted"><a href="/checks/preview.pdf?{{ pdf_qs }}" target="_blank">Open the PDF in a new tab</a>
-      if the embedded preview doesn't print cleanly.</p>
-    {% else %}
-    <div class="card" style="max-width:520px">
-      <p>Fill in the check on the left and hit <strong>Preview</strong> — you'll see exactly what prints
-        on your pre-printed <em>check-on-top</em> stock before anything is recorded.</p>
+    <div class="note" style="margin-top:0">Your preview opened in a separate window.
+      <a href="/checks/preview.pdf?{{ pdf_qs }}" target="_blank" rel="noopener">Open it again</a>
+      if you closed it. Paying <strong>{{ preview_payee }}</strong> ${{ preview_amount }}.</div>
+    {% endif %}
+    <div class="card" style="max-width:560px">
+      <p>Fill in the check on the left, then <strong>Preview check</strong> — the PDF opens in its
+        <strong>own window</strong>, so this form stays where it is.</p>
+      <p class="muted">Print from that window at <strong>100% scale / “Actual size”</strong> (no
+        fit-to-page) onto your pre-printed <em>check-on-top</em> stock. Then come back here and click
+        <strong>“Printed correctly — record it”</strong> — nothing is recorded until you do. If a sheet
+        jams, bump the Check # and preview again.</p>
       <p class="muted">The check draws on the bank account you pick; the amount books to the category you
         pick (bank credit / category debit). The <strong>Check #</strong> defaults to one past the last
-        one printed on that account.</p>
+        one printed on that account — it's pre-printed on your stock, so nothing prints over it.
+        Whoever you write the check to is remembered as a payee automatically.</p>
     </div>
-    {% endif %}
   </div>
 </div>
 
@@ -103,6 +100,36 @@ function setNextNumber(){
   var f = document.getElementById('check_number');
   if (nextByAccount[acct] !== undefined && nextByAccount[acct] !== "") f.value = nextByAccount[acct];
 }
+/* The preview opens in its OWN window (named, so previewing again reuses that window) instead of an
+   iframe beside the form -- the embedded preview crowded out the fields. window.open runs directly
+   off the button click, so pop-up blockers leave it alone. The form never reloads, so nothing you
+   typed is lost, and the amount/payee are resolved server-side in preview.pdf with the same helpers
+   the recording step uses. Nothing is written to the books until "Printed correctly - record it",
+   which re-validates everything on the server. */
+function openPreview(){
+  var f = document.getElementById('checkform');
+  if (!f.reportValidity()) return;              // let the browser flag the empty required fields
+  var val = function(n){ var el = f.querySelector('[name="' + n + '"]'); return el ? el.value : ''; };
+  var picked = document.getElementById('payee_id').value;
+  if (!picked && !val('new_payee_name').trim()) {
+    alert('Pick a payee, or enter a new payee name.');
+    return;
+  }
+  var q = new URLSearchParams({
+    account_id:   val('account_id'),
+    payee_id:     picked,
+    payee_name:   picked ? '' : val('new_payee_name'),
+    payee_addr:   picked ? '' : val('new_payee_address'),
+    date:         val('date'),
+    amount:       val('amount'),
+    memo:         val('memo'),
+    category_id:  val('category_id'),
+    check_number: val('check_number')
+  });
+  window.open('/checks/preview.pdf?' + q.toString(), 'shopbooks-check-preview');
+  document.getElementById('recordbtn').style.display = '';   // previewed -> you can now confirm it
+}
+
 function toggleNewPayee(sel){
   var show = !sel.value;
   document.querySelectorAll('.np-field').forEach(function(el){ el.style.display = show ? '' : 'none'; });

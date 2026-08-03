@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Checks: preview in its own window, payees remembered without duplicates
+- The check preview was an **iframe beside the form**, which crowded the fields out. **Preview check**
+  now opens the PDF in its **own named window** (re-previewing reuses that window). It opens straight
+  off the button click, so pop-up blockers leave it alone, and the form never reloads — nothing you
+  typed is lost. The **“Printed correctly — record it”** button stays hidden until you've previewed,
+  and still does the full server-side validation before anything is booked.
+- `/checks/preview.pdf` now takes `payee_id` and the **raw `amount` string**, parsed server-side with
+  the same helper the recording step uses — so the preview can't disagree with what gets booked.
+  `payee_id` is a string on purpose: a brand-new payee isn't saved yet, so the page sends it empty and
+  an `int` param would 422 on `""` — exactly the common new-payee case.
+- **Payees are remembered automatically**, and no longer duplicated: `resolve_payee` reuses a payee
+  matching by name (case- and whitespace-insensitive) instead of inserting a second "Home Depot" every
+  time the name is retyped. An email/address typed later backfills blanks on the remembered payee but
+  never overwrites what's already stored.
+- Note on numbering: nothing prints over the pre-printed check number — the **check face draws no
+  number** (only the two tear-off stubs list it, for the record copy).
+
 ### 2026-08-03 — Fix: a paid invoice could keep reading "overdue" until a restart
 - Pages went out with **no cache headers at all** — no `Cache-Control`, no `ETag`, no
   `Last-Modified`. Browsers then fall back to **heuristic** caching: they can re-show a page without
