@@ -35,7 +35,7 @@ bank = con.execute("SELECT id FROM accounts WHERE kind='bank' LIMIT 1").fetchone
 cat = con.execute("SELECT id FROM accounts WHERE type='expense' LIMIT 1").fetchone()["id"]
 con.close()
 pdf = client.get("/checks/preview.pdf", params={"account_id": bank, "payee_name": "Someone",
-                 "date": "2026-08-03", "amount": "10.00", "category_id": cat, "check_number": 900})
+                 "date": "2026-08-03", "amount_cents": 1000, "category_id": cat, "check_number": 900})
 ok(pdf.status_code == 200 and pdf.content[:4] == b"%PDF", "the check preview PDF renders")
 ok("no-store" in cc(pdf),
    "PDFs are no-store, so re-previewing after a print-alignment nudge isn't served from cache")
