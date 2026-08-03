@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Fix: a paid invoice could keep reading "overdue" until a restart
+- Pages went out with **no cache headers at all** — no `Cache-Control`, no `ETag`, no
+  `Last-Modified`. Browsers then fall back to **heuristic** caching: they can re-show a page without
+  revalidating, and back/forward restores it verbatim from the bfcache. So after recording a payment,
+  the invoice list could still show the old "overdue" row. **The books were already correct; the page
+  was old** — restarting the app was the only way to clear it.
+- An app-wide middleware (`app._no_stale_pages`) now stamps `no-store, must-revalidate` on **HTML and
+  PDF** responses. Pages are rendered per request from a database that changes constantly, so they
+  must never be reused; `no-store` also keeps them out of the bfcache. PDFs are included because
+  their URL doesn't change when the data does — re-previewing a check after a print-alignment nudge
+  is the same URL, and a cached copy would hide the change. **Static assets stay cacheable** (already
+  cache-busted by mtime). Covered by `test_no_stale_pages.py`.
+
 ### 2026-07-29 — Fix: dashboard 500'd (home page wouldn't open) some months
 - The cash-flow chart's **axis** hardcoded `cash_flow_chart[11]`, assuming the list is always 12
   months. But the route builds it as **8 historical + a variable forecast** (the 90-day horizon
