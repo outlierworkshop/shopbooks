@@ -52,6 +52,31 @@ for _mod in (routes_dashboard, routes_review, routes_entries, routes_receipts, r
     app.include_router(_mod.router)
 
 
+@app.middleware("http")
+async def _no_stale_pages(request, call_next):
+    """Never let the browser show stale books.
+
+    Pages went out with NO cache headers at all (no Cache-Control, ETag or Last-Modified), so
+    browsers fell back to *heuristic* caching: they could re-show a page without revalidating, and
+    back/forward restored it verbatim from the bfcache. That's how a paid invoice kept reading
+    "overdue" until the app was restarted, even though the ledger was already correct — the books
+    were right and the page was old.
+
+    Every HTML page here is rendered per request from a database that changes constantly, so it must
+    never be reused; `no-store` also keeps the page out of the bfcache. PDFs are included because
+    their URL doesn't change when the underlying data does — re-previewing a check after saving a
+    print-alignment nudge is the same URL, and a cached copy would hide the change.
+
+    Static assets are deliberately left alone: they're already cache-busted by mtime (see webutil),
+    and caching them is what keeps the UI quick.
+    """
+    response = await call_next(request)
+    ctype = response.headers.get("content-type", "")
+    if ctype.startswith("text/html") or ctype.startswith("application/pdf"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 @app.on_event("startup")
 def _start_watchers():
     # Deferred to the startup event (not called at import time). TestClient(app.app) used without
