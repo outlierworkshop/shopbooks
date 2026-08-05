@@ -420,8 +420,30 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
                 applicable_invoices.append({"id": r["id"], "number": r["number"],
                                             "due_date": r["due_date"], "outstanding": ob})
 
+    # Where a payment's income would land: the accounts the invoice's OWN lines post to. Shown on the
+    # Record-payment form so it's clear no account has to be picked; the picker is only the fallback
+    # for lines that don't name one (income_unmapped > 0).
+    income_split, income_unmapped = [], 0
+    income_fallback_id = invoicing.invoice_default_income_id(con, invoice_id)
+    if outstanding_balance > 0:
+        inc_part, _ = invoicing.tax_allocation(invoicing.invoice_subtotal(con, invoice_id),
+                                               invoicing.invoice_tax(con, invoice_id), outstanding_balance)
+        # Preview with NO fallback, so lines that don't name an account group under None and can be
+        # shown honestly as "the account you pick" — folding them into the default would claim money
+        # lands somewhere the picker may well change.
+        for aid, cents in invoicing.invoice_income_split(con, invoice_id, inc_part, None):
+            row = con.execute("SELECT name FROM accounts WHERE id=?", (aid,)).fetchone() if aid else None
+            income_split.append({"id": aid, "name": row["name"] if row else "the account you pick",
+                                 "amount": cents})
+        income_unmapped = con.execute(
+            "SELECT COUNT(*) c FROM invoice_items ii LEFT JOIN items itm ON itm.id=ii.item_id "
+            "WHERE ii.invoice_id=? AND ii.qty*ii.unit_cents<>0 AND itm.income_account_id IS NULL",
+            (invoice_id,)).fetchone()["c"]
+
     return templates.TemplateResponse(request, "invoice_view.html", ctx(
         request, con, inv=inv, items=items, total=total, banks=banks, income=income,
+        income_split=income_split, income_unmapped=income_unmapped,
+        income_fallback_id=income_fallback_id,
         subtotal=invoicing.invoice_subtotal(con, invoice_id), tax=invoicing.invoice_tax(con, invoice_id),
         candidates=candidates, matched=matched, matched_entries=matched_entries,
         matched_entry_ids=matched_entry_ids, available_deposits=available_deposits,

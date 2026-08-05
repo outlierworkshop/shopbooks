@@ -126,6 +126,48 @@ def invoice_default_income_id(con, invoice_id):
     return row["id"] if row else None
 
 
+def invoice_income_split(con, invoice_id, income_cents, fallback_account_id=None):
+    """How a payment's INCOME portion divides across income accounts: [(account_id, cents), ...],
+    summing to exactly `income_cents`.
+
+    Each line posts to the income account of its catalog item (`items.income_account_id`) — that's
+    what "the accounts specified on the invoice" means, so an invoice with $2,200 of Fabrication and
+    $750 of Design Income credits both, in those proportions, instead of dumping the lot in one
+    hand-picked account. A line typed freehand (no catalog item, or an item with no account set)
+    falls back to `fallback_account_id`, so nothing is ever stranded.
+
+    Shares are proportional to each line's amount (qty*unit_cents). Cents are allocated by floor and
+    the remainder handed out largest-share-first, so the legs add up to `income_cents` EXACTLY and
+    the entry still balances — no rounding drift, including on a partial payment."""
+    if income_cents <= 0:                       # nothing to split (or a credit): one leg, unchanged
+        return [(fallback_account_id, income_cents)] if income_cents else []
+    rows = con.execute(
+        "SELECT ii.qty, ii.unit_cents, itm.income_account_id aid FROM invoice_items ii "
+        "LEFT JOIN items itm ON itm.id = ii.item_id WHERE ii.invoice_id=?", (invoice_id,)).fetchall()
+    weights = {}
+    for r in rows:
+        amt = round(r["qty"] * r["unit_cents"])
+        if amt <= 0:
+            continue                            # blank spacer lines (and zero lines) carry no weight
+        acct = r["aid"] or fallback_account_id
+        weights[acct] = weights.get(acct, 0) + amt
+    total = sum(weights.values())
+    if not weights or total <= 0:               # nothing to go on -> today's single-account behavior
+        return [(fallback_account_id, income_cents)]
+    if len(weights) == 1:
+        return [(next(iter(weights)), income_cents)]
+    # largest share first, so leftover cents land on the biggest account; account id breaks ties
+    ordered = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0] or 0))
+    out = [[acct, income_cents * w // total] for acct, w in ordered]
+    rem = income_cents - sum(c for _, c in out)
+    i = 0
+    while rem > 0:
+        out[i % len(out)][1] += 1
+        rem -= 1
+        i += 1
+    return [(a, c) for a, c in out if c]
+
+
 def record_invoice_payment(con, invoice_id, *, into_account_id, income_id, amount_cents, date,
                            label=None, memo=None):
     """Post a customer payment against an invoice: debit the deposit account (a bank account, or the
@@ -145,10 +187,15 @@ def record_invoice_payment(con, invoice_id, *, into_account_id, income_id, amoun
     tax = invoice_tax(con, invoice_id)
     inc_part, tax_part = tax_allocation(sub, tax, amount_cents)
     tax_acct = sales_tax_account_id(con)
+    if not (tax_part and tax_acct):   # no tax (or account missing) → the whole payment is income
+        inc_part, tax_part = amount_cents, 0
+    # The income side is split across the accounts the invoice's own lines post to (invoice_income_split),
+    # with `income_id` as the fallback for lines that don't name one. It always sums to inc_part, so
+    # the legs still balance: into_account (+amount) = income legs + tax (-inc_part - tax_part).
+    legs = [(into_account_id, amount_cents)]
+    legs += [(acct, -cents) for acct, cents in invoice_income_split(con, invoice_id, inc_part, income_id)]
     if tax_part and tax_acct:
-        legs = [(into_account_id, amount_cents), (income_id, -inc_part), (tax_acct, -tax_part)]
-    else:  # no tax (or account missing) → the whole payment is income
-        legs = [(into_account_id, amount_cents), (income_id, -amount_cents)]
+        legs.append((tax_acct, -tax_part))
     d = ledger.normalize_date(date)
     entry_id = ledger.post_entry(con, d, label or f"Invoice {inv['number']} - {inv['customer']}",
                                  legs, memo=memo or f"invoice #{inv['number']}",

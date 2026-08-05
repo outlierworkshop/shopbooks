@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Invoice payments credit the accounts on the invoice's own lines
+- Recording a payment made you classify the income into **one** hand-picked account, so a job that
+  was $2,200 Fabrication + $750 Design Income landed entirely in whichever you chose. The income is
+  now **split across the accounts the invoice's own lines post to** — each line's account comes from
+  its catalog item (`items.income_account_id`) — in proportion to the line amounts.
+- `invoicing.invoice_income_split(con, invoice_id, income_cents, fallback)` does the allocation:
+  floor shares with the remainder handed out largest-first, so the legs sum to the income portion
+  **exactly** and the entry balances to the cent — on partial payments too (a partial splits in the
+  same proportions). Sales tax still goes to Sales Tax Payable on top, unchanged.
+- A line typed freehand (no catalog item, or an item with no account) falls back to the picked
+  account, so nothing is stranded. **The picker now only appears when some line needs it**; otherwise
+  the form just states where the money goes. When it does appear, the preview shows the unmapped
+  share as "the account you pick" rather than pretending it lands in the default.
+- Square payments get the same treatment — `sync_payments` already passed a default income account,
+  which is now just the fallback instead of the destination for the whole payment.
+- `test_invoice_income_split.py` covers the split, partials, freehand fallback, uneven-cent
+  allocation, and the tax interaction, asserting the ledger stays balanced throughout.
+
 ### 2026-08-03 — Estimates go out as quotes: no due date, and always the memo
 - An estimate is a quote, not a bill. The sent document now carries **no due date** — the PDF's
   "Valid until" line is gone (the `due_date` column still holds it internally, it just isn't printed).
