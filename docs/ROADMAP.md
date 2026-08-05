@@ -34,6 +34,12 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Estimates list shows the memo
+- The estimates table listed number/customer/dates/total/status, so telling two quotes for the same
+  customer apart meant opening each one. It now has a **Memo** column (between Customer and Date),
+  which is where the job description lives — "Lloyd Bass Slope Shoulder", "Davidov Cello Quotation".
+- Template-only: `_estimate_rows` already selects `i.*`, so `memo` was on the row all along.
+
 ### 2026-08-03 — Checks: preview in its own window, payees remembered without duplicates
 - The check preview was an **iframe beside the form**, which crowded the fields out. **Preview check**
   now opens the PDF in its **own named window** (re-previewing reuses that window). It opens straight
