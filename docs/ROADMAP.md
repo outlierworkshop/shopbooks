@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Estimates go out as quotes: no due date, and always the memo
+- An estimate is a quote, not a bill. The sent document now carries **no due date** — the PDF's
+  "Valid until" line is gone (the `due_date` column still holds it internally, it just isn't printed).
+- The **memo is always included**, because it's what the job actually is ("Davidov Cello Quotation").
+  The PDF already showed it under NOTES; the **HTML email dropped it entirely** — it now has the same
+  NOTES block (invoices get it too, matching their PDF). A blank memo omits the block.
+- Fixed alongside, same markup: the email hardcoded **"INVOICE"** and a **"Due:"** line on *every*
+  document, so an emailed quote announced itself as an invoice with a due date. It now labels
+  ESTIMATE / CREDIT MEMO / INVOICE and totals to "Estimated total" / "Total credit" / "Total due",
+  matching the PDF. Invoices are otherwise unchanged (`test_estimate_document.py` pins both sides).
+
 ### 2026-08-03 — Line-item editor shows a running total
 - Editing an estimate (or invoice) gave no total until you saved, so pricing a quote meant saving to
   see what it came to. The shared editor (`static/line-items.js`) now shows a **live total under the

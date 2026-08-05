@@ -366,6 +366,16 @@ def _kind(inv):
         return "invoice"
 
 
+def _field(inv, key, default=""):
+    """A column off an invoices row, tolerant of rows/dicts that don't carry it (some preview and
+    reminder paths pass partial rows). Same defensiveness as _kind."""
+    try:
+        v = inv[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if v is None else v
+
+
 # Common non-latin-1 punctuation -> ASCII, so fpdf2's built-in fonts don't render it as "?".
 _PUNCT = {
     "—": "-", "–": "-", "‑": "-",           # em / en / non-breaking dash
@@ -451,8 +461,12 @@ def render_pdf(con, inv, items, total):
         pdf.cell(0, 4.8, _latin(inv["customer_email"]), new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_xy(130, y_row)
-    date_label = "Valid until" if is_est else "Due"
-    for lbl, val in [("Date", inv["date"]), (date_label, inv["due_date"])]:
+    # An estimate is a quote, not a bill: it carries no due date on the document that goes out.
+    # (The due_date column still holds the internal "valid until" date — it just isn't printed.)
+    date_rows = [("Date", inv["date"])]
+    if not is_est:
+        date_rows.append(("Due", inv["due_date"]))
+    for lbl, val in date_rows:
         pdf.set_x(130)
         pdf.set_font("helvetica", "", 8.5)
         pdf.set_text_color(*MUTED)
@@ -785,10 +799,29 @@ def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
         col = INK if strong else GRAY
         return (f'<tr><td align="right" style="padding:3px 14px 3px 0;color:{col};font-size:{sz};font-weight:{w}">{lbl}</td>'
                 f'<td align="right" style="padding:3px 0;color:{col};font-size:{sz};font-weight:{w};white-space:nowrap">${val}</td></tr>')
+    # An estimate is a quote, not a bill: it's labelled ESTIMATE (this markup used to say INVOICE on
+    # every document), shows no due date, and totals to an "Estimated total" — matching the PDF.
+    is_est = _kind(inv) == "estimate"
+    is_cm = _kind(inv) == "credit_memo"
+    doc_label = "ESTIMATE" if is_est else "CREDIT MEMO" if is_cm else "INVOICE"
+
     totals = total_row("Subtotal", fmt_cents(subtotal))
     if tax:
         totals += total_row("Sales tax", fmt_cents(tax))
-    totals += total_row("Total due", fmt_cents(total), strong=True)
+    totals += total_row("Estimated total" if is_est else "Total credit" if is_cm else "Total due",
+                        fmt_cents(abs(total)), strong=True)
+
+    # The memo is what the job IS ("Davidov Cello Quotation") — it's on the PDF under NOTES, but the
+    # email dropped it entirely, so a customer reading the mail couldn't tell what was being quoted.
+    memo_html = ""
+    _memo = str(_field(inv, "memo")).strip()
+    if _memo:
+        _memo_body = e(_memo).replace("\n", "<br>")
+        memo_html = (
+            f'<tr><td style="padding:20px 30px 0">'
+            f'<div style="font-size:11px;color:{MUTED};letter-spacing:1px">NOTES</div>'
+            f'<div style="font-size:13px;color:{GRAY};line-height:1.6;padding-top:3px">'
+            f'{_memo_body}</div></td></tr>')
 
     # Progress billing: the full job from the parent estimate, for reference — not charged here.
     prog = progress_info(con, inv["id"])
@@ -850,10 +883,10 @@ def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
         f'<div style="font-size:12px;color:{MUTED};line-height:1.5">{contact}</div></td></tr>'
         # doc title + dates
         '<tr><td style="padding:14px 30px 0"><table width="100%" role="presentation"><tr>'
-        f'<td style="font-size:11px;color:{MUTED};letter-spacing:1px">INVOICE<br>'
+        f'<td style="font-size:11px;color:{MUTED};letter-spacing:1px">{doc_label}<br>'
         f'<span style="font-size:22px;color:{INK};font-weight:bold;letter-spacing:0">{e(inv["number"])}</span></td>'
-        f'<td align="right" style="font-size:12px;color:{GRAY};line-height:1.7">Date: {e(inv["date"])}<br>'
-        f'Due: {e(inv["due_date"])}</td></tr></table></td></tr>'
+        f'<td align="right" style="font-size:12px;color:{GRAY};line-height:1.7">Date: {e(inv["date"])}'
+        f'{"" if is_est else "<br>Due: " + e(str(_field(inv, "due_date")))}</td></tr></table></td></tr>'
         f'{button}'
         # note
         f'<tr><td style="padding:18px 30px 0;font-size:14px;color:#23281f;line-height:1.55">{note_html}</td></tr>'
@@ -873,6 +906,8 @@ def invoice_email_html(con, inv, total, note, pay_url=None, logo_src=""):
         # totals
         '<tr><td style="padding:12px 30px 0"><table align="right" cellpadding="0" cellspacing="0" '
         f'role="presentation">{totals}</table></td></tr>'
+        # what the job is (the document's memo)
+        f'{memo_html}'
         # full job scope (progress billing only)
         f'{scope_html}'
         # terms / footer
