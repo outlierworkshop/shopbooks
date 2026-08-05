@@ -37,6 +37,8 @@
 <script src="/static/resize.js?v={{ static_v() }}" defer></script>
 <script src="/static/receipt-preview.js?v={{ static_v() }}" defer></script>
 <script src="/static/search.js?v={{ static_v() }}" defer></script>
+<!-- the line-item editor's running total needs the sales-tax rate to match the saved document -->
+<script>window.salesTaxRate = {{ sales_tax_rate|float if sales_tax_rate else 0 }};</script>
 <script src="/static/line-items.js?v={{ static_v() }}" defer></script>
 <script src="/static/folder-picker.js?v={{ static_v() }}" defer></script>
 </head>
