@@ -13,11 +13,12 @@ never touch your books — they're just proposals until converted.</p>
 </div>
 
 <table class="sortable">
-  <tr><th>#</th><th>Customer</th><th>Date</th><th>Valid until</th><th class="num">Total</th><th>Status</th></tr>
+  <tr><th>#</th><th>Customer</th><th>Memo</th><th>Date</th><th>Valid until</th><th class="num">Total</th><th>Status</th></tr>
   {% for e in estimates %}
   <tr>
     <td><a href="/estimates/{{ e.id }}">{{ e.number }}</a></td>
     <td>{{ e.customer }}</td>
+    <td class="muted">{{ e.memo }}</td>
     <td>{{ e.date }}</td>
     <td>{{ e.due_date }}</td>
     <td class="num">${{ e.total|money }}</td>
@@ -29,7 +30,7 @@ never touch your books — they're just proposals until converted.</p>
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">No estimates yet.</td></tr>
+  <tr><td colspan="7" class="muted">No estimates yet.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

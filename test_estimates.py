@@ -48,6 +48,12 @@ con.close()
 # --- the estimate page renders; the invoice list/AR helpers ignore it ---------
 ok(c.get(f"/estimates/{est_id}").status_code == 200, "estimate view renders")
 ok("ESTIMATE" in c.get(f"/estimates/{est_id}").text, "estimate view shows the ESTIMATE heading")
+
+# --- the list carries the memo, so you can tell at a glance what each quote is for ---
+lst = c.get("/estimates")
+ok(lst.status_code == 200, "estimates list renders")
+ok("<th>Memo</th>" in lst.text, "the estimates list has a Memo column")
+ok("Proposed build" in lst.text, "each estimate's memo shows in the list")
 ok(c.get(f"/estimates/{est_id}/pdf").status_code == 200, "estimate PDF renders")
 # visiting it as an invoice bounces back to the estimate view
 ir = c.get(f"/invoices/{est_id}", follow_redirects=False)
