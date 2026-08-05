@@ -160,6 +160,90 @@ function ensureEditorControls() {
   }
 }
 
+/* ---- running total of the line items ------------------------------------------------------
+   Shown live under the table while you edit, so you can see what a quote/invoice comes to without
+   saving first. The arithmetic mirrors invoicing.py exactly so this never disagrees with the total
+   the document is actually saved with:
+     line   = round(qty * unit_cents)                      (invoice_subtotal, per line)
+     tax    = round(taxable_subtotal * rate / 100)         (invoice_tax)
+     total  = subtotal + tax                               (invoice_total)
+   Rounding is matched deliberately: SQLite's round() in the per-line sum goes half-away-from-zero
+   (= Math.round for the non-negative qty/prices these inputs allow), while invoice_tax uses
+   Python's round(), which is half-to-EVEN — hence roundHalfEven below rather than Math.round. */
+function parseMoneyCents(s) {
+  s = String(s == null ? '' : s).replace(/[$,\s]/g, '');
+  if (!s) return 0;
+  var v = parseFloat(s);
+  return isFinite(v) ? Math.round(v * 100) : 0;
+}
+
+function roundHalfEven(x) {              // Python's round(): ties go to the even integer
+  var f = Math.floor(x), d = x - f;
+  if (d > 0.5) return f + 1;
+  if (d < 0.5) return f;
+  return (f % 2 === 0) ? f : f + 1;
+}
+
+function fmtCents(c) {
+  var neg = c < 0;
+  c = Math.abs(c);
+  var whole = Math.floor(c / 100), rem = c % 100;
+  return (neg ? '-' : '') + whole.toLocaleString('en-US') + '.' + (rem < 10 ? '0' + rem : rem);
+}
+
+function computeTotals() {
+  var t = document.getElementById('items');
+  var sub = 0, taxable = 0;
+  if (t) {
+    for (var i = 1; i < t.rows.length; i++) {          // row 0 is the header
+      var row = t.rows[i];
+      if (row.classList.contains('spacer-row')) continue;   // blank spacer lines carry no money
+      var q = row.querySelector('[name="item_qty"]');
+      var p = row.querySelector('[name="item_price"]');
+      if (!q || !p) continue;
+      var qty = parseFloat(q.value);
+      if (!isFinite(qty)) qty = 0;
+      var amount = Math.round(qty * parseMoneyCents(p.value));
+      sub += amount;
+      var tx = row.querySelector('[name="item_taxable"]');
+      if (tx && tx.value === '1') taxable += amount;
+    }
+  }
+  var rate = parseFloat(window.salesTaxRate) || 0;
+  var tax = rate > 0 ? roundHalfEven(taxable * rate / 100) : 0;
+  return { subtotal: sub, tax: tax, total: sub + tax, rate: rate };
+}
+
+function updateTotals() {
+  var t = document.getElementById('items'); if (!t) return;
+  var box = document.getElementById('itemsTotals');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'itemsTotals';
+    box.style.cssText = 'max-width:720px;text-align:right;margin:8px 0 4px;font-size:14px';
+    t.parentNode.insertBefore(box, t.nextSibling);
+  }
+  var v = computeTotals();
+  var html = '<div class="muted">Line items: $' + fmtCents(v.subtotal) + '</div>';
+  if (v.rate > 0) {                       // only worth showing when sales tax is actually charged
+    html += '<div class="muted">Sales tax (' + v.rate + '%): $' + fmtCents(v.tax) + '</div>';
+  }
+  html += '<div><strong>Total: $' + fmtCents(v.total) + '</strong></div>';
+  box.innerHTML = html;
+}
+
+/* Recompute on any edit, and whenever rows are added/removed/reordered — a MutationObserver keeps
+   this working without every mutator (addRow/deleteRow/addSpacer/createService) having to call it. */
+function watchTotals() {
+  var t = document.getElementById('items'); if (!t) return;
+  t.addEventListener('input', updateTotals);
+  t.addEventListener('change', updateTotals);
+  try {
+    new MutationObserver(updateTotals).observe(t, { childList: true, subtree: true });
+  } catch (_) { /* no MutationObserver: the input/change listeners still cover typing */ }
+  updateTotals();
+}
+
 /* ---- inline "create a service" ------------------------------------------------------------ */
 function openNewService(link) {
   var cell = link.parentNode;
@@ -251,6 +335,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var t = document.getElementById('items');
   if (!t) return;
   ensureEditorControls();
+  watchTotals();
   if (window.incomeAccounts && window.incomeAccounts.length) {
     for (var i = 1; i < t.rows.length; i++) {   // row 0 is the header
       var tr = t.rows[i];

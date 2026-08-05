@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-03 — Line-item editor shows a running total
+- Editing an estimate (or invoice) gave no total until you saved, so pricing a quote meant saving to
+  see what it came to. The shared editor (`static/line-items.js`) now shows a **live total under the
+  items table** — line-items subtotal, sales tax, and grand total — updating as you type, add, delete,
+  or reorder lines. Blank spacer lines contribute nothing.
+- It appears on every page using the editor: estimate edit, invoice edit, `/estimates/new`,
+  `/invoices/new`.
+- **The arithmetic mirrors `invoicing.py` exactly** so the live number can't disagree with what gets
+  saved: `line = round(qty*unit_cents)`, `tax = round(taxable_subtotal * rate/100)`,
+  `total = subtotal + tax`. The rounding is matched deliberately — SQLite's `round()` in the per-line
+  sum is half-away-from-zero, but `invoice_tax` uses Python's `round()`, which is **half-to-even**
+  (63000 @6.25% = 3937.5 → 3938, not 3937), so the JS implements `roundHalfEven()` rather than
+  `Math.round`. `test_line_item_totals.py` pins both halves of that contract.
+- `window.salesTaxRate` is emitted once in `base.html` from the `sales_tax_rate` already in `ctx()`.
+
 ### 2026-08-03 — Estimates list shows the memo
 - The estimates table listed number/customer/dates/total/status, so telling two quotes for the same
   customer apart meant opening each one. It now has a **Memo** column (between Customer and Date),
