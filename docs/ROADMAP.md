@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-07 — Fix: a watched file that failed was never retried
+- `scan_folder` skips any file whose (path, mtime, size) is unchanged — **including one whose last
+  scan errored**. So the phone's trip log, recorded as `error` ("not a trip event") by a parser that
+  didn't understand its format yet, was skipped forever *after* the parser was fixed: the file hadn't
+  changed, so it was never re-read and no trips appeared.
+- Unchanged files whose last status is `error` are now retried on each tick. Successful files stay a
+  fast no-op, so the common path is unaffected; retrying a genuinely bad file each tick is cheap, and
+  silently never retrying is a trap (it makes every parser fix require touching every affected file).
+- Covers transient failures too — a file read while it was still being written now gets another go.
+
 ### 2026-08-07 — Mileage: read the trip log the phone actually writes
 - The trips folder was configured and being scanned, but **no trips ever appeared**: `parse_event`
   expected one file per event containing `connect,ISO-time,lat,lon`, while the phone writes a

@@ -115,6 +115,43 @@ rr2 = watcher.run_once(con, app._watch_statement, app._watch_receipt)
 con.commit()
 ok(rr2["statements"]["scanned"] == 0, "the same statement file is not reprocessed on the next tick")
 
+# ...but a file that FAILED is retried even though it hasn't changed. Regression: the phone's trip
+# log sat unchanged with status='error' from a parser that didn't understand its format yet, so once
+# the parser was fixed the watcher skipped the file forever and no trips ever appeared.
+(STMT_DIR / "unreadable.csv").write_bytes(b"\x00\x01 not a statement at all")
+
+
+def _always_fails(con_, path, data):
+    return "error", "cannot parse"
+
+
+rf1 = watcher.scan_folder(con, str(STMT_DIR), "statement", {".csv"}, _always_fails)
+con.commit()
+ok(rf1["counts"].get("error", 0) >= 1, "a file that can't be parsed is recorded as an error")
+row = con.execute("SELECT status FROM watched_files WHERE path=?",
+                  (str(STMT_DIR / "unreadable.csv"),)).fetchone()
+ok(row and row["status"] == "error", "the failure is recorded against the file")
+
+seen = []
+
+
+def _now_succeeds(con_, path, data):
+    seen.append(Path(path).name)
+    return "imported", "parsed on the retry"
+
+
+rf2 = watcher.scan_folder(con, str(STMT_DIR), "statement", {".csv"}, _now_succeeds)
+con.commit()
+ok("unreadable.csv" in seen,
+   "an unchanged file whose last scan ERRORED is retried (so a parser fix can pick it up)")
+row = con.execute("SELECT status FROM watched_files WHERE path=?",
+                  (str(STMT_DIR / "unreadable.csv"),)).fetchone()
+ok(row["status"] == "imported", "the retry updates the recorded status")
+seen.clear()
+watcher.scan_folder(con, str(STMT_DIR), "statement", {".csv"}, _now_succeeds)
+con.commit()
+ok("unreadable.csv" not in seen, "once it succeeds, the unchanged file is a no-op again")
+
 # a DIFFERENT file with the same content -> caught by is_duplicate_statement, not double-staged
 (STMT_DIR / "Business_Checking_Statement_v2.csv").write_bytes(CSV)
 staged_before = con.execute("SELECT COUNT(*) c FROM staged").fetchone()["c"]
