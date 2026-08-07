@@ -116,5 +116,42 @@ ok(l6[fab] == -100000 and l6[dsn] == -100000, "the pre-tax income splits across 
 ok(l6[bank] == total6, "the bank gets the full tax-inclusive payment")
 ok(unbalanced() == 0, "ledger balanced with tax + a split income side")
 
+# --- a PROGRESS invoice inherits its parent estimate's accounts ---------------------------------
+# Billing a portion of an estimate creates ONE summary line with no catalog item (by design), so the
+# progress invoice names no accounts of its own. It must split like the job it's billing against.
+db.set_setting(con, "sales_tax_rate", "0")
+con.commit()
+n[0] += 1
+con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,memo,kind) "
+            "VALUES('EST-7000',?,'2026-08-01','2026-08-31','accepted','job','estimate')", (cust,))
+est = con.execute("SELECT id FROM invoices WHERE number='EST-7000'").fetchone()["id"]
+for item_id, qty, unit in [(i_fab, 1, 200000), (i_dsn, 1, 100000)]:      # 2/3 Fabrication, 1/3 Design
+    con.execute("INSERT INTO invoice_items(invoice_id,item_id,description,qty,unit_cents,taxable) "
+                "VALUES(?,?,'line',?,?,0)", (est, item_id, qty, unit))
+# the progress invoice: one itemless summary line for 50% of the job, linked back to the estimate
+con.execute("INSERT INTO invoices(number,customer_id,date,due_date,status,memo,kind,estimate_id) "
+            "VALUES('INV-7001',?,'2026-08-01','2026-08-31','sent','','invoice',?)", (cust, est))
+prog = con.execute("SELECT id FROM invoices WHERE number='INV-7001'").fetchone()["id"]
+con.execute("INSERT INTO invoice_items(invoice_id,item_id,description,qty,unit_cents,taxable) "
+            "VALUES(?,NULL,'50% of estimate EST-7000',1,150000,0)", (prog,))
+con.commit()
+
+sp = dict(invoicing.invoice_income_split(con, prog, 150000, misc))
+ok(sp == {fab: 100000, dsn: 50000},
+   "a progress invoice splits by its parent ESTIMATE's accounts (2/3 Fabrication, 1/3 Design)")
+ok(misc not in sp, "the fallback isn't used when the parent estimate names the accounts")
+
+ep = invoicing.record_invoice_payment(con, prog, into_account_id=bank, income_id=misc,
+                                      amount_cents=150000, date="2026-08-02")
+con.commit()
+lp = legs_by_account(ep)
+ok(lp[fab] == -100000 and lp[dsn] == -50000, "paying a progress invoice credits both job accounts")
+ok(unbalanced() == 0, "ledger balanced for a progress-invoice payment")
+
+# a plain invoice with no estimate parent still just uses the fallback (no accidental inheritance)
+inv7 = make_invoice([(None, 1, 40000)])
+ok(dict(invoicing.invoice_income_split(con, inv7, 40000, misc)) == {misc: 40000},
+   "an ordinary itemless invoice is unaffected — it still uses the fallback")
+
 con.close()
 print("\nINVOICE INCOME SPLIT TESTS DONE")
