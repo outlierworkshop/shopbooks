@@ -55,9 +55,15 @@ def scan_folder(con, folder, kind, exts, process_fn):
         except OSError:
             continue
         mtime, size = st.st_mtime, st.st_size
-        row = con.execute("SELECT mtime, size FROM watched_files WHERE path=?", (str(f),)).fetchone()
-        if row and row["mtime"] == mtime and row["size"] == size:
+        row = con.execute("SELECT mtime, size, status FROM watched_files WHERE path=?",
+                          (str(f),)).fetchone()
+        if row and row["mtime"] == mtime and row["size"] == size and row["status"] != "error":
             continue  # already processed this exact version of the file
+        # NOTE the `status != "error"` above: a file that FAILED is retried on every tick even though
+        # it hasn't changed, because the failure is often ours, not the file's — the trip log sat
+        # unchanged with status='error' ("not a trip event") and so was skipped forever, even after
+        # the parser was taught its format. Also covers transient failures (a file read mid-write).
+        # Retrying a genuinely bad file each tick is cheap; silently never retrying is a trap.
         scanned += 1
         try:
             data = f.read_bytes()
