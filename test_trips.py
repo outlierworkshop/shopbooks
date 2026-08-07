@@ -73,6 +73,49 @@ ok(s == "imported" and "1 new" in note and "2 already logged" in note,
    f"an appended log ingests only the new line ({note})")
 ok(trips.pair_events(con) >= 1, "the logged drive pairs into a candidate")
 
+# --- street-address labels -------------------------------------------------------
+# Real Nominatim shapes (zoom=18) for the coordinates in Ben's own trip log.
+ok(trips.address_label({
+    "house_number": "14", "road": "William Street", "neighbourhood": "West Somerville",
+    "suburb": "Ball Square", "city": "Somerville", "county": "Middlesex County",
+    "state": "Massachusetts", "ISO3166-2-lvl4": "US-MA", "postcode": "02144",
+}) == "14 William Street, Somerville, MA", "a street address is built from house number + road")
+
+# OSM multi-address nodes give ranges like "319;321" — showing that verbatim looks broken
+ok(trips.address_label({
+    "house_number": "319;321", "road": "Huron Avenue", "city": "Cambridge",
+    "ISO3166-2-lvl4": "US-MA",
+}) == "319 Huron Avenue, Cambridge, MA", "a house-number RANGE shows only the first number")
+ok(trips._house_number("11;13") == "11" and trips._house_number("") == "",
+   "house-number ranges are trimmed to the first value")
+
+ok(trips.address_label({"road": "Huron Avenue", "city": "Cambridge", "ISO3166-2-lvl4": "US-MA"})
+   == "Huron Avenue, Cambridge, MA", "a road with no house number still reads as a street")
+ok(trips.address_label({"suburb": "Ball Square", "city": "Somerville", "ISO3166-2-lvl4": "US-MA"})
+   == "Ball Square, Somerville, MA", "no road (a park/lot) falls back to the neighbourhood")
+ok(trips.address_label({"road": "Main Street", "city": "Concord", "state": "New Hampshire"})
+   == "Main Street, Concord, New Hampshire", "the full state name is used when there's no ISO code")
+ok(trips.address_label({"city": "Somerville", "town": "Somerville", "ISO3166-2-lvl4": "US-MA"})
+   == "Somerville, MA", "a repeated name isn't printed twice")
+ok(trips.address_label({}) == "", "an empty address yields an empty label (caller falls back to coords)")
+
+# --- refreshing the labels on already-captured trips ------------------------------
+trips.NOMINATIM_MIN_INTERVAL = 0        # don't actually pace inside the test
+trips.reverse_place = lambda lat, lon: f"{lat:.4f} Somewhere St, Testville, MA"
+before = con.execute("SELECT id, start_place FROM trip_candidates WHERE status='pending' "
+                     "ORDER BY id DESC LIMIT 1").fetchone()
+if before:
+    changed = trips.refresh_places(con)
+    con.commit()
+    ok(changed >= 1, "refresh_places re-labels pending candidates")
+    after = con.execute("SELECT start_place, end_place FROM trip_candidates WHERE id=?",
+                        (before["id"],)).fetchone()
+    ok("Somewhere St" in after["start_place"] and "Somewhere St" in after["end_place"],
+       "both endpoints get the new address label")
+    ok(trips.refresh_places(con) == 0, "a second refresh changes nothing (already up to date)")
+# restore the coordinate-style stub for the rest of the file
+trips.reverse_place = lambda lat, lon: f"{lat:.4f}, {lon:.4f}"
+
 # --- haversine sanity ----------------------------------------------------------
 # Nashville downtown to Franklin TN is ~18 mi straight-line
 d = trips.haversine_miles(36.1627, -86.7816, 35.9251, -86.8689)
