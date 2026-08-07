@@ -13,6 +13,7 @@ Mileage page for approval; approving inserts a normal `mileage` row. Records-onl
 """
 import math
 import re
+import time
 from datetime import datetime
 
 from logutil import log
@@ -25,6 +26,7 @@ ROAD_FACTOR = 1.3         # haversine straight-line -> rough road miles when rou
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 USER_AGENT = "ShopBooks/1.0 (local bookkeeping app; single user)"
+NOMINATIM_MIN_INTERVAL = 1.1   # their usage policy: at most 1 request/second
 
 _place_cache = {}         # (round4 lat, round4 lon) -> label; in-process, resets on restart
 
@@ -160,22 +162,48 @@ def route_miles(lat1, lon1, lat2, lon2):
     return round(haversine_miles(lat1, lon1, lat2, lon2) * ROAD_FACTOR, 1), "estimate"
 
 
+def _house_number(raw):
+    """First number of an OSM house_number. Multi-address nodes carry ranges like `319;321` or
+    `11;13`, which would render as a broken address, so only the first is shown."""
+    return str(raw or "").split(";")[0].split(",")[0].strip()
+
+
+def address_label(a):
+    """Nominatim `address` dict -> "14 William Street, Somerville, MA".
+
+    A mileage log wants the street address, so `road` (+ house number) leads. Where OSM has no road
+    for the point — a park, a parking lot, open country — it falls back to the neighbourhood/suburb
+    name so the label still says something useful rather than nothing. State comes from the ISO code
+    (`US-MA` -> `MA`) to keep the line short; the full state name is the fallback."""
+    street = ""
+    if a.get("road"):
+        street = " ".join(p for p in (_house_number(a.get("house_number")), a["road"]) if p)
+    if not street:
+        street = a.get("neighbourhood") or a.get("suburb") or a.get("hamlet") or ""
+    town = (a.get("city") or a.get("town") or a.get("village") or a.get("hamlet")
+            or a.get("county") or "")
+    iso = a.get("ISO3166-2-lvl4") or ""
+    state = iso.split("-")[-1] if "-" in iso else (a.get("state") or "")
+    # dict.fromkeys keeps order while dropping a repeat (e.g. street fell back to the town name)
+    return ", ".join(dict.fromkeys(p for p in (street, town, state) if p))
+
+
 def reverse_place(lat, lon):
-    """Short human label for a coordinate via Nominatim (cached; polite User-Agent per the usage
-    policy). Falls back to the raw coordinates. Never raises."""
-    key = (round(lat, 4), round(lon, 4))
+    """Street address for a coordinate via Nominatim (cached; polite User-Agent per the usage
+    policy). Falls back to the raw coordinates. Never raises — geocoding is optional, like every
+    other network call here."""
+    key = (round(lat, 5), round(lon, 5))   # ~1m: distinct addresses must not share a cache slot
     if key in _place_cache:
         return _place_cache[key]
     label = f"{lat:.4f}, {lon:.4f}"
     try:
         import httpx
-        r = httpx.get(NOMINATIM_URL, params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 14},
+        r = httpx.get(NOMINATIM_URL,
+                      params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 18,
+                              "addressdetails": 1},
                       timeout=10, headers={"User-Agent": USER_AGENT})
         r.raise_for_status()
-        a = r.json().get("address") or {}
-        town = a.get("city") or a.get("town") or a.get("village") or a.get("hamlet") or a.get("county") or ""
-        spot = a.get("suburb") or a.get("neighbourhood") or a.get("road") or ""
-        pretty = ", ".join(p for p in (spot, town) if p)
+        pretty = address_label(r.json().get("address") or {})
         if pretty:
             label = pretty
     except Exception as e:
@@ -184,8 +212,93 @@ def reverse_place(lat, lon):
     return label
 
 
+def _paced_place(lat, lon):
+    """reverse_place, but waits out Nominatim's 1-request-per-second usage policy before a lookup
+    that will actually hit the network. Cached coordinates (a home address you leave from every day)
+    cost nothing."""
+    if (round(lat, 5), round(lon, 5)) not in _place_cache:
+        time.sleep(NOMINATIM_MIN_INTERVAL)
+    return reverse_place(lat, lon)
+
+
+def refresh_places(con, limit=25):
+    """Re-label pending trip candidates from their stored coordinates, for trips captured before the
+    labels became street addresses. Returns how many candidates changed. Bounded by `limit` because
+    each uncached point costs a paced network call — the page would otherwise hang on a long backlog."""
+    rows = con.execute(
+        "SELECT id, start_lat, start_lon, end_lat, end_lon, start_place, end_place "
+        "FROM trip_candidates WHERE status='pending' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    changed = 0
+    for r in rows:
+        start = _paced_place(r["start_lat"], r["start_lon"])
+        end = _paced_place(r["end_lat"], r["end_lon"])
+        if start != r["start_place"] or end != r["end_place"]:
+            con.execute("UPDATE trip_candidates SET start_place=?, end_place=? WHERE id=?",
+                        (start, end, r["id"]))
+            changed += 1
+    return changed
+
+
 def _minutes_between(ts1, ts2):
     return (datetime.fromisoformat(ts2) - datetime.fromisoformat(ts1)).total_seconds() / 60.0
+
+
+def _within(lat1, lon1, lat2, lon2, radius_m):
+    """True if two points are inside `radius_m` metres of each other."""
+    return haversine_miles(lat1, lon1, lat2, lon2) * 1609.344 <= radius_m
+
+
+def match_rule(con, start_lat, start_lon, end_lat, end_lon):
+    """The standing rule that best describes this drive, or None.
+
+    Rules match on COORDINATES, not the address text — OSM labels differ between neighbouring house
+    numbers, so "14 William Street" today can read "16 William Street" tomorrow for the same driveway.
+
+    A **route** rule (start AND destination both in range) beats a **destination** rule, because it's
+    the more specific statement: "shop -> home is personal" should win over "anything ending at home
+    is a commute". Within a kind, the rule whose destination is nearest wins, so a tight rule around
+    one loading dock beats a broad one around the whole industrial park."""
+    best = None
+    best_key = None
+    for r in con.execute("SELECT * FROM mileage_rules WHERE active=1"):
+        if not _within(end_lat, end_lon, r["dest_lat"], r["dest_lon"], r["radius_m"]):
+            continue
+        is_route = r["match_kind"] == "route" and r["start_lat"] is not None
+        if is_route and not _within(start_lat, start_lon, r["start_lat"], r["start_lon"], r["radius_m"]):
+            continue
+        dist = haversine_miles(end_lat, end_lon, r["dest_lat"], r["dest_lon"])
+        key = (0 if is_route else 1, dist)      # route first, then nearest destination
+        if best_key is None or key < best_key:
+            best, best_key = r, key
+    return best
+
+
+def apply_rule(con, cand_id, rule):
+    """Attach a matched rule to a candidate, and — if the rule is marked trusted (`auto_log`) — log
+    the trip immediately instead of parking it in the approval queue. Returns True if it auto-logged."""
+    con.execute("UPDATE trip_candidates SET rule_id=? WHERE id=?", (rule["id"], cand_id))
+    if not rule["auto_log"]:
+        return False
+    c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
+    approve(con, cand_id, c["miles"], rule["purpose"], c["start_place"], c["end_place"],
+            business=rule["business"])
+    return True
+
+
+def apply_rules_to_pending(con):
+    """Re-match every waiting trip against the current rules. Returns (matched, auto_logged).
+
+    Called after a rule is added so the trip you built the rule from is sorted out immediately,
+    instead of the rule only affecting drives you haven't taken yet."""
+    matched = logged = 0
+    for c in con.execute("SELECT * FROM trip_candidates WHERE status='pending'").fetchall():
+        rule = match_rule(con, c["start_lat"], c["start_lon"], c["end_lat"], c["end_lon"])
+        if not rule:
+            continue
+        matched += 1
+        if apply_rule(con, c["id"], rule):
+            logged += 1
+    return matched, logged
 
 
 def pair_events(con):
@@ -222,12 +335,15 @@ def pair_events(con):
         if crow < MIN_TRIP_MILES and mins < MIN_TRIP_MINUTES:
             continue   # phone reconnected in the driveway; not a trip
         miles, source = route_miles(ev["lat"], ev["lon"], partner["lat"], partner["lon"])
-        con.execute(
+        cur = con.execute(
             "INSERT INTO trip_candidates(start_ts,end_ts,start_lat,start_lon,end_lat,end_lon,"
             "miles,distance_source,start_place,end_place) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (ev["ts"], partner["ts"], ev["lat"], ev["lon"], partner["lat"], partner["lon"],
              miles, source, reverse_place(ev["lat"], ev["lon"]),
              reverse_place(partner["lat"], partner["lon"])))
+        rule = match_rule(con, ev["lat"], ev["lon"], partner["lat"], partner["lon"])
+        if rule:
+            apply_rule(con, cur.lastrowid, rule)   # auto-logs when the rule is trusted
         created += 1
     # disconnects that never found a connect and are old news
     for ev in pending:
@@ -248,18 +364,26 @@ def _watch_trip_event(con, path, data):
 
 
 def pending_candidates(con):
+    """Pending trips, each carrying the matched rule's suggestion (rule_name/purpose/business) so the
+    page can pre-fill it. `business` defaults to 1 for an unmatched trip — the same assumption the
+    mileage log made before rules existed."""
     return con.execute(
-        "SELECT * FROM trip_candidates WHERE status='pending' ORDER BY start_ts DESC, id DESC").fetchall()
+        "SELECT c.*, r.name rule_name, r.purpose rule_purpose, "
+        "       COALESCE(r.business, 1) suggested_business "
+        "FROM trip_candidates c LEFT JOIN mileage_rules r ON r.id = c.rule_id "
+        "WHERE c.status='pending' ORDER BY c.start_ts DESC, c.id DESC").fetchall()
 
 
-def approve(con, cand_id, miles, purpose, from_loc, to_loc):
-    """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone."""
+def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=1):
+    """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone.
+    `business=0` logs the trip but keeps it out of the mileage deduction."""
     c = con.execute("SELECT * FROM trip_candidates WHERE id=? AND status='pending'", (cand_id,)).fetchone()
     if not c:
         return None
     date = c["start_ts"][:10]
-    cur = con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc) VALUES(?,?,?,?,?)",
-                      (date, miles, purpose, from_loc, to_loc))
+    cur = con.execute(
+        "INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
+        (date, miles, purpose, from_loc, to_loc, 1 if business else 0))
     con.execute("UPDATE trip_candidates SET status='approved', mileage_id=? WHERE id=?",
                 (cur.lastrowid, cand_id))
     return cur.lastrowid
