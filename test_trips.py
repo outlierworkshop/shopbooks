@@ -30,6 +30,49 @@ ok(trips.parse_event("connect,2026-07-14T08:32:11,99.9,-86.5") is None, "out-of-
 ok(trips.parse_event("connect,2026-07-14T08:32:11,36.1,-86.5,extra,fields") is not None,
    "trailing fields tolerated (future-proofing)")
 
+# --- the phone trip logger's own format ------------------------------------------
+# Real line shape (see docs/mileage-automation.md): US M-D-YY date, HH.MM time, and TWO coordinate
+# pairs — `Location` is the trigger's cached anchor, `(Lat/Long: ...)` the phone's actual position.
+LINE = "[START] 8-6-26 14.28 | Location 42.39588236901909,-71.11721995286644 (Lat/Long: 42.3959688,-71.1172687)"
+ev = trips.parse_event(LINE)
+ok(ev is not None, "a [START] log line parses")
+ok(ev["event"] == "connect", "[START] maps to the internal 'connect'")
+ok(ev["ts"] == "2026-08-06T14:28:00", "M-D-YY + HH.MM -> 2026-08-06T14:28:00")
+ok((ev["lat"], ev["lon"]) == (42.3959688, -71.1172687),
+   "the precise (Lat/Long: ...) fix wins over the cached Location anchor")
+ok(trips.parse_event(LINE.replace("[START]", "[END]"))["event"] == "disconnect",
+   "[END] maps to 'disconnect'")
+ok(trips.parse_event(LINE.replace("[START]", "[STOP]"))["event"] == "disconnect",
+   "[STOP] is accepted as an end too")
+ok(trips.parse_event("[START] 8-6-26 14.28 | Location 42.3958823,-71.1172199")["lat"] == 42.3958823,
+   "a line with only the Location anchor still parses (fallback)")
+ok(trips.parse_event("[START] 8-6-26 not-a-time | Lat/Long: 42.1,-71.1") is None,
+   "an unparseable time is rejected")
+ok(trips.parse_event("[START] 8-6-26 14.28 | no coordinates here") is None,
+   "a line with no coordinates is rejected")
+
+# one appending log holding MANY events: every line lands, and re-reading adds nothing (the watcher
+# re-reads the whole file each time the phone appends to it)
+LOG = b"""[START] 8-6-26 20.44 | Location 42.3995,-71.1206 (Lat/Long: 42.3993994,-71.1204718)
+[END] 8-6-26 20.54 | Location 42.3995,-71.1206 (Lat/Long: 42.3814879,-71.1366357)
+"""
+before = con.execute("SELECT COUNT(*) c FROM trip_events").fetchone()["c"]
+s, note = trips.ingest_event_file(con, Path("triplog.txt"), LOG)
+ok(s == "imported" and "2 new" in note, f"a multi-line log ingests every event ({note})")
+ok(con.execute("SELECT COUNT(*) c FROM trip_events").fetchone()["c"] == before + 2,
+   "both lines were stored")
+s, note = trips.ingest_event_file(con, Path("triplog.txt"), LOG)
+ok(s == "duplicate", "re-reading the same log adds nothing (idempotent)")
+ok(con.execute("SELECT COUNT(*) c FROM trip_events").fetchone()["c"] == before + 2,
+   "the event count is unchanged after a re-read")
+
+# the log grows: only the appended line is new
+GROWN = LOG + b"[START] 8-6-26 21.10 | Location 42.3815,-71.1366 (Lat/Long: 42.3814879,-71.1366357)\n"
+s, note = trips.ingest_event_file(con, Path("triplog.txt"), GROWN)
+ok(s == "imported" and "1 new" in note and "2 already logged" in note,
+   f"an appended log ingests only the new line ({note})")
+ok(trips.pair_events(con) >= 1, "the logged drive pairs into a candidate")
+
 # --- haversine sanity ----------------------------------------------------------
 # Nashville downtown to Franklin TN is ~18 mi straight-line
 d = trips.haversine_miles(36.1627, -86.7816, 35.9251, -86.8689)

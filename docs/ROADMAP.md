@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-07 — Mileage: read the trip log the phone actually writes
+- The trips folder was configured and being scanned, but **no trips ever appeared**: `parse_event`
+  expected one file per event containing `connect,ISO-time,lat,lon`, while the phone writes a
+  **single appending `triplog.txt`** of `[START] 8-6-26 14.28 | Location la,lo (Lat/Long: la,lo)`
+  lines. Every scan failed with "not a trip event", so the folder looked connected and did nothing.
+- `parse_event` now reads that format — `[START]`/`[END]`/`[STOP]`, US `M-D-YY` dates, `HH.MM` times
+  — and prefers the precise `(Lat/Long: …)` fix over the `Location` anchor, which is a cached
+  trigger position that repeats verbatim across lines. The original one-file-per-event format still
+  works unchanged.
+- `ingest_event_file` handles **many events per file**: it re-reads the whole log each time the phone
+  appends and stores only unseen lines (keyed on event + timestamp), so a growing log is idempotent —
+  nothing is double-counted, nothing is re-imported.
+- Verified against the real `triplog.txt`: 7 lines → 1 genuine trip candidate (20:44→20:54, 1.9 mi),
+  the two same-minute driveway blips consumed silently, and the stray `[END]` marked an orphan.
+- `docs/mileage-automation.md` documents both accepted formats.
+
 ### 2026-08-05 — Progress invoices split income by the job they're billing
 - A progress invoice is billed as a **single summary line with no catalog item** (by design — see
   `estimate_bill`), so it named no income accounts of its own and fell entirely to the payment-time

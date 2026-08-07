@@ -20,15 +20,41 @@ phone connects to car BT ──▶ event file in Dropbox ──▶ ShopBooks wat
 
 ## The event file format
 
-One file per event (any `.txt` name — make it unique with a timestamp), containing one line:
+**Two shapes are accepted**, so use whichever your phone produces most easily.
+
+### A. One appending log (what the phone trip logger writes)
+
+A single file the phone keeps appending to — e.g. `triplog.txt`:
+
+```
+[START] 8-6-26 14.28 | Location 42.3958823,-71.1172199 (Lat/Long: 42.3959688,-71.1172687)
+[END]   8-6-26 20.54 | Location 42.3995149,-71.1206168 (Lat/Long: 42.3814879,-71.1366357)
+```
+
+`[START]` / `[END]` (`[STOP]` also works), a **US `M-D-YY`** date, an `HH.MM` time, and coordinates.
+Note the two coordinate pairs: `Location` is the trigger's cached anchor (it often repeats verbatim
+across lines), while `(Lat/Long: …)` is where the phone actually was — so **`Lat/Long` is used** when
+present, and `Location` only as a fallback.
+
+The watcher re-reads the file whenever it grows and stores only the lines it hasn't seen (events are
+keyed on event + timestamp), so an ever-growing log is safe to leave in place — nothing is
+double-counted and old lines are never re-imported.
+
+### B. One file per event
+
+Any `.txt`/`.csv` name, containing one line:
 
 ```
 connect,2026-07-14T08:32:11,36.1234,-86.5678
 ```
 
-`connect` or `disconnect`, then ISO local time, then latitude, longitude. A `connect` followed by
-the next `disconnect` (within 12 hours) becomes one trip. Sub-5-minute, sub-0.1-mile pairs (phone
-reconnecting in the driveway) are ignored automatically.
+`connect` or `disconnect`, then ISO local time, then latitude, longitude.
+
+### Either way
+
+A start followed by the next end (within 12 hours) becomes one trip. Sub-5-minute, sub-0.1-mile pairs
+(phone reconnecting in the driveway) are ignored automatically, and an end with no start — or a start
+whose end never arrives within 12 hours — is marked an orphan rather than guessed at.
 
 ## Android setup — MacroDroid (recommended, ~15 minutes)
 
