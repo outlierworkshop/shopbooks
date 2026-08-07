@@ -12,6 +12,7 @@ endpoints are reverse-geocoded via Nominatim for a readable "where to where". Ca
 Mileage page for approval; approving inserts a normal `mileage` row. Records-only — no ledger impact.
 """
 import math
+import re
 from datetime import datetime
 
 from logutil import log
@@ -28,41 +29,109 @@ USER_AGENT = "ShopBooks/1.0 (local bookkeeping app; single user)"
 _place_cache = {}         # (round4 lat, round4 lon) -> label; in-process, resets on restart
 
 
-def parse_event(text):
-    """One event line -> dict, or None if it isn't one. Format:
-    `connect,ISO-timestamp,lat,lon` — extra trailing fields are tolerated (future-proofing)."""
-    parts = [p.strip() for p in str(text).strip().splitlines()[0].split(",")] if str(text).strip() else []
-    if len(parts) < 4:
-        return None
-    event = parts[0].lower()
-    if event not in ("connect", "disconnect"):
-        return None
-    try:
-        ts = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
-        lat, lon = float(parts[2]), float(parts[3])
-    except ValueError:
-        return None
+# The phone's trip logger writes lines like:
+#   [START] 8-6-26 14.28 | Location 42.3958823,-71.1172199 (Lat/Long: 42.3959688,-71.1172687)
+# Dates are US M-D-YY and times are HH.MM. There are TWO coordinate pairs per line: `Location ...` is
+# the trigger's anchor (it repeats verbatim across lines, so it's a cached/geofence fix) while
+# `(Lat/Long: ...)` is the phone's actual position at that moment — that's the one worth measuring, so
+# it's preferred and `Location` is only the fallback.
+_HEAD_RE = re.compile(
+    r"^\[(?P<ev>START|END|STOP)\]\s*(?P<a>\d{1,2})-(?P<b>\d{1,2})-(?P<y>\d{2,4})"
+    r"\s+(?P<h>\d{1,2})[.:](?P<mi>\d{2})(?:[.:](?P<s>\d{2}))?", re.IGNORECASE)
+_LATLON_RE = re.compile(r"Lat\s*/\s*Long\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+_LOC_RE = re.compile(r"Location\s+(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+
+_START_WORDS = {"start", "connect"}
+
+
+def _mk(event, ts, lat, lon):
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     return {"event": event, "ts": ts.replace(tzinfo=None).isoformat(timespec="seconds"),
             "lat": lat, "lon": lon}
 
 
+def parse_event(text):
+    """One log line -> {event, ts, lat, lon}, or None if the line isn't a trip event.
+
+    Understands both shapes the app has seen:
+      * the phone trip logger's `[START] 8-6-26 14.28 | Location la,lo (Lat/Long: la,lo)`
+      * the original one-event-per-file `connect,ISO-timestamp,lat,lon`
+    Either way the result uses the internal `connect`/`disconnect` vocabulary, so the pairing and
+    schema below are unchanged."""
+    line = str(text).strip().splitlines()[0].strip() if str(text).strip() else ""
+    if not line:
+        return None
+
+    m = _HEAD_RE.match(line)
+    if m:
+        a, b, y = int(m.group("a")), int(m.group("b")), int(m.group("y"))
+        if y < 100:
+            y += 2000
+        month, day = a, b               # US M-D-YY
+        if month > 12 and day <= 12:    # ...unless it can only be D-M (defensive; never seen here)
+            month, day = day, month
+        try:
+            ts = datetime(y, month, day, int(m.group("h")), int(m.group("mi")),
+                          int(m.group("s") or 0))
+        except ValueError:
+            return None
+        coords = _LATLON_RE.search(line) or _LOC_RE.search(line)
+        if not coords:
+            return None
+        event = "connect" if m.group("ev").lower() in _START_WORDS else "disconnect"
+        try:
+            return _mk(event, ts, float(coords.group(1)), float(coords.group(2)))
+        except ValueError:
+            return None
+
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) < 4 or parts[0].lower() not in ("connect", "disconnect"):
+        return None
+    try:
+        ts = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
+        return _mk(parts[0].lower(), ts, float(parts[2]), float(parts[3]))
+    except ValueError:
+        return None
+
+
 def ingest_event_file(con, path, data):
-    """Watcher callback: (con, Path, bytes) -> (status, note). One file = one event."""
+    """Watcher callback: (con, Path, bytes) -> (status, note).
+
+    A file may hold ONE event (the original one-file-per-event drop) or MANY — the phone's trip
+    logger appends every event to a single `triplog.txt` that grows over time. The watcher re-reads a
+    file whenever its mtime/size change, so this re-reads the whole log and inserts only the lines it
+    hasn't seen: events are de-duplicated on (event, timestamp), which is what makes re-reading a
+    growing log safe and idempotent."""
     try:
         text = data.decode("utf-8-sig", errors="replace")
     except Exception:
         return "error", "unreadable file"
-    ev = parse_event(text)
-    if not ev:
-        return "error", "not a trip event (want: connect,ISO-time,lat,lon)"
-    dup = con.execute("SELECT 1 FROM trip_events WHERE event=? AND ts=?", (ev["event"], ev["ts"])).fetchone()
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return "error", "empty file"
+    new = dup = unparsed = 0
+    for ln in lines:
+        ev = parse_event(ln)
+        if not ev:
+            unparsed += 1
+            continue
+        if con.execute("SELECT 1 FROM trip_events WHERE event=? AND ts=?",
+                       (ev["event"], ev["ts"])).fetchone():
+            dup += 1
+            continue
+        con.execute("INSERT INTO trip_events(event, ts, lat, lon, raw) VALUES(?,?,?,?,?)",
+                    (ev["event"], ev["ts"], ev["lat"], ev["lon"], ln.strip()[:200]))
+        new += 1
+    if new:
+        note = f"{new} new event(s)"
+        if dup:
+            note += f", {dup} already logged"
+        return "imported", note
     if dup:
-        return "duplicate", "event already ingested"
-    con.execute("INSERT INTO trip_events(event, ts, lat, lon, raw) VALUES(?,?,?,?,?)",
-                (ev["event"], ev["ts"], ev["lat"], ev["lon"], text.strip()[:200]))
-    return "imported", f"{ev['event']} @ {ev['ts']}"
+        return "duplicate", f"no new events ({dup} already logged)"
+    return "error", ("no trip events found — expected [START]/[END] lines "
+                     "or connect,ISO-time,lat,lon")
 
 
 def haversine_miles(lat1, lon1, lat2, lon2):
