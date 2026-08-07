@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-05 — Progress invoices split income by the job they're billing
+- A progress invoice is billed as a **single summary line with no catalog item** (by design — see
+  `estimate_bill`), so it named no income accounts of its own and fell entirely to the payment-time
+  picker. It now **inherits the parent estimate's line accounts, in the estimate's proportions**:
+  billing 50% of a job that's 2/3 Fabrication and 1/3 Design splits the payment the same way.
+- Only kicks in when the invoice itself names nothing and has an `estimate_id` whose estimate *does*
+  name accounts — an ordinary itemless invoice still uses the fallback, unchanged.
+- The payment form's picker is now derived from the split itself (the share it couldn't place),
+  rather than counting unlinked lines, so a progress invoice correctly stops asking too.
+- Line weighting moved to `_line_income_weights`, shared by the invoice and its parent estimate.
+
 ### 2026-08-03 — Invoice payments credit the accounts on the invoice's own lines
 - Recording a payment made you classify the income into **one** hand-picked account, so a job that
   was $2,200 Fabrication + $750 Design Income landed entirely in whichever you chose. The income is

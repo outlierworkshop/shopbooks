@@ -435,10 +435,10 @@ def invoice_view(request: Request, invoice_id: int, msg: str = "", err: str = ""
             row = con.execute("SELECT name FROM accounts WHERE id=?", (aid,)).fetchone() if aid else None
             income_split.append({"id": aid, "name": row["name"] if row else "the account you pick",
                                  "amount": cents})
-        income_unmapped = con.execute(
-            "SELECT COUNT(*) c FROM invoice_items ii LEFT JOIN items itm ON itm.id=ii.item_id "
-            "WHERE ii.invoice_id=? AND ii.qty*ii.unit_cents<>0 AND itm.income_account_id IS NULL",
-            (invoice_id,)).fetchone()["c"]
+        # The picker is only needed for the part the split couldn't place (aid None). Derived from the
+        # split itself, so it stays right for a progress invoice — that has one itemless summary line
+        # but inherits its parent estimate's accounts, and so needs no picker either.
+        income_unmapped = sum(1 for s in income_split if s["id"] is None)
 
     return templates.TemplateResponse(request, "invoice_view.html", ctx(
         request, con, inv=inv, items=items, total=total, banks=banks, income=income,

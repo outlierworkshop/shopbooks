@@ -126,6 +126,22 @@ def invoice_default_income_id(con, invoice_id):
     return row["id"] if row else None
 
 
+def _line_income_weights(con, invoice_id, fallback_account_id=None):
+    """{income_account_id: line_cents} for a document's lines. A line's account comes from its catalog
+    item; one typed freehand (no item, or an item with no account) is credited to the fallback.
+    Blank spacer lines and zero/negative lines carry no weight."""
+    weights = {}
+    for r in con.execute(
+            "SELECT ii.qty, ii.unit_cents, itm.income_account_id aid FROM invoice_items ii "
+            "LEFT JOIN items itm ON itm.id = ii.item_id WHERE ii.invoice_id=?", (invoice_id,)):
+        amt = round(r["qty"] * r["unit_cents"])
+        if amt <= 0:
+            continue
+        acct = r["aid"] or fallback_account_id
+        weights[acct] = weights.get(acct, 0) + amt
+    return weights
+
+
 def invoice_income_split(con, invoice_id, income_cents, fallback_account_id=None):
     """How a payment's INCOME portion divides across income accounts: [(account_id, cents), ...],
     summing to exactly `income_cents`.
@@ -141,16 +157,17 @@ def invoice_income_split(con, invoice_id, income_cents, fallback_account_id=None
     the entry still balances — no rounding drift, including on a partial payment."""
     if income_cents <= 0:                       # nothing to split (or a credit): one leg, unchanged
         return [(fallback_account_id, income_cents)] if income_cents else []
-    rows = con.execute(
-        "SELECT ii.qty, ii.unit_cents, itm.income_account_id aid FROM invoice_items ii "
-        "LEFT JOIN items itm ON itm.id = ii.item_id WHERE ii.invoice_id=?", (invoice_id,)).fetchall()
-    weights = {}
-    for r in rows:
-        amt = round(r["qty"] * r["unit_cents"])
-        if amt <= 0:
-            continue                            # blank spacer lines (and zero lines) carry no weight
-        acct = r["aid"] or fallback_account_id
-        weights[acct] = weights.get(acct, 0) + amt
+    weights = _line_income_weights(con, invoice_id, fallback_account_id)
+    # A PROGRESS invoice is billed as a single summary line with no catalog item (by design — see
+    # routes_estimates.estimate_bill), so it names no accounts of its own and would fall entirely to
+    # the picker. Inherit the parent estimate's line accounts instead, in the estimate's proportions:
+    # billing 50% of a job that's 2/3 Fabrication and 1/3 Design splits the payment the same way.
+    if set(weights) <= {fallback_account_id}:
+        parent = con.execute("SELECT estimate_id FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        if parent and parent["estimate_id"]:
+            est_weights = _line_income_weights(con, parent["estimate_id"], fallback_account_id)
+            if set(est_weights) - {fallback_account_id, None}:   # the estimate does name accounts
+                weights = est_weights
     total = sum(weights.values())
     if not weights or total <= 0:               # nothing to go on -> today's single-account behavior
         return [(fallback_account_id, income_cents)]
