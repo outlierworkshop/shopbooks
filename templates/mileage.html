@@ -5,7 +5,8 @@
 {% if msg %}<p class="note">{{ msg }}</p>{% endif %}
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
 <div class="cards">
-  <div class="card"><div class="label">{{ year }} miles</div><div class="big">{{ '%.1f'|format(ytd) }}</div></div>
+  <div class="card"><div class="label">{{ year }} business miles</div><div class="big">{{ '%.1f'|format(ytd) }}</div>
+    {% if ytd_all > ytd %}<span class="muted">{{ '%.1f'|format(ytd_all) }} total &middot; {{ '%.1f'|format(ytd_all - ytd) }} personal</span>{% endif %}</div>
   <div class="card"><div class="label">Rate</div><div class="big">${{ '%.2f'|format(rate) }}/mi</div>
     <a class="muted" href="/settings">change in settings</a></div>
   <div class="card"><div class="label">{{ year }} deduction</div><div class="big pos">${{ deduction_cents|money }}</div></div>
@@ -26,19 +27,50 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
 <form id="cand-{{ c.id }}" method="post" action="/mileage/trip/{{ c.id }}/approve"></form>
 {% endfor %}
 <table>
-  <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th></th></tr>
+  <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th>Type</th><th></th></tr>
   {% for c in candidates %}
   <tr>
     <td>{{ c.start_ts[:10] }} <span class="muted">{{ c.start_ts[11:16] }}</span></td>
     <td>{{ c.start_place }} → {{ c.end_place }}
-      {% if c.distance_source != 'osrm' %}<span class="warn" title="Routing service was unreachable — this is a straight-line estimate x1.3. Double-check the miles."> (estimated)</span>{% endif %}</td>
+      {% if c.distance_source != 'osrm' %}<span class="warn" title="Routing service was unreachable — this is a straight-line estimate x1.3. Double-check the miles."> (estimated)</span>{% endif %}
+      {% if c.rule_name %}<br><span class="muted" style="font-size:12px">rule: <strong>{{ c.rule_name }}</strong></span>{% endif %}</td>
     <td class="num">{{ c.minutes }} min</td>
     <td class="num"><input type="number" name="miles" value="{{ c.miles }}" step="0.1" min="0.1" style="width:80px" required form="cand-{{ c.id }}"></td>
-    <td><input type="text" name="purpose" placeholder="purpose" style="width:180px" form="cand-{{ c.id }}"></td>
+    <td><input type="text" name="purpose" placeholder="purpose" value="{{ c.rule_purpose or '' }}"
+               style="width:180px" form="cand-{{ c.id }}"></td>
+    <td>
+      <select name="business" form="cand-{{ c.id }}" title="Personal trips are logged but not deducted">
+        <option value="1" {{ 'selected' if c.suggested_business else '' }}>Business</option>
+        <option value="0" {{ '' if c.suggested_business else 'selected' }}>Personal</option>
+      </select>
+    </td>
     <td>
       <button class="small" type="submit" form="cand-{{ c.id }}">Approve</button>
       <button class="small ghost" type="submit" form="cand-{{ c.id }}"
               formaction="/mileage/trip/{{ c.id }}/dismiss" formnovalidate>Dismiss</button>
+      <details style="display:inline-block; margin-left:6px">
+        <summary class="muted" style="font-size:12px; cursor:pointer" title="Always classify trips like this the same way">+ rule</summary>
+        <form method="post" action="/mileage/rules/from-trip/{{ c.id }}"
+              style="border:1px solid var(--line); border-radius:6px; padding:8px; margin-top:6px; min-width:230px; text-align:left">
+          <input type="text" name="name" placeholder="Rule name" style="width:100%; margin-bottom:4px"
+                 value="{{ c.end_place.split(',')[0] if c.end_place else '' }}">
+          <input type="text" name="purpose" placeholder="Purpose to fill in" style="width:100%; margin-bottom:4px">
+          <select name="match_kind" style="width:100%; margin-bottom:4px">
+            <option value="destination">Any trip ending here</option>
+            <option value="route">Only this exact route (same start &amp; end)</option>
+          </select>
+          <select name="business" style="width:100%; margin-bottom:4px">
+            <option value="1">Business</option><option value="0">Personal</option>
+          </select>
+          <label class="muted" style="font-size:12px; display:block; margin-bottom:6px">
+            Within <input type="number" name="radius_m" value="150" min="25" max="20000" style="width:70px"> m
+          </label>
+          <label class="muted" style="font-size:12px; display:block; margin-bottom:6px">
+            <input type="checkbox" name="auto_log" value="1"> Trusted — log these automatically
+          </label>
+          <button type="submit" class="small">Save rule</button>
+        </form>
+      </details>
     </td>
   </tr>
   {% endfor %}
@@ -63,6 +95,33 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
 <p class="muted">One click logs the route as today's trip — edit the log below if the date differs.</p>
 {% endif %}
 
+{% if rules %}
+<h2>Mileage rules <span class="badge">{{ rules|length }}</span></h2>
+<p class="muted">Standing rules classify a detected trip automatically. They match on the trip's
+<em>coordinates</em>, not the address text, so a drifting house number doesn't break them. A route
+rule (same start <em>and</em> end) wins over a destination rule when both fit.</p>
+<table>
+  <tr><th>Rule</th><th>Matches</th><th>Purpose</th><th>Type</th><th>Auto-log</th><th></th></tr>
+  {% for r in rules %}
+  <tr {{ 'style=opacity:.5' if not r.active else '' }}>
+    <td>{{ r.name }}{% if not r.active %} <span class="muted">(off)</span>{% endif %}</td>
+    <td class="muted">{{ 'This exact route' if r.match_kind == 'route' else 'Any trip ending there' }},
+      within {{ r.radius_m }} m</td>
+    <td>{{ r.purpose }}</td>
+    <td>{% if r.business %}Business{% else %}<span class="muted">Personal</span>{% endif %}</td>
+    <td>{% if r.auto_log %}<strong>yes</strong>{% else %}<span class="muted">no — waits for approval</span>{% endif %}</td>
+    <td style="white-space:nowrap">
+      <form class="inline" method="post" action="/mileage/rules/{{ r.id }}/toggle">
+        <button class="small ghost" type="submit">{{ 'Disable' if r.active else 'Enable' }}</button></form>
+      <form class="inline" method="post" action="/mileage/rules/{{ r.id }}/delete"
+            onsubmit="return confirm('Delete rule {{ r.name }}? Trips already logged are unchanged.')">
+        <button class="small danger" type="submit">✕</button></form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 <h2>Add a trip</h2>
 <form method="post" class="toolbar">
   <input type="date" name="date" value="{{ today }}" required>
@@ -70,23 +129,27 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
   <input type="text" name="purpose" placeholder="purpose (client visit, supply run...)" style="width:240px">
   <input type="text" name="from_loc" placeholder="from" style="width:120px">
   <input type="text" name="to_loc" placeholder="to" style="width:120px">
+  <select name="business" title="Personal trips are logged but not deducted">
+    <option value="1">Business</option><option value="0">Personal</option>
+  </select>
   <label class="inline" style="white-space:nowrap" title="Remember this trip as a one-click saved route (named after the purpose)">
     <input type="checkbox" name="save_route" value="1"> save as route</label>
   <button type="submit">Add</button>
 </form>
 
 <table class="sortable">
-  <tr><th>Date</th><th class="num">Miles</th><th>Purpose</th><th>From</th><th>To</th><th></th></tr>
+  <tr><th>Date</th><th class="num">Miles</th><th>Type</th><th>Purpose</th><th>From</th><th>To</th><th></th></tr>
   {% for t in trips %}
   <tr>
     <td>{{ t.date }}</td><td class="num">{{ '%.1f'|format(t.miles) }}</td>
+    <td>{% if t.business %}Business{% else %}<span class="muted" title="Logged, but not part of the deduction">Personal</span>{% endif %}</td>
     <td>{{ t.purpose }}</td><td class="muted">{{ t.from_loc }}</td><td class="muted">{{ t.to_loc }}</td>
     <td><form class="inline" method="post" action="/mileage/delete">
       <input type="hidden" name="trip_id" value="{{ t.id }}">
       <button class="small danger" type="submit">✕</button></form></td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">No trips logged yet.</td></tr>
+  <tr><td colspan="7" class="muted">No trips logged yet.</td></tr>
   {% endfor %}
 </table>
 <p class="muted">The IRS standard mileage rate changes each January - update it in Settings.

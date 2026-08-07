@@ -243,6 +243,64 @@ def _minutes_between(ts1, ts2):
     return (datetime.fromisoformat(ts2) - datetime.fromisoformat(ts1)).total_seconds() / 60.0
 
 
+def _within(lat1, lon1, lat2, lon2, radius_m):
+    """True if two points are inside `radius_m` metres of each other."""
+    return haversine_miles(lat1, lon1, lat2, lon2) * 1609.344 <= radius_m
+
+
+def match_rule(con, start_lat, start_lon, end_lat, end_lon):
+    """The standing rule that best describes this drive, or None.
+
+    Rules match on COORDINATES, not the address text — OSM labels differ between neighbouring house
+    numbers, so "14 William Street" today can read "16 William Street" tomorrow for the same driveway.
+
+    A **route** rule (start AND destination both in range) beats a **destination** rule, because it's
+    the more specific statement: "shop -> home is personal" should win over "anything ending at home
+    is a commute". Within a kind, the rule whose destination is nearest wins, so a tight rule around
+    one loading dock beats a broad one around the whole industrial park."""
+    best = None
+    best_key = None
+    for r in con.execute("SELECT * FROM mileage_rules WHERE active=1"):
+        if not _within(end_lat, end_lon, r["dest_lat"], r["dest_lon"], r["radius_m"]):
+            continue
+        is_route = r["match_kind"] == "route" and r["start_lat"] is not None
+        if is_route and not _within(start_lat, start_lon, r["start_lat"], r["start_lon"], r["radius_m"]):
+            continue
+        dist = haversine_miles(end_lat, end_lon, r["dest_lat"], r["dest_lon"])
+        key = (0 if is_route else 1, dist)      # route first, then nearest destination
+        if best_key is None or key < best_key:
+            best, best_key = r, key
+    return best
+
+
+def apply_rule(con, cand_id, rule):
+    """Attach a matched rule to a candidate, and — if the rule is marked trusted (`auto_log`) — log
+    the trip immediately instead of parking it in the approval queue. Returns True if it auto-logged."""
+    con.execute("UPDATE trip_candidates SET rule_id=? WHERE id=?", (rule["id"], cand_id))
+    if not rule["auto_log"]:
+        return False
+    c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
+    approve(con, cand_id, c["miles"], rule["purpose"], c["start_place"], c["end_place"],
+            business=rule["business"])
+    return True
+
+
+def apply_rules_to_pending(con):
+    """Re-match every waiting trip against the current rules. Returns (matched, auto_logged).
+
+    Called after a rule is added so the trip you built the rule from is sorted out immediately,
+    instead of the rule only affecting drives you haven't taken yet."""
+    matched = logged = 0
+    for c in con.execute("SELECT * FROM trip_candidates WHERE status='pending'").fetchall():
+        rule = match_rule(con, c["start_lat"], c["start_lon"], c["end_lat"], c["end_lon"])
+        if not rule:
+            continue
+        matched += 1
+        if apply_rule(con, c["id"], rule):
+            logged += 1
+    return matched, logged
+
+
 def pair_events(con):
     """Chronologically pair pending connect -> next disconnect into trip candidates. Driveway blips
     (barely moved, barely any time) are consumed silently; a connect with no partner inside
@@ -277,12 +335,15 @@ def pair_events(con):
         if crow < MIN_TRIP_MILES and mins < MIN_TRIP_MINUTES:
             continue   # phone reconnected in the driveway; not a trip
         miles, source = route_miles(ev["lat"], ev["lon"], partner["lat"], partner["lon"])
-        con.execute(
+        cur = con.execute(
             "INSERT INTO trip_candidates(start_ts,end_ts,start_lat,start_lon,end_lat,end_lon,"
             "miles,distance_source,start_place,end_place) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (ev["ts"], partner["ts"], ev["lat"], ev["lon"], partner["lat"], partner["lon"],
              miles, source, reverse_place(ev["lat"], ev["lon"]),
              reverse_place(partner["lat"], partner["lon"])))
+        rule = match_rule(con, ev["lat"], ev["lon"], partner["lat"], partner["lon"])
+        if rule:
+            apply_rule(con, cur.lastrowid, rule)   # auto-logs when the rule is trusted
         created += 1
     # disconnects that never found a connect and are old news
     for ev in pending:
@@ -303,18 +364,26 @@ def _watch_trip_event(con, path, data):
 
 
 def pending_candidates(con):
+    """Pending trips, each carrying the matched rule's suggestion (rule_name/purpose/business) so the
+    page can pre-fill it. `business` defaults to 1 for an unmatched trip — the same assumption the
+    mileage log made before rules existed."""
     return con.execute(
-        "SELECT * FROM trip_candidates WHERE status='pending' ORDER BY start_ts DESC, id DESC").fetchall()
+        "SELECT c.*, r.name rule_name, r.purpose rule_purpose, "
+        "       COALESCE(r.business, 1) suggested_business "
+        "FROM trip_candidates c LEFT JOIN mileage_rules r ON r.id = c.rule_id "
+        "WHERE c.status='pending' ORDER BY c.start_ts DESC, c.id DESC").fetchall()
 
 
-def approve(con, cand_id, miles, purpose, from_loc, to_loc):
-    """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone."""
+def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=1):
+    """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone.
+    `business=0` logs the trip but keeps it out of the mileage deduction."""
     c = con.execute("SELECT * FROM trip_candidates WHERE id=? AND status='pending'", (cand_id,)).fetchone()
     if not c:
         return None
     date = c["start_ts"][:10]
-    cur = con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc) VALUES(?,?,?,?,?)",
-                      (date, miles, purpose, from_loc, to_loc))
+    cur = con.execute(
+        "INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
+        (date, miles, purpose, from_loc, to_loc, 1 if business else 0))
     con.execute("UPDATE trip_candidates SET status='approved', mileage_id=? WHERE id=?",
                 (cur.lastrowid, cand_id))
     return cur.lastrowid

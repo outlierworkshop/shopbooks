@@ -16,15 +16,20 @@ def mileage(request: Request, msg: str = "", err: str = "", con=Depends(get_con)
     year = date_cls.today().year
     trips = con.execute("SELECT * FROM mileage ORDER BY date DESC, id DESC").fetchall()
     rate = float(db.get_setting(con, "mileage_rate", "0.70"))
-    ytd = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE date LIKE ?",
+    # the deduction follows BUSINESS miles only; the year's total is shown alongside so a big gap
+    # between the two is visible rather than silently assumed
+    ytd = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE date LIKE ? AND business=1",
                       (f"{year}%",)).fetchone()["m"]
+    ytd_all = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE date LIKE ?",
+                          (f"{year}%",)).fetchone()["m"]
     candidates = []
     for c in tripsmod.pending_candidates(con):
         mins = (datetime.fromisoformat(c["end_ts"]) - datetime.fromisoformat(c["start_ts"])).total_seconds() / 60
         candidates.append({**dict(c), "minutes": round(mins)})
     return templates.TemplateResponse(request, "mileage.html", ctx(
-        request, con, trips=trips, rate=rate, ytd=ytd, year=year,
+        request, con, trips=trips, rate=rate, ytd=ytd, ytd_all=ytd_all, year=year,
         deduction_cents=round(ytd * rate * 100), candidates=candidates,
+        rules=con.execute("SELECT * FROM mileage_rules ORDER BY active DESC, name").fetchall(),
         routes=con.execute("SELECT * FROM saved_routes ORDER BY name").fetchall(),
         trips_watch_on=bool(db.get_setting(con, "trips_watch_folder", "").strip()),
         msg=msg, err=err))
@@ -32,9 +37,10 @@ def mileage(request: Request, msg: str = "", err: str = "", con=Depends(get_con)
 @router.post("/mileage")
 def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = Form(""),
                 from_loc: str = Form(""), to_loc: str = Form(""), save_route: str = Form(""),
-                con=Depends(get_con)):
-    con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc) VALUES(?,?,?,?,?)",
-                (ledger.normalize_date(date), miles, purpose, from_loc, to_loc))
+                business: str = Form("1"), con=Depends(get_con)):
+    con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
+                (ledger.normalize_date(date), miles, purpose, from_loc, to_loc,
+                 0 if business in ("0", "", "off") else 1))
     if save_route:  # remember this trip as a one-click route
         name = purpose.strip() or f"{from_loc.strip()} → {to_loc.strip()}".strip(" →")
         if name and not con.execute("SELECT 1 FROM saved_routes WHERE name=?", (name,)).fetchone():
@@ -45,21 +51,68 @@ def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = 
 
 @router.post("/mileage/delete")
 def mileage_delete(trip_id: int = Form(...), con=Depends(get_con)):
+    # trip_candidates.mileage_id references this row, so it has to be cleared first or the DELETE
+    # raises a FOREIGN KEY error (PRAGMA foreign_keys=ON) — which is exactly what a trip logged from
+    # the phone would do. The candidate stays 'approved' rather than returning to the queue: it's
+    # been dealt with, and a trusted rule would otherwise just log it straight back.
+    con.execute("UPDATE trip_candidates SET mileage_id=NULL WHERE mileage_id=?", (trip_id,))
     con.execute("DELETE FROM mileage WHERE id=?", (trip_id,))
     con.commit()
     return RedirectResponse("/mileage", status_code=303)
 
 @router.post("/mileage/trip/{cand_id}/approve")
 def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = Form(""),
-                         con=Depends(get_con)):
+                         business: str = Form("1"), con=Depends(get_con)):
     c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
     if not c:
         return RedirectResponse("/mileage", status_code=303)
     if miles <= 0:
         return safe_redirect("/mileage", err="Miles must be greater than zero.")
-    tripsmod.approve(con, cand_id, miles, purpose.strip(), c["start_place"], c["end_place"])
+    is_biz = 0 if business in ("0", "", "off") else 1
+    tripsmod.approve(con, cand_id, miles, purpose.strip(), c["start_place"], c["end_place"],
+                     business=is_biz)
     con.commit()
-    return safe_redirect("/mileage", msg=f"Trip logged: {miles:g} mi on {c['start_ts'][:10]}.")
+    kind = "business" if is_biz else "personal (not deducted)"
+    return safe_redirect("/mileage", msg=f"Trip logged: {miles:g} mi on {c['start_ts'][:10]} — {kind}.")
+
+@router.post("/mileage/rules/from-trip/{cand_id}")
+def mileage_rule_from_trip(cand_id: int, name: str = Form(""), purpose: str = Form(""),
+                           match_kind: str = Form("destination"), radius_m: int = Form(150),
+                           business: str = Form("1"), auto_log: str = Form(""),
+                           con=Depends(get_con)):
+    """Create a standing rule from a detected trip — the trip supplies the coordinates, which is the
+    only practical way to get them (nobody types latitude by hand)."""
+    c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
+    if not c:
+        return RedirectResponse("/mileage", status_code=303)
+    label = name.strip() or purpose.strip() or (c["end_place"] or "Trip rule")
+    kind = "route" if match_kind == "route" else "destination"
+    con.execute(
+        "INSERT INTO mileage_rules(name,match_kind,dest_lat,dest_lon,start_lat,start_lon,radius_m,"
+        "purpose,business,auto_log) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (label, kind, c["end_lat"], c["end_lon"],
+         c["start_lat"] if kind == "route" else None, c["start_lon"] if kind == "route" else None,
+         max(25, min(int(radius_m or 150), 20000)), purpose.strip(),
+         0 if business in ("0", "", "off") else 1, 1 if auto_log else 0))
+    # classify everything already waiting, so the trip you made the rule from is sorted out too
+    matched, logged = tripsmod.apply_rules_to_pending(con)
+    con.commit()
+    extra = f" {matched} waiting trip(s) matched" + (f", {logged} auto-logged" if logged else "") if matched else ""
+    return safe_redirect("/mileage", msg=f"Rule '{label}' saved.{extra}")
+
+@router.post("/mileage/rules/{rule_id}/delete")
+def mileage_rule_delete(rule_id: int, con=Depends(get_con)):
+    con.execute("UPDATE trip_candidates SET rule_id=NULL WHERE rule_id=?", (rule_id,))
+    con.execute("DELETE FROM mileage_rules WHERE id=?", (rule_id,))
+    con.commit()
+    return safe_redirect("/mileage", msg="Rule deleted (logged trips are unchanged).")
+
+@router.post("/mileage/rules/{rule_id}/toggle")
+def mileage_rule_toggle(rule_id: int, con=Depends(get_con)):
+    con.execute("UPDATE mileage_rules SET active = CASE active WHEN 1 THEN 0 ELSE 1 END WHERE id=?",
+                (rule_id,))
+    con.commit()
+    return safe_redirect("/mileage", msg="Rule updated.")
 
 @router.post("/mileage/trips/refresh-places")
 def mileage_refresh_places(con=Depends(get_con)):
