@@ -19,8 +19,10 @@ def taxes_page(request: Request, year: int = 0, msg: str = "", err: str = "", co
     start, end = f"{year}-01-01", f"{year}-12-31"
     p = ledger.pnl(con, start, end)
     rate = float(db.get_setting(con, "mileage_rate", "0.70"))
-    miles = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE date BETWEEN ? AND ?",
-                        (start, end)).fetchone()["m"]
+    # business=1 only: personal trips are kept in the log (Schedule C Part IV asks for total miles
+    # as well as business miles) but must never inflate the deduction.
+    miles = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage "
+                        "WHERE date BETWEEN ? AND ? AND business=1", (start, end)).fetchone()["m"]
     uncat = con.execute(
         "SELECT COUNT(DISTINCT e.id) c FROM entries e JOIN splits s ON s.entry_id=e.id "
         "JOIN accounts a ON a.id=s.account_id WHERE a.name='Uncategorized Expense' "
@@ -175,14 +177,25 @@ def tax_package(year: int, con=Depends(get_con)):
         z.writestr(f"{year}_transactions.csv", make_csv(txn_rows))
 
         def mile_rows(w):
+            # EVERY trip is listed, personal included, with a Business column — Schedule C Part IV
+            # asks for total miles as well as business miles, so dropping personal trips from the
+            # log would lose a figure the form wants. Only BUSINESS miles feed the deduction.
             rate = float(db.get_setting(con, "mileage_rate", "0.70"))
-            w.writerow(["Date", "Miles", "Purpose", "From", "To"])
-            tot = 0.0
+            w.writerow(["Date", "Miles", "Business", "Purpose", "From", "To"])
+            tot = biz = 0.0
             for t in con.execute("SELECT * FROM mileage WHERE date BETWEEN ? AND ? ORDER BY date", (start, end)):
-                w.writerow([t["date"], t["miles"], t["purpose"], t["from_loc"], t["to_loc"]])
+                is_biz = t["business"] if "business" in t.keys() else 1
+                w.writerow([t["date"], t["miles"], "yes" if is_biz else "no",
+                            t["purpose"], t["from_loc"], t["to_loc"]])
                 tot += t["miles"]
-            w.writerow([]); w.writerow(["Total miles", f"{tot:.1f}"])
-            w.writerow(["Rate", f"{rate:.2f}"]); w.writerow(["Deduction", f"{tot*rate:.2f}"])
+                if is_biz:
+                    biz += t["miles"]
+            w.writerow([])
+            w.writerow(["Total miles (all)", f"{tot:.1f}"])
+            w.writerow(["Business miles", f"{biz:.1f}"])
+            w.writerow(["Personal miles", f"{tot - biz:.1f}"])
+            w.writerow(["Rate", f"{rate:.2f}"])
+            w.writerow(["Deduction (business miles x rate)", f"{biz*rate:.2f}"])
         z.writestr(f"{year}_mileage.csv", make_csv(mile_rows))
 
         for d in con.execute(

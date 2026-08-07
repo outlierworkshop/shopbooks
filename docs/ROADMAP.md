@@ -34,6 +34,26 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-07 — Mileage rules, and business vs personal miles
+- **Every logged mile used to feed the tax deduction** — there was no business/personal distinction
+  at all, so one personal drive silently inflated it. `mileage.business` now separates them: personal
+  trips stay in the log (Schedule C Part IV wants total miles *and* business miles) but only business
+  miles are deducted. The guarded `ALTER` defaults existing rows to **business**, so prior years'
+  deductions are unchanged.
+- **Standing rules** (`mileage_rules`) classify a detected trip automatically:
+  - **Destination** rules ("anything ending at McMaster") and **route** rules (a specific
+    start→end pair). A route rule outranks a destination rule when both fit — "shop → home is
+    personal" should beat "anything ending at home"; within a kind the nearest/tightest wins.
+  - Matching is on **coordinates within a radius** (default 150 m), never on the address text —
+    OSM labels drift between neighbouring house numbers and give ranges like `319;321`.
+  - A rule can pre-fill purpose + type and leave the trip for approval, or be marked **trusted**
+    (`auto_log`) to skip the queue entirely — a per-rule choice.
+  - Rules are created **from a detected trip**, which supplies the coordinates (nobody types
+    latitude by hand). Adding one immediately re-classifies trips already waiting.
+- Fixed alongside: deleting a logged trip that came from a detected candidate **500'd** on a foreign
+  key (`trip_candidates.mileage_id`) — the reference is cleared first now, like `delete_invoice`.
+- The Mileage page shows business/total/personal miles, the matched rule per trip, and a rules table.
+
 ### 2026-08-07 — Mileage: trips are labelled with street addresses
 - Trip endpoints read "Ball Square, Somerville" — a neighbourhood, not somewhere you drove to.
   `reverse_place` asked Nominatim at `zoom=14` and preferred `suburb`/`neighbourhood` over `road`.

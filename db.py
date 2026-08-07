@@ -414,6 +414,23 @@ CREATE TABLE IF NOT EXISTS saved_routes(
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Standing rules that classify a detected trip: "anything ending at McMaster is a business supply
+-- run", "shop -> home is personal". Matched on COORDINATES within `radius_m`, not on the address
+-- text, because OSM labels drift between neighbouring house numbers (and give ranges like '319;321').
+CREATE TABLE IF NOT EXISTS mileage_rules(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,                    -- 'McMaster pickup'
+  match_kind TEXT NOT NULL DEFAULT 'destination',  -- 'destination' | 'route' (start AND end)
+  dest_lat REAL NOT NULL, dest_lon REAL NOT NULL,
+  start_lat REAL, start_lon REAL,        -- route rules only
+  radius_m INTEGER NOT NULL DEFAULT 150, -- how close counts as "here"
+  purpose TEXT NOT NULL DEFAULT '',      -- pre-filled onto the trip
+  business INTEGER NOT NULL DEFAULT 1,   -- 0 = personal: logged, but not deducted
+  auto_log INTEGER NOT NULL DEFAULT 0,   -- 1 = trusted: skip the approval queue
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS travel_trips(
   id INTEGER PRIMARY KEY,
   destination TEXT NOT NULL,             -- display label, e.g. 'Nashville, TN'
@@ -751,6 +768,17 @@ def _column_migrations(con):
     item_cols = {r["name"] for r in con.execute("PRAGMA table_info(items)").fetchall()}
     if "taxable" not in item_cols:
         con.execute("ALTER TABLE items ADD COLUMN taxable INTEGER NOT NULL DEFAULT 0")
+
+    # Business/personal on the mileage log. DEFAULT 1 on purpose: every trip logged before this
+    # column existed was recorded to be deducted, so defaulting to business leaves past years'
+    # deductions exactly as they were. Only newly-marked personal trips drop out.
+    mile_cols = {r["name"] for r in con.execute("PRAGMA table_info(mileage)").fetchall()}
+    if "business" not in mile_cols:
+        con.execute("ALTER TABLE mileage ADD COLUMN business INTEGER NOT NULL DEFAULT 1")
+
+    cand_cols = {r["name"] for r in con.execute("PRAGMA table_info(trip_candidates)").fetchall()}
+    if "rule_id" not in cand_cols:   # which standing rule classified this trip (NULL = none matched)
+        con.execute("ALTER TABLE trip_candidates ADD COLUMN rule_id INTEGER REFERENCES mileage_rules(id)")
 
 
 def init():
