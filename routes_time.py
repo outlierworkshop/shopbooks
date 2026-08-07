@@ -61,6 +61,19 @@ def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = 
     con.commit()
     return safe_redirect("/mileage", msg=f"Trip logged: {miles:g} mi on {c['start_ts'][:10]}.")
 
+@router.post("/mileage/trips/refresh-places")
+def mileage_refresh_places(con=Depends(get_con)):
+    """Re-label pending trips from their stored coordinates — for trips captured before the labels
+    became street addresses, so they don't have to be re-driven to get a proper address."""
+    try:
+        changed = tripsmod.refresh_places(con)
+    except Exception as e:                       # geocoding is optional everywhere; never 500 here
+        return safe_redirect("/mileage", err=f"Could not look up addresses right now ({e}).")
+    con.commit()
+    if not changed:
+        return safe_redirect("/mileage", msg="Locations are already up to date.")
+    return safe_redirect("/mileage", msg=f"Updated the locations on {changed} trip(s).")
+
 @router.post("/mileage/trip/{cand_id}/dismiss")
 def mileage_trip_dismiss(cand_id: int, con=Depends(get_con)):
     tripsmod.dismiss(con, cand_id)

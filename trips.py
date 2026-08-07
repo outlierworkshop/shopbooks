@@ -13,6 +13,7 @@ Mileage page for approval; approving inserts a normal `mileage` row. Records-onl
 """
 import math
 import re
+import time
 from datetime import datetime
 
 from logutil import log
@@ -25,6 +26,7 @@ ROAD_FACTOR = 1.3         # haversine straight-line -> rough road miles when rou
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 USER_AGENT = "ShopBooks/1.0 (local bookkeeping app; single user)"
+NOMINATIM_MIN_INTERVAL = 1.1   # their usage policy: at most 1 request/second
 
 _place_cache = {}         # (round4 lat, round4 lon) -> label; in-process, resets on restart
 
@@ -160,28 +162,81 @@ def route_miles(lat1, lon1, lat2, lon2):
     return round(haversine_miles(lat1, lon1, lat2, lon2) * ROAD_FACTOR, 1), "estimate"
 
 
+def _house_number(raw):
+    """First number of an OSM house_number. Multi-address nodes carry ranges like `319;321` or
+    `11;13`, which would render as a broken address, so only the first is shown."""
+    return str(raw or "").split(";")[0].split(",")[0].strip()
+
+
+def address_label(a):
+    """Nominatim `address` dict -> "14 William Street, Somerville, MA".
+
+    A mileage log wants the street address, so `road` (+ house number) leads. Where OSM has no road
+    for the point — a park, a parking lot, open country — it falls back to the neighbourhood/suburb
+    name so the label still says something useful rather than nothing. State comes from the ISO code
+    (`US-MA` -> `MA`) to keep the line short; the full state name is the fallback."""
+    street = ""
+    if a.get("road"):
+        street = " ".join(p for p in (_house_number(a.get("house_number")), a["road"]) if p)
+    if not street:
+        street = a.get("neighbourhood") or a.get("suburb") or a.get("hamlet") or ""
+    town = (a.get("city") or a.get("town") or a.get("village") or a.get("hamlet")
+            or a.get("county") or "")
+    iso = a.get("ISO3166-2-lvl4") or ""
+    state = iso.split("-")[-1] if "-" in iso else (a.get("state") or "")
+    # dict.fromkeys keeps order while dropping a repeat (e.g. street fell back to the town name)
+    return ", ".join(dict.fromkeys(p for p in (street, town, state) if p))
+
+
 def reverse_place(lat, lon):
-    """Short human label for a coordinate via Nominatim (cached; polite User-Agent per the usage
-    policy). Falls back to the raw coordinates. Never raises."""
-    key = (round(lat, 4), round(lon, 4))
+    """Street address for a coordinate via Nominatim (cached; polite User-Agent per the usage
+    policy). Falls back to the raw coordinates. Never raises — geocoding is optional, like every
+    other network call here."""
+    key = (round(lat, 5), round(lon, 5))   # ~1m: distinct addresses must not share a cache slot
     if key in _place_cache:
         return _place_cache[key]
     label = f"{lat:.4f}, {lon:.4f}"
     try:
         import httpx
-        r = httpx.get(NOMINATIM_URL, params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 14},
+        r = httpx.get(NOMINATIM_URL,
+                      params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 18,
+                              "addressdetails": 1},
                       timeout=10, headers={"User-Agent": USER_AGENT})
         r.raise_for_status()
-        a = r.json().get("address") or {}
-        town = a.get("city") or a.get("town") or a.get("village") or a.get("hamlet") or a.get("county") or ""
-        spot = a.get("suburb") or a.get("neighbourhood") or a.get("road") or ""
-        pretty = ", ".join(p for p in (spot, town) if p)
+        pretty = address_label(r.json().get("address") or {})
         if pretty:
             label = pretty
     except Exception as e:
         log.warning("reverse geocode failed for %s: %s", key, e)
     _place_cache[key] = label
     return label
+
+
+def _paced_place(lat, lon):
+    """reverse_place, but waits out Nominatim's 1-request-per-second usage policy before a lookup
+    that will actually hit the network. Cached coordinates (a home address you leave from every day)
+    cost nothing."""
+    if (round(lat, 5), round(lon, 5)) not in _place_cache:
+        time.sleep(NOMINATIM_MIN_INTERVAL)
+    return reverse_place(lat, lon)
+
+
+def refresh_places(con, limit=25):
+    """Re-label pending trip candidates from their stored coordinates, for trips captured before the
+    labels became street addresses. Returns how many candidates changed. Bounded by `limit` because
+    each uncached point costs a paced network call — the page would otherwise hang on a long backlog."""
+    rows = con.execute(
+        "SELECT id, start_lat, start_lon, end_lat, end_lon, start_place, end_place "
+        "FROM trip_candidates WHERE status='pending' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    changed = 0
+    for r in rows:
+        start = _paced_place(r["start_lat"], r["start_lon"])
+        end = _paced_place(r["end_lat"], r["end_lon"])
+        if start != r["start_place"] or end != r["end_place"]:
+            con.execute("UPDATE trip_candidates SET start_place=?, end_place=? WHERE id=?",
+                        (start, end, r["id"]))
+            changed += 1
+    return changed
 
 
 def _minutes_between(ts1, ts2):
