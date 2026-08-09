@@ -34,6 +34,17 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-07 — Mileage: a "Check for new trips" button
+- New drives only appeared on the ~60s watcher tick, with no way to ask for them now — the Settings
+  "Scan folders now" button scans everything and lands you back on Settings.
+- **↻ Check for new trips** on the Mileage page reads the trips folder immediately. It runs the whole
+  pipeline, not just the file read: pairing runs even when no new file arrived (a dangling start may
+  have aged past its window), and standing rules are re-applied so trips captured before a rule
+  existed get classified too. The redirect says what it found ("1 imported · 1 trip(s) waiting").
+- It sits **outside** the pending-trips block on purpose — "nothing is showing up" is exactly when
+  you'd reach for it, and that's precisely when there are no candidates to hang it off. It's hidden
+  entirely when no trips folder is configured, and says so if pressed without one.
+
 ### 2026-08-07 — Mileage rules, and business vs personal miles
 - **Every logged mile used to feed the tax deduction** — there was no business/personal distinction
   at all, so one personal drive silently inflated it. `mileage.business` now separates them: personal
