@@ -188,6 +188,35 @@ client = TestClient(appmod.app)
 page = client.get("/mileage")
 ok(page.status_code == 200 and b"Trips waiting for approval" in page.content,
    "mileage page shows the pending-trips section")
+ok(b"/mileage/scan" in page.content, "the page offers a 'Check for new trips' button")
+
+# --- the update button: pull new drives now, without waiting for the ~60s watcher tick ----------
+w2_start = (datetime.now() - timedelta(hours=3)).replace(microsecond=0)
+w2_end = w2_start + timedelta(minutes=25)
+(inbox / "w3.txt").write_text(f"connect,{w2_start.isoformat(timespec='seconds')},36.1627,-86.7816")
+(inbox / "w4.txt").write_text(f"disconnect,{w2_end.isoformat(timespec='seconds')},35.9251,-86.8689")
+before = con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"]
+r = client.post("/mileage/scan", follow_redirects=False)
+ok(r.status_code == 303 and "msg=" in r.headers["location"],
+   "the update button redirects with a summary of what it found")
+after = con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"]
+ok(after == before + 1, "it picks up a drive dropped since the last check")
+r = client.post("/mileage/scan", follow_redirects=False)
+ok(r.status_code == 303 and "err=" not in r.headers["location"],
+   "checking again with nothing new is harmless")
+ok(con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"] == after,
+   "...and doesn't duplicate the trips it already has")
+
+# with no folder configured the button explains itself instead of silently doing nothing
+db.set_setting(con, "trips_watch_folder", "")
+con.commit()
+r = client.post("/mileage/scan", follow_redirects=False)
+ok(r.status_code == 303 and "err=" in r.headers["location"],
+   "with no trips folder set, the button says so")
+ok(b"/mileage/scan" not in client.get("/mileage").content,
+   "the button is hidden entirely when no trips folder is set up")
+db.set_setting(con, "trips_watch_folder", str(inbox))
+con.commit()
 
 cand = con.execute("SELECT * FROM trip_candidates WHERE status='pending' ORDER BY id LIMIT 1").fetchone()
 client.post(f"/mileage/trip/{cand['id']}/approve", data={"miles": "24.5", "purpose": "supplier run"},

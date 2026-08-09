@@ -7,6 +7,7 @@ import db
 import ledger
 import timetracking
 import trips as tripsmod
+import watcher
 from webutil import ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
@@ -74,6 +75,32 @@ def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = 
     con.commit()
     kind = "business" if is_biz else "personal (not deducted)"
     return safe_redirect("/mileage", msg=f"Trip logged: {miles:g} mi on {c['start_ts'][:10]} — {kind}.")
+
+@router.post("/mileage/scan")
+def mileage_scan(con=Depends(get_con)):
+    """Check the trips folder for new drives right now, instead of waiting for the ~60s watcher tick.
+
+    Does the whole pipeline, not just the file read: pairing runs even when no new file arrived (a
+    dangling start may have aged past its window), and standing rules are re-applied so trips that
+    were captured before a rule existed get classified too."""
+    folder = db.get_setting(con, "trips_watch_folder", "")
+    if not str(folder).strip():
+        return safe_redirect("/mileage", err="No trips folder is set yet — add one in "
+                                             "Settings - Folder watchers.")
+    r = watcher.scan_folder(con, folder, "trip", {".txt", ".csv"}, tripsmod._watch_trip_event)
+    tripsmod.pair_events(con)
+    matched, auto = tripsmod.apply_rules_to_pending(con)
+    con.commit()
+    waiting = len(tripsmod.pending_candidates(con))
+    if r["errors"]:
+        return safe_redirect("/mileage", err="Trip log couldn't be read: " + "; ".join(r["errors"][:2]))
+    bits = []
+    if r["scanned"]:
+        bits.append(", ".join(f"{v} {k}" for k, v in r["counts"].items()))
+    if auto:
+        bits.append(f"{auto} auto-logged by a rule")
+    bits.append(f"{waiting} trip(s) waiting" if waiting else "nothing waiting for approval")
+    return safe_redirect("/mileage", msg="Checked for new trips: " + " · ".join(bits))
 
 @router.post("/mileage/rules/from-trip/{cand_id}")
 def mileage_rule_from_trip(cand_id: int, name: str = Form(""), purpose: str = Form(""),

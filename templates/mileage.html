@@ -12,15 +12,29 @@
   <div class="card"><div class="label">{{ year }} deduction</div><div class="big pos">${{ deduction_cents|money }}</div></div>
 </div>
 
+{% if trips_watch_on %}
+{# Outside the candidates block on purpose: "nothing is showing up" is exactly when you reach for
+   this, and that's when there are no candidates to hang it off. #}
+<div class="toolbar" style="margin-bottom:14px">
+  <form class="inline" method="post" action="/mileage/scan">
+    <button type="submit" title="Read the trips folder now instead of waiting for the next automatic check">
+      ↻ Check for new trips</button>
+  </form>
+  {% if candidates %}
+  <form class="inline" method="post" action="/mileage/trips/refresh-places">
+    <button type="submit" class="ghost"
+            title="Look the start/end addresses up again from each trip's coordinates">Refresh addresses</button>
+  </form>
+  {% endif %}
+  <span class="muted" style="font-size:12px">Trips are picked up automatically about once a minute
+    while ShopBooks is open — this just checks straight away.</span>
+</div>
+{% endif %}
+
 {% if candidates %}
 <h2>Trips waiting for approval <span class="badge">{{ candidates|length }}</span></h2>
 <p class="muted">Detected from your phone's car-Bluetooth events. Check the miles (a routed estimate —
 edit if you took a detour), add a purpose, and approve to log it.</p>
-<form method="post" action="/mileage/trips/refresh-places" style="margin:-4px 0 10px">
-  <button type="submit" class="ghost small"
-          title="Look the start/end addresses up again from the trip's coordinates">↻ Refresh addresses</button>
-  <span class="muted" style="font-size:12px">&nbsp;for trips captured before addresses were shown</span>
-</form>
 {# one form per candidate, referenced by the row's inputs via the form= attribute
    (a <form> can't legally live inside a <tr>) #}
 {% for c in candidates %}
