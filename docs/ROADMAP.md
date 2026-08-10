@@ -34,6 +34,24 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-10 — Assistant: six business reports (tax, services, customers, pipeline, quotes, vendors)
+- **`tax_position`** — the "money that isn't yours" view: sales tax owed to the state (a liability,
+  not income), the mileage deduction (business miles × rate), and estimated income tax by quarter
+  with due dates and what's still unpaid.
+- **`service_lines`** — revenue by service/product: times billed, quantity, average price, share, and
+  the income account it posts to. The item catalog was rich and completely unanalysed.
+- **`customer_scorecard`** — invoiced / collected / owed per customer, **revenue concentration**
+  (invisible in a P&L but the biggest risk in a one-person shop), and **average days to pay**, which
+  says who should be asked for a deposit.
+- **`pipeline`** — open quotes and accepted-but-unbilled work: revenue the cash forecast can't see,
+  because a forecast only counts invoices that exist.
+- **`quote_accuracy`** — quoted vs actually billed per job. **Part-billed jobs are reported as "in
+  progress" and excluded from the headline variance** — otherwise ordinary 50%-deposit progress
+  billing reads as a 50% shortfall, which is exactly what the first version did on real data.
+- **`vendor_spend`** — spending by supplier, not category. Owners think in vendors.
+- `tax_position` renames `estimated_taxes`' money fields (`net_profit`, `se_tax`, `total_due` …) to
+  `*_cents` so the converter renders dollars; they'd otherwise have reached the model as raw cents.
+
 ### 2026-08-10 — Assistant: receivables, cash forecast, books consistency, weekly review
 - **`who_owes_me`** — AR aging was already built (`invoicing.ar_aging`) but never offered to the
   assistant, so *"who's overdue?"* — the biggest cash lever in a one-person shop — was unanswerable.
