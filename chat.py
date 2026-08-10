@@ -159,7 +159,37 @@ def _weekly_review(con, today, period="last-week"):
     return {"period": label, **insights.weekly_review(con, s, e, today=today)}
 
 
+def _tax_position(con, today, year=0):
+    return insights.tax_position(con, int(year) or today.year, today=today)
+
+
+def _service_lines(con, today, period="this-year"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.service_lines(con, s, e)}
+
+
+def _customers(con, today, period="this-year"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.customer_scorecard(con, s, e)}
+
+
+def _pipeline(con, today):
+    return insights.pipeline(con)
+
+
+def _quote_accuracy(con, today):
+    return insights.quote_accuracy(con)
+
+
+def _vendor_spend(con, today, period="this-year"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.vendor_spend(con, s, e)}
+
+
 _HANDLERS = {
+    "tax_position": _tax_position, "service_lines": _service_lines,
+    "customer_scorecard": _customers, "pipeline": _pipeline,
+    "quote_accuracy": _quote_accuracy, "vendor_spend": _vendor_spend,
     "business_snapshot": _snapshot, "profit_and_loss": _pnl, "compare_periods": _compare,
     "monthly_trend": _trend, "expense_changes": _expense_changes, "cash_position": _cash,
     "bookkeeping_health": _health, "missing_receipts": _missing_receipts, "jobs_overview": _jobs,
@@ -224,6 +254,44 @@ TOOLS = [
                     "Use for 'what did I invoice / what got paid last week?', 'who paid me', "
                     "'which invoices went out this month'. The two lists differ on purpose: an "
                     "invoice sent now may be paid later, and a payment now may be for an old invoice.",
+     "input_schema": _period_schema()},
+    {"name": "tax_position",
+     "description": "Money to set aside: sales tax currently OWED to the state (collected on "
+                    "customers' behalf — it is not income), the mileage deduction for the year "
+                    "(business miles x rate), and estimated income tax by quarter with due dates. "
+                    "Use for 'how much should I set aside?', 'what sales tax do I owe?', "
+                    "'what's my mileage deduction?', 'when is my next estimated payment?'.",
+     "input_schema": {"type": "object", "properties": {
+         "year": {"type": "integer", "description": "Tax year. Defaults to the current year."}},
+         "required": [], "additionalProperties": False}},
+    {"name": "service_lines",
+     "description": "Revenue by service/product for a period: how often each was billed, quantity, "
+                    "revenue, average price, and share of the total, with the income account it "
+                    "posts to. Use for 'which work earns the most?', 'what should I raise prices "
+                    "on?', 'how much of my revenue is milling vs design?'.",
+     "input_schema": _period_schema()},
+    {"name": "customer_scorecard",
+     "description": "Per customer for a period: invoiced, collected, still owed, share of money "
+                    "collected (revenue CONCENTRATION risk), and average days to pay. Use for 'who "
+                    "are my biggest customers?', 'am I too dependent on one client?', 'who pays "
+                    "slowly / who should pay a deposit?'.",
+     "input_schema": _period_schema()},
+    {"name": "pipeline",
+     "description": "Open estimates: quotes still out (draft/sent) and, for accepted ones, how much "
+                    "is still left to bill. This is revenue the cash forecast cannot see, because a "
+                    "forecast only counts invoices that exist. Use for 'what's in my pipeline?', "
+                    "'what have I quoted?', 'what's accepted but not yet billed?'.",
+     "input_schema": _NO_ARGS},
+    {"name": "quote_accuracy",
+     "description": "Estimate vs what actually got billed against it, per job and overall, with the "
+                    "variance. Use for 'do I underquote?', 'am I billing what I quote?'. Persistent "
+                    "under-billing never appears as a loss, only as thinner months.",
+     "input_schema": _NO_ARGS},
+    {"name": "vendor_spend",
+     "description": "Spending by vendor/payee for a period (who the money went to, how many "
+                    "transactions, share of total). expense_changes answers this by CATEGORY; this "
+                    "answers it by supplier. Use for 'what did I spend at McMaster?', 'who are my "
+                    "biggest suppliers?'.",
      "input_schema": _period_schema()},
     {"name": "who_owes_me",
      "description": "Accounts-receivable aging as of today: every open invoice with the customer, "

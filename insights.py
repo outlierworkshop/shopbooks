@@ -493,6 +493,212 @@ def work_by_job(con, start, end):
             "paid_total_cents": sum(c["paid_cents"] for c in paid)}
 
 
+def tax_position(con, year, today=None):
+    """The three "money that isn't yours / money to set aside" figures in one place: sales tax you're
+    holding for the state, the mileage deduction, and estimated income tax by quarter.
+
+    Sales tax is a LIABILITY, not income — it's collected on the customer's behalf and owed to
+    Massachusetts. Showing it next to income is the point: a good month's cash includes money that
+    already belongs to someone else."""
+    import invoicing
+    import ledger
+    rate = float(db.get_setting(con, "mileage_rate", "0.70") or 0.70)
+    biz_miles = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage "
+                            "WHERE date LIKE ? AND business=1", (f"{year}%",)).fetchone()["m"]
+    all_miles = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE date LIKE ?",
+                            (f"{year}%",)).fetchone()["m"]
+
+    tax_acct = invoicing.sales_tax_account_id(con)
+    sales_tax_owed = 0
+    if tax_acct:
+        # liability: credit-normal, so display_balance flips it to a positive "you owe this"
+        sales_tax_owed = ledger.display_balance("liability", ledger.raw_balance(con, tax_acct))
+
+    est_rate = float(db.get_setting(con, "est_income_tax_rate", "22") or 22)
+    quarters = []
+    try:
+        est = estimated_taxes(con, year, est_rate)
+        # estimated_taxes names its money fields net_profit/se_tax/total_due — none of which the
+        # cents->dollars converter recognises. Renamed here so the model can't read them as dollars.
+        for q in est.get("quarters", est.get("rows", [])):
+            quarters.append({"quarter": q["quarter"], "period": q["period"],
+                             "due_date": q["due_date"],
+                             "net_profit_cents": q["net_profit"], "se_tax_cents": q["se_tax"],
+                             "income_tax_cents": q["income_tax"], "total_due_cents": q["total_due"],
+                             "paid_cents": q["paid"], "remaining_cents": q["remaining"]})
+    except Exception:
+        quarters = []
+
+    return {
+        "year": year,
+        "sales_tax_owed_cents": sales_tax_owed,
+        "business_miles": round(biz_miles, 1), "total_miles": round(all_miles, 1),
+        "mileage_rate": rate,
+        "mileage_deduction_cents": int(round(biz_miles * rate * 100)),
+        "est_income_tax_rate_pct": est_rate,
+        "quarters": quarters,
+        "still_owed_this_year_cents": sum(max(0, q["remaining_cents"]) for q in quarters),
+    }
+
+
+def service_lines(con, start, end):
+    """Revenue by service/product for a window — which work actually earns the money.
+
+    Grouped by catalog item where the line has one, otherwise by its description, so hand-typed lines
+    still show up rather than vanishing. Counts invoices RAISED in the window (what was sold), not
+    cash collected, because the question is about pricing, not timing."""
+    rows = con.execute(
+        "SELECT COALESCE(it.name, ii.description) AS service, "
+        "       COALESCE(a.name, '(no income account)') AS account, "
+        "       COUNT(*) AS times, "
+        "       SUM(ii.qty) AS qty, "
+        "       SUM(CAST(round(ii.qty * ii.unit_cents) AS INTEGER)) AS revenue_cents "
+        "FROM invoice_items ii "
+        "JOIN invoices i ON i.id = ii.invoice_id "
+        "LEFT JOIN items it ON it.id = ii.item_id "
+        "LEFT JOIN accounts a ON a.id = it.income_account_id "
+        "WHERE i.kind='invoice' AND i.status != 'void' AND i.date BETWEEN ? AND ? "
+        "  AND ii.qty * ii.unit_cents != 0 "
+        "GROUP BY service, account ORDER BY revenue_cents DESC", (start, end)).fetchall()
+    total = sum(r["revenue_cents"] for r in rows) or 0
+    out = []
+    for r in rows:
+        qty = round(r["qty"] or 0, 2)
+        out.append({"service": r["service"], "income_account": r["account"],
+                    "times_billed": r["times"], "quantity": qty,
+                    "revenue_cents": r["revenue_cents"],
+                    "avg_price_cents": int(round(r["revenue_cents"] / qty)) if qty else 0,
+                    "share_pct": round(100.0 * r["revenue_cents"] / total, 1) if total else 0.0})
+    return {"start": start, "end": end, "total_revenue_cents": total, "services": out}
+
+
+def customer_scorecard(con, start, end):
+    """Per-customer: invoiced, collected, still owed, share of the money that came in, and how long
+    they take to pay.
+
+    Revenue share is the one to watch — a shop where one customer is most of the income is exposed if
+    they leave, and that risk is invisible in a P&L. Days-to-pay is measured from the invoice date to
+    its first payment, so it says who needs a deposit up front."""
+    import invoicing
+    from datetime import datetime
+    cust = {}
+
+    def slot(name):
+        return cust.setdefault(name, {"customer": name, "invoiced_cents": 0, "collected_cents": 0,
+                                      "outstanding_cents": 0, "invoices": 0, "_days": []})
+
+    for r in con.execute(
+            "SELECT i.id, i.date, c.name customer FROM invoices i JOIN customers c ON c.id=i.customer_id "
+            "WHERE i.kind='invoice' AND i.status != 'void' AND i.date BETWEEN ? AND ?", (start, end)):
+        s = slot(r["customer"])
+        s["invoiced_cents"] += invoicing.invoice_total(con, r["id"])
+        s["outstanding_cents"] += max(0, invoicing.invoice_outstanding_balance(con, r["id"]))
+        s["invoices"] += 1
+        first = con.execute(
+            "SELECT MIN(e.date) d FROM entries e WHERE e.id = (SELECT paid_entry_id FROM invoices WHERE id=?) "
+            "   OR e.id IN (SELECT entry_id FROM invoice_entry_links WHERE invoice_id=?)",
+            (r["id"], r["id"])).fetchone()["d"]
+        if first:
+            s["_days"].append((datetime.strptime(first, "%Y-%m-%d")
+                               - datetime.strptime(r["date"], "%Y-%m-%d")).days)
+
+    for p in invoice_activity(con, start, end)["paid"]:
+        slot(p["customer"])["collected_cents"] += p["amount_cents"]
+
+    collected_total = sum(c["collected_cents"] for c in cust.values()) or 0
+    out = []
+    for c in cust.values():
+        days = c.pop("_days")
+        out.append({**c,
+                    "avg_days_to_pay": round(sum(days) / len(days), 1) if days else None,
+                    "share_of_collected_pct": (round(100.0 * c["collected_cents"] / collected_total, 1)
+                                               if collected_total else 0.0)})
+    out.sort(key=lambda c: -c["collected_cents"])
+    top = out[0] if out else None
+    return {"start": start, "end": end, "collected_total_cents": collected_total,
+            "customers": out,
+            "concentration_note": (f"{top['customer']} is {top['share_of_collected_pct']}% of money "
+                                   f"collected in this period") if top and collected_total else None}
+
+
+def pipeline(con):
+    """Quoted work that hasn't turned into cash yet: open estimates and what's left to bill on the
+    accepted ones. This is the revenue the cash forecast can't see, because a forecast only counts
+    invoices that actually exist."""
+    import invoicing
+    rows = []
+    for r in con.execute(
+            "SELECT i.id, i.number, i.date, i.due_date, i.status, i.memo, c.name customer "
+            "FROM invoices i JOIN customers c ON c.id=i.customer_id "
+            "WHERE i.kind='estimate' AND i.status IN ('draft','sent','accepted') "
+            "ORDER BY i.date DESC"):
+        quoted = invoicing.invoice_subtotal(con, r["id"])
+        billed = invoicing.estimate_billed_subtotal(con, r["id"])
+        rows.append({"number": r["number"], "customer": r["customer"], "date": r["date"],
+                     "valid_until": r["due_date"], "status": r["status"], "memo": r["memo"],
+                     "quoted_cents": quoted, "billed_cents": billed,
+                     "remaining_cents": max(0, quoted - billed)})
+    return {"count": len(rows),
+            "open_quoted_cents": sum(r["quoted_cents"] for r in rows if r["status"] != "accepted"),
+            "accepted_unbilled_cents": sum(r["remaining_cents"] for r in rows if r["status"] == "accepted"),
+            "estimates": rows}
+
+
+def quote_accuracy(con):
+    """Did the job bill out at what it was quoted? Compares each estimate's pre-tax subtotal against
+    everything actually invoiced against it. Systematic under-billing is the quiet way a shop loses
+    money — it never shows up as a loss, just as thinner months."""
+    import invoicing
+    rows = []
+    for r in con.execute(
+            "SELECT i.id, i.number, i.status, c.name customer FROM invoices i "
+            "JOIN customers c ON c.id=i.customer_id WHERE i.kind='estimate' ORDER BY i.date DESC"):
+        billed = invoicing.estimate_billed_subtotal(con, r["id"])
+        if not billed:
+            continue                        # nothing invoiced against it yet — nothing to compare
+        quoted = invoicing.invoice_subtotal(con, r["id"])
+        # A job that's only PART-billed (progress billing) isn't under-quoted, it's unfinished —
+        # rolling it into the headline variance would make normal 50%-deposit billing look like a
+        # 50% shortfall. Those are reported separately and excluded from the totals.
+        finished = billed >= quoted
+        rows.append({"number": r["number"], "customer": r["customer"], "status": r["status"],
+                     "fully_billed": finished,
+                     "quoted_cents": quoted, "billed_cents": billed,
+                     "still_to_bill_cents": max(0, quoted - billed),
+                     "variance_cents": (billed - quoted) if finished else 0,
+                     "variance_pct": (round(100.0 * (billed - quoted) / quoted, 1)
+                                      if finished and quoted else 0.0)})
+    done = [r for r in rows if r["fully_billed"]]
+    q = sum(r["quoted_cents"] for r in done)
+    b = sum(r["billed_cents"] for r in done)
+    return {"compared": len(done), "in_progress": len(rows) - len(done),
+            "quoted_total_cents": q, "billed_total_cents": b, "variance_cents": b - q,
+            "variance_pct": round(100.0 * (b - q) / q, 1) if q else 0.0,
+            "note": "Variance covers only fully-billed jobs; part-billed ones are still in progress.",
+            "estimates": rows}
+
+
+def vendor_spend(con, start, end, limit=25):
+    """Where the money went, by who it went to. `expense_changes` answers this by category, but a
+    shop owner thinks in suppliers — "what did I spend at McMaster this year?"."""
+    rows = con.execute(
+        "SELECT e.payee, COUNT(DISTINCT e.id) txns, SUM(s.amount_cents) spend_cents "
+        "FROM entries e JOIN splits s ON s.entry_id = e.id "
+        "JOIN accounts a ON a.id = s.account_id "
+        "WHERE a.type='expense' AND s.amount_cents > 0 AND e.date BETWEEN ? AND ? "
+        "GROUP BY e.payee ORDER BY spend_cents DESC LIMIT ?", (start, end, limit)).fetchall()
+    total = con.execute(
+        "SELECT COALESCE(SUM(s.amount_cents),0) t FROM entries e JOIN splits s ON s.entry_id=e.id "
+        "JOIN accounts a ON a.id=s.account_id "
+        "WHERE a.type='expense' AND s.amount_cents > 0 AND e.date BETWEEN ? AND ?",
+        (start, end)).fetchone()["t"]
+    return {"start": start, "end": end, "total_spend_cents": total,
+            "vendors": [{"vendor": r["payee"] or "(unnamed)", "transactions": r["txns"],
+                         "spend_cents": r["spend_cents"],
+                         "share_pct": round(100.0 * r["spend_cents"] / total, 1) if total else 0.0}
+                        for r in rows]}
+
+
 def books_consistency(con):
     """Places where the books contradict themselves — the checks that decide whether every other
     number can be trusted.
