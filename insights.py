@@ -57,6 +57,17 @@ def parse_period(period="this-year", today=None):
     if p == "last-month":
         y, m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
         return month(y, m)
+    # Weeks run Monday-Sunday. "What did I do last week?" is the most common shop question and used
+    # to be unanswerable — nothing here went narrower than a month.
+    if p in ("this-week", "week"):
+        monday = today - timedelta(days=today.weekday())
+        return (monday.isoformat(), today.isoformat(), "This Week")
+    if p == "last-week":
+        this_monday = today - timedelta(days=today.weekday())
+        last_monday = this_monday - timedelta(days=7)
+        return (last_monday.isoformat(), (this_monday - timedelta(days=1)).isoformat(), "Last Week")
+    if p in ("last-7-days", "7-days"):
+        return ((today - timedelta(days=6)).isoformat(), today.isoformat(), "Last 7 Days")
     if p in ("last-30-days", "30-days"):
         start_d = today - timedelta(days=30)
         return (start_d.isoformat(), today.isoformat(), "Last 30 Days")
@@ -75,6 +86,14 @@ def parse_period(period="this-year", today=None):
         return (f"{today.year}-{sm:02d}-01", today.isoformat(), f"Q{cur_q} to Date")
     if p == "last-quarter":
         return quarter(today.year - 1, 4) if cur_q == 1 else quarter(today.year, cur_q - 1)
+
+    # an explicit window, so any question that doesn't fit a named period is still answerable
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})\s*(?:\.\.|:|to)\s*(\d{4}-\d{2}-\d{2})", p)
+    if m:
+        s, e = m.group(1), m.group(2)
+        if s > e:
+            s, e = e, s
+        return (s, e, f"{s} to {e}")
 
     if re.fullmatch(r"\d{4}", p):
         return yr(int(p))
@@ -399,6 +418,79 @@ def missing_receipts(con, start, end, min_cents=0):
         "ORDER BY e.date DESC, e.id DESC", (start, end, max(int(min_cents), 1))).fetchall()
     return [{"entry_id": r["id"], "date": r["date"], "payee": r["payee"],
              "amount": r["amount"], "category": r["category"], "account": r["source_account"]} for r in rows]
+
+
+def invoice_activity(con, start, end):
+    """Invoice-by-invoice activity in a window: what went OUT (invoices dated in the period) and what
+    came IN (payments actually received in the period, cash basis).
+
+    The two lists answer different questions and rarely match: an invoice sent on the 1st may be paid
+    in a later period, and a payment received now may belong to an invoice raised months ago. Kept
+    separate on purpose rather than blended into one "invoice report" that would hide that.
+
+    Payment amounts come from the entry's positive asset legs — i.e. what actually landed in an
+    account — so a partial payment reports the partial, not the invoice face value."""
+    import invoicing   # local import: invoicing pulls in heavier PDF/email deps, and this keeps the
+                       # insights <- invoicing direction from becoming an import-time cycle
+    sent = []
+    for r in con.execute(
+            "SELECT i.id, i.number, i.date, i.status, c.name customer "
+            "FROM invoices i JOIN customers c ON c.id=i.customer_id "
+            "WHERE i.kind='invoice' AND i.status != 'void' AND i.date BETWEEN ? AND ? "
+            "ORDER BY i.date, i.id", (start, end)):
+        total = invoicing.invoice_total(con, r["id"])
+        sent.append({"number": r["number"], "date": r["date"], "customer": r["customer"],
+                     "status": r["status"], "total_cents": total,
+                     "outstanding_cents": invoicing.invoice_outstanding_balance(con, r["id"])})
+
+    paid = []
+    seen = set()
+    for r in con.execute(
+            "SELECT e.id entry_id, e.date, i.number, c.name customer, "
+            "  (SELECT COALESCE(SUM(s.amount_cents),0) FROM splits s JOIN accounts a ON a.id=s.account_id "
+            "   WHERE s.entry_id=e.id AND a.type='asset' AND s.amount_cents > 0) amount_cents "
+            "FROM entries e "
+            "JOIN invoices i ON i.paid_entry_id = e.id "
+            "   OR i.id IN (SELECT l.invoice_id FROM invoice_entry_links l WHERE l.entry_id = e.id) "
+            "JOIN customers c ON c.id = i.customer_id "
+            "WHERE e.date BETWEEN ? AND ? ORDER BY e.date, e.id", (start, end)):
+        key = (r["entry_id"], r["number"])
+        if key in seen:
+            continue
+        seen.add(key)
+        paid.append({"number": r["number"], "date": r["date"], "customer": r["customer"],
+                     "amount_cents": r["amount_cents"]})
+
+    return {"start": start, "end": end,
+            "sent": sent, "paid": paid,
+            "sent_count": len(sent), "sent_total_cents": sum(s["total_cents"] for s in sent),
+            "paid_count": len(paid), "paid_total_cents": sum(p["amount_cents"] for p in paid)}
+
+
+def work_by_job(con, start, end):
+    """What was worked on and what got paid, in one window — the weekly "where did my time go and
+    what did it earn" view.
+
+    `jobs` is hours logged per job (from time tracking) and `paid` is money received per customer
+    (from invoice payments). They're reported side by side rather than joined, because a job worked
+    this week is often paid weeks later — forcing them into one row would imply a link that isn't
+    there."""
+    import timetracking
+    s = timetracking.summary(con, start, end)
+    jobs = sorted(s["by_job"], key=lambda j: -j["hours"])   # note: summary() calls it by_job
+
+    by_customer = {}
+    for p in invoice_activity(con, start, end)["paid"]:
+        c = by_customer.setdefault(p["customer"], {"customer": p["customer"],
+                                                   "paid_cents": 0, "invoices": []})
+        c["paid_cents"] += p["amount_cents"]
+        c["invoices"].append(p["number"])
+    paid = sorted(by_customer.values(), key=lambda c: -c["paid_cents"])
+
+    return {"start": start, "end": end,
+            "jobs": jobs, "total_hours": s.get("total_hours", 0),
+            "paid_by_customer": paid,
+            "paid_total_cents": sum(c["paid_cents"] for c in paid)}
 
 
 def schedule_c_report(con, start, end):

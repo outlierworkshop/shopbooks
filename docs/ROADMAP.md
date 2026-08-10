@@ -34,6 +34,30 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-10 — Assistant: weekly invoice/job reporting, and no more double-sends
+- **Sent twice.** `POST /chat` returned HTML instead of redirecting, and nothing stopped a second
+  submit while a reply was still being composed. Two overlapping requests each appended to the same
+  in-memory transcript, giving the *user, user, assistant, assistant* pattern. Now: POST/Redirect/GET
+  (so a refresh can't re-send), the Send button disables itself while thinking, and the server
+  ignores an identical question that arrives while the first is still in flight.
+- **"Last week" was impossible.** `parse_period` went no narrower than a month. Added
+  `this-week`/`last-week` (Monday–Sunday), `last-7-days`, and exact windows
+  `YYYY-MM-DD..YYYY-MM-DD`.
+- **New tool `invoice_activity`** — invoice-by-invoice: which invoices were *sent* in a period (with
+  customer, total, outstanding) and which *payments were received* (cash basis, partial payments
+  report what actually landed). Sent and paid are kept as separate lists on purpose: an invoice
+  raised now is often paid later.
+- **New tool `work_by_job`** — hours logged per job alongside money received per customer for a
+  period. Listed side by side, not joined: a job worked this week is often paid weeks later.
+- `_to_dollars` now converts **any** `*_cents` key and drops the suffix, so a new tool can't hand the
+  model raw cents to misreport 100x. `jobs_overview`'s description now says it's all-time.
+
+### 2026-08-07 — Mileage: inline editing of logged trips
+- Logged trips are editable in place — date, miles, business/personal, purpose, from/to — with Save
+  per row. Fixes a purpose, corrects the miles, and is how a trip logged before street addresses
+  existed gets its from/to tidied up. Switching a trip to Personal removes it from the deduction
+  immediately.
+
 ### 2026-08-07 — Mileage: a "Check for new trips" button
 - New drives only appeared on the ~60s watcher tick, with no way to ask for them now — the Settings
   "Scan folders now" button scans everything and lands you back on Settings.
