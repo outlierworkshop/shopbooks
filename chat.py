@@ -120,11 +120,52 @@ def _work_by_job(con, today, period="this-week"):
     return {"period": label, **insights.work_by_job(con, s, e)}
 
 
+def _who_owes(con, today):
+    import invoicing
+    ag = invoicing.ar_aging(con, today.isoformat() if hasattr(today, "isoformat") else today)
+    # reshaped with _cents suffixes so _to_dollars converts every figure — ar_aging's own key names
+    # ("total", "outstanding") would otherwise reach the model as raw cents
+    rows = [{"number": r["number"], "customer": r["customer"], "due_date": r["due_date"],
+             "days_overdue": r["days_overdue"], "bucket": r["bucket"], "overdue": bool(r["overdue"]),
+             "outstanding_cents": r["outstanding"],
+             "last_reminder_date": r["last_reminder_date"]} for r in ag["rows"]]
+    return {"open_count": ag["open_count"], "total_outstanding_cents": ag["total"],
+            "overdue_count": ag["overdue_count"], "overdue_total_cents": ag["overdue_total"],
+            "buckets": [{"bucket": k, "amount_cents": v} for k, v in ag["buckets"].items() if v],
+            "invoices": rows}
+
+
+def _forecast(con, today, horizon_days=90):
+    # cash_forecast parses `today` as an ISO string, unlike parse_period which takes a date object
+    t = today.isoformat() if hasattr(today, "isoformat") else today
+    f = insights.cash_forecast(con, horizon_days=int(horizon_days or 90), today=t)
+    return {"horizon_days": f["horizon_days"], "starting_cash_cents": f["starting_cash"],
+            "projected_end_cents": f["projected_end"], "goes_negative": f["goes_negative"],
+            "low_point": ({"month": f["low_point"]["label"], "balance_cents": f["low_point"]["balance"]}
+                          if f.get("low_point") else None),
+            "expected_inflow_total_cents": f["expected_inflow_total"],
+            "avg_monthly_expense_cents": f["avg_monthly_expense"],
+            "months": [{"month": m["label"], "inflow_cents": m["inflow"],
+                        "outflow_cents": m["outflow"], "end_balance_cents": m["end_balance"]}
+                       for m in f["months"]]}
+
+
+def _consistency(con, today):
+    return insights.books_consistency(con)
+
+
+def _weekly_review(con, today, period="last-week"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.weekly_review(con, s, e, today=today)}
+
+
 _HANDLERS = {
     "business_snapshot": _snapshot, "profit_and_loss": _pnl, "compare_periods": _compare,
     "monthly_trend": _trend, "expense_changes": _expense_changes, "cash_position": _cash,
     "bookkeeping_health": _health, "missing_receipts": _missing_receipts, "jobs_overview": _jobs,
     "invoice_activity": _invoice_activity, "work_by_job": _work_by_job,
+    "who_owes_me": _who_owes, "cash_forecast": _forecast,
+    "books_consistency": _consistency, "weekly_review": _weekly_review,
 }
 
 
@@ -183,6 +224,33 @@ TOOLS = [
                     "Use for 'what did I invoice / what got paid last week?', 'who paid me', "
                     "'which invoices went out this month'. The two lists differ on purpose: an "
                     "invoice sent now may be paid later, and a payment now may be for an old invoice.",
+     "input_schema": _period_schema()},
+    {"name": "who_owes_me",
+     "description": "Accounts-receivable aging as of today: every open invoice with the customer, "
+                    "what's still owed, how many days overdue, and which aging bucket "
+                    "(current / 1-30 / 31-60 / 61-90 / 90+), plus totals. Use for 'who owes me "
+                    "money?', 'what's overdue?', 'who should I chase?', 'how much is in receivables?'.",
+     "input_schema": _NO_ARGS},
+    {"name": "cash_forecast",
+     "description": "Projected cash month by month over a horizon (default 90 days): starting cash, "
+                    "expected inflow from open invoices, typical outgoings, the low point, and "
+                    "whether it goes negative. Use for 'will I have enough cash?', 'can I afford X?', "
+                    "'what does cash look like in 3 months?'.",
+     "input_schema": {"type": "object", "properties": {
+         "horizon_days": {"type": "integer", "description": "Days ahead to project. Default 90."}},
+         "required": [], "additionalProperties": False}},
+    {"name": "books_consistency",
+     "description": "Finds places the books contradict themselves: invoices whose status disagrees "
+                    "with their balance (marked paid but still owing, or open with nothing owed), and "
+                    "invoice payments with no income booked (money moved between the owner's own "
+                    "accounts and recorded as a sale — a transfer wearing an invoice). Use for 'are "
+                    "my books right?', 'anything look wrong?', or before trusting revenue figures.",
+     "input_schema": _NO_ARGS},
+    {"name": "weekly_review",
+     "description": "The end-of-week summary in one call: invoices sent, payments collected (per "
+                    "customer and invoice), hours worked per job, what's overdue, and current cash. "
+                    "Defaults to last-week. Use for 'how did last week go?', 'weekly report', "
+                    "'what did I make last week and on what job?'.",
      "input_schema": _period_schema()},
     {"name": "work_by_job",
      "description": "What was worked on and what got paid, for a period: hours logged per job (from "

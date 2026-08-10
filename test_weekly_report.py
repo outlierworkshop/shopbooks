@@ -125,6 +125,64 @@ ok(out["period"] == "Last Week" and round(out["total_hours"], 2) == 9.5,
 out2 = chat._HANDLERS["invoice_activity"](con, WED, period="last-week")
 ok(out2["paid_count"] == 2 and out2["sent_count"] == 2,
    "the invoice_activity handler resolves 'last-week' end to end")
+# --- who owes me (AR aging) -----------------------------------------------------------------------
+owed = chat._HANDLERS["who_owes_me"](con, date(2026, 8, 20))
+nums = {i["number"]: i for i in owed["invoices"]}
+ok("INV-3003" in nums, "the part-paid invoice shows in receivables")
+ok(nums["INV-3003"]["outstanding_cents"] == 250000, "with only the unpaid remainder owing")
+ok("INV-3001" not in nums and "INV-3002" not in nums, "fully-paid invoices are not in receivables")
+ok(nums["INV-3003"]["days_overdue"] > 0 and nums["INV-3003"]["overdue"],
+   "an invoice past its due date is flagged overdue with a day count")
+ok(owed["overdue_total_cents"] == 250000, "the overdue total is reported")
+ok(all(b["amount_cents"] for b in owed["buckets"]), "empty aging buckets are dropped")
+
+# --- cash forecast ----------------------------------------------------------------------------------
+f = chat._HANDLERS["cash_forecast"](con, date(2026, 8, 20), horizon_days=90)
+ok(f["horizon_days"] == 90 and "starting_cash_cents" in f, "the forecast reports a starting cash figure")
+ok(isinstance(f["months"], list) and all("end_balance_cents" in m for m in f["months"]),
+   "each projected month carries an end balance")
+ok(isinstance(f["goes_negative"], bool), "it says plainly whether cash goes negative")
+
+# --- books consistency ------------------------------------------------------------------------------
+c = insights.books_consistency(con)
+ok(c["clean"] is (c["issue_count"] == 0), "'clean' agrees with the issue count")
+before = c["issue_count"]
+
+# --- weekly review: one call, everything -------------------------------------------------------------
+# (run BEFORE the bad-data fixture below, which lands inside this same week and would skew the counts)
+wr = chat._HANDLERS["weekly_review"](con, WED, period="last-week")
+ok(wr["period"] == "Last Week", "weekly_review resolves the period")
+ok(wr["invoiced_count"] == 2 and wr["collected_count"] == 2,
+   "it reports what was invoiced and what was collected")
+ok(wr["collected_total_cents"] == 250000, "with the cash actually collected")
+ok(round(wr["hours_worked"], 2) == 9.5, "hours worked in the window")
+ok("outstanding_total_cents" in wr and "cash_on_hand_cents" in wr,
+   "plus receivables and cash, so it stands alone as a weekly report")
+d = chat._to_dollars(wr)
+ok("collected_total" in d and d["collected_total"] == 2500.0,
+   "weekly_review figures reach the model in dollars")
+ok(not any(k.endswith("_cents") for k in d), "no raw-cents key survives into the model's view")
+
+# a transfer wearing an invoice: payment entry whose legs are both assets, no income booked.
+# This is the real INV-1006 case — Square +$10 / bank -$10 recorded as a sale.
+bank2 = con.execute("INSERT INTO accounts(name,kind,type,active) VALUES('Square Clearing','bank','asset',1)").lastrowid
+i_fake = invoice("INV-3009", c1, "2026-08-01", 1000)
+con.commit()
+eid = ledger_post = con.execute(
+    "INSERT INTO entries(date,payee,memo) VALUES('2026-08-01','Square payment - INV-3009','test')").lastrowid
+con.execute("INSERT INTO splits(entry_id,account_id,amount_cents) VALUES(?,?,1000)", (eid, bank2))
+con.execute("INSERT INTO splits(entry_id,account_id,amount_cents) VALUES(?,?,-1000)", (eid, bank))
+con.execute("UPDATE invoices SET status='paid', paid_entry_id=? WHERE id=?", (eid, i_fake))
+con.commit()
+
+c2r = insights.books_consistency(con)
+ok(c2r["issue_count"] > before, "the transfer-as-a-sale is caught")
+kinds = " ".join(i["issue"] for i in c2r["issues"])
+ok("no income was booked" in kinds, "it explains that no income was booked")
+ok(any(i["number"] == "INV-3009" and "still shows a balance" in i["issue"] for i in c2r["issues"]),
+   "and that the invoice reads paid while still showing a balance")
+ok(c2r["clean"] is False, "the books are not reported clean while that stands")
+
 con.close()
 
 # --- the chat form must not send the same question twice ------------------------------------------

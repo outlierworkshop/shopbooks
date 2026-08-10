@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-10 — Assistant: receivables, cash forecast, books consistency, weekly review
+- **`who_owes_me`** — AR aging was already built (`invoicing.ar_aging`) but never offered to the
+  assistant, so *"who's overdue?"* — the biggest cash lever in a one-person shop — was unanswerable.
+- **`cash_forecast`** — likewise `insights.cash_forecast` existed only on the dashboard. Now the
+  assistant can answer *"will I have enough cash?"* month by month, including the low point.
+- **`books_consistency`** — finds where the books contradict themselves: an invoice whose status
+  disagrees with its balance, and **an invoice payment with no income leg** — money moved between two
+  of the owner's own accounts and recorded as a sale (a transfer wearing an invoice). That second
+  check found a real one: a $10 Square processing test was marked paid while booking no income, so it
+  simultaneously read "paid" and "$10 outstanding".
+- **`weekly_review`** — the end-of-week question in one call: invoiced, collected (per customer and
+  invoice), hours per job, overdue, and cash.
+- All four reshape their figures to `*_cents` keys so the generic converter turns them into dollars —
+  `ar_aging`'s own `total`/`outstanding` names would otherwise have reached the model as raw cents.
+
 ### 2026-08-10 — Assistant: weekly invoice/job reporting, and no more double-sends
 - **Sent twice.** `POST /chat` returned HTML instead of redirecting, and nothing stopped a second
   submit while a reply was still being composed. Two overlapping requests each appended to the same

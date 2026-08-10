@@ -493,6 +493,68 @@ def work_by_job(con, start, end):
             "paid_total_cents": sum(c["paid_cents"] for c in paid)}
 
 
+def books_consistency(con):
+    """Places where the books contradict themselves — the checks that decide whether every other
+    number can be trusted.
+
+    Two classes, both found in real data:
+      * an invoice whose STATUS disagrees with its BALANCE (marked paid but still showing a balance,
+        or still open with nothing owed);
+      * a payment entry attached to an invoice that has NO income leg — i.e. money moved between two
+        of your own accounts and got recorded as a sale. That's a transfer wearing an invoice, and it
+        both overstates receivables and understates (or invents) income."""
+    import invoicing
+    issues = []
+    for r in con.execute("SELECT id, number, status FROM invoices "
+                         "WHERE kind='invoice' AND status != 'void'"):
+        out = invoicing.invoice_outstanding_balance(con, r["id"])
+        if r["status"] == "paid" and out > 0:
+            issues.append({"issue": "marked paid but still shows a balance owing",
+                           "number": r["number"], "status": r["status"], "amount_cents": out})
+        elif r["status"] in ("sent", "partially_paid") and out <= 0:
+            issues.append({"issue": "still open but nothing is owed on it",
+                           "number": r["number"], "status": r["status"], "amount_cents": 0})
+
+    for r in con.execute(
+            "SELECT DISTINCT e.id, e.date, e.payee, i.number FROM entries e "
+            "JOIN invoices i ON i.paid_entry_id = e.id "
+            "   OR i.id IN (SELECT l.invoice_id FROM invoice_entry_links l WHERE l.entry_id = e.id) "
+            "ORDER BY e.date"):
+        has_income = con.execute(
+            "SELECT COUNT(*) c FROM splits s JOIN accounts a ON a.id = s.account_id "
+            "WHERE s.entry_id = ? AND a.type = 'income'", (r["id"],)).fetchone()["c"]
+        if not has_income:
+            issues.append({"issue": "recorded as an invoice payment but no income was booked "
+                                    "(it only moves money between your own accounts — a transfer)",
+                           "number": r["number"], "date": r["date"], "entry": r["payee"],
+                           "amount_cents": 0})
+    return {"issue_count": len(issues), "issues": issues,
+            "clean": not issues}
+
+
+def weekly_review(con, start, end, today=None):
+    """Everything the end-of-week question needs, in one answer: what went out, what came in, what
+    was worked on, what's overdue, and where cash stands. Assembled from the same deterministic
+    helpers the individual tools use — nothing new is computed here."""
+    import invoicing
+    act = invoice_activity(con, start, end)
+    work = work_by_job(con, start, end)
+    as_of = today.isoformat() if hasattr(today, "isoformat") else (today or end)
+    aging = invoicing.ar_aging(con, as_of)   # ar_aging parses this as an ISO string
+    cash = cash_position(con)
+    return {
+        "start": start, "end": end,
+        "invoiced_count": act["sent_count"], "invoiced_total_cents": act["sent_total_cents"],
+        "collected_count": act["paid_count"], "collected_total_cents": act["paid_total_cents"],
+        "sent": act["sent"], "paid": act["paid"],
+        "hours_worked": work["total_hours"], "jobs": work["jobs"],
+        "paid_by_customer": work["paid_by_customer"],
+        "outstanding_total_cents": aging["total"],
+        "overdue_total_cents": aging["overdue_total"], "overdue_count": aging["overdue_count"],
+        "cash_on_hand_cents": cash["cash_on_hand"], "card_debt_cents": cash["card_debt"],
+    }
+
+
 def schedule_c_report(con, start, end):
     """Group active income and expense account balances by schedule_c_line.
     Returns mapped line totals and details of any active unmapped categories.
