@@ -26,9 +26,11 @@ MAX_TOOL_ROUNDS = 8       # safety cap on the tool-use loop
 MAX_TURNS = 24            # cap transcript length sent to the model
 
 PERIOD_DESC = (
-    "Time period. One of the relative words this-year, last-year, this-quarter, last-quarter, "
-    "this-month, last-month, ytd; or an explicit 'YYYY' (e.g. 2025), 'YYYY-Qn' (e.g. 2025-Q2), "
-    "or 'YYYY-MM' (e.g. 2025-03). Defaults to this-year."
+    "Time period. One of the relative words this-week, last-week, last-7-days, this-month, "
+    "last-month, this-quarter, last-quarter, this-year, last-year, ytd, last-30-days, "
+    "last-12-months; or an explicit 'YYYY' (e.g. 2025), 'YYYY-Qn' (e.g. 2025-Q2), 'YYYY-MM' "
+    "(e.g. 2025-03), or an exact window 'YYYY-MM-DD..YYYY-MM-DD'. Weeks run Monday-Sunday. "
+    "Defaults to this-year."
 )
 
 # Keys whose integer values are money (cents). _to_dollars converts these to dollars so the
@@ -40,13 +42,19 @@ MONEY_KEYS = {
 
 
 def _to_dollars(obj):
-    """Recursively convert known cents fields to dollars (float, 2dp). A money key whose value is
-    a nested dict (e.g. compare()'s 'income') is recursed into, not converted."""
+    """Recursively convert money fields to dollars (float, 2dp). A money key whose value is
+    a nested dict (e.g. compare()'s 'income') is recursed into, not converted.
+
+    Any key ending in `_cents` is converted AND renamed to drop the suffix, so a new tool can't
+    accidentally hand the model raw cents to misread as dollars — the failure mode there is silent
+    and 100x, which is exactly the kind of number this app must never get wrong."""
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
             if isinstance(v, bool):
                 out[k] = v
+            elif isinstance(v, int) and k.endswith("_cents"):
+                out[k[:-len("_cents")]] = round(v / 100, 2)
             elif isinstance(v, int) and k in MONEY_KEYS:
                 out[k] = round(v / 100, 2)
             else:
@@ -102,10 +110,21 @@ def _jobs(con, today):
     return {"jobs": rows}
 
 
+def _invoice_activity(con, today, period="this-month"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.invoice_activity(con, s, e)}
+
+
+def _work_by_job(con, today, period="this-week"):
+    s, e, label = insights.parse_period(period, today)
+    return {"period": label, **insights.work_by_job(con, s, e)}
+
+
 _HANDLERS = {
     "business_snapshot": _snapshot, "profit_and_loss": _pnl, "compare_periods": _compare,
     "monthly_trend": _trend, "expense_changes": _expense_changes, "cash_position": _cash,
     "bookkeeping_health": _health, "missing_receipts": _missing_receipts, "jobs_overview": _jobs,
+    "invoice_activity": _invoice_activity, "work_by_job": _work_by_job,
 }
 
 
@@ -153,9 +172,25 @@ TOOLS = [
                     "lacking documentation at tax time). Optional min_amount (dollars) to focus on bigger buys.",
      "input_schema": _period_schema({"min_amount": {"type": "number", "description": "Only include expenses at or above this dollar amount. Default 0 (all)."}})},
     {"name": "jobs_overview",
-     "description": "Per-job profitability: hours logged, billable value, and net cash profit (income "
-                    "minus expenses tagged to that job). Use for 'which jobs/customers are profitable?'.",
+     "description": "Per-job profitability for ALL TIME: hours logged, billable value, and net cash "
+                    "profit (income minus expenses tagged to that job). Use for 'which jobs/customers "
+                    "are profitable?'. For a specific period use work_by_job instead.",
      "input_schema": _NO_ARGS},
+    {"name": "invoice_activity",
+     "description": "Invoice-by-invoice activity for a period: which invoices were SENT (raised in "
+                    "the period, with customer, total and what's still outstanding) and which "
+                    "PAYMENTS were RECEIVED (cash actually collected, with the invoice and customer). "
+                    "Use for 'what did I invoice / what got paid last week?', 'who paid me', "
+                    "'which invoices went out this month'. The two lists differ on purpose: an "
+                    "invoice sent now may be paid later, and a payment now may be for an old invoice.",
+     "input_schema": _period_schema()},
+    {"name": "work_by_job",
+     "description": "What was worked on and what got paid, for a period: hours logged per job (from "
+                    "time tracking) alongside money received per customer (from invoice payments). "
+                    "Use for the weekly 'which jobs did I work on, and which did I get paid for?'. "
+                    "Hours and payments are listed side by side, not joined — a job worked this week "
+                    "is often paid weeks later.",
+     "input_schema": _period_schema()},
 ]
 
 

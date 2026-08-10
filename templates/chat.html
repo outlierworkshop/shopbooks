@@ -41,17 +41,38 @@ makes them up or changes anything.</p>
 <form method="post" action="/chat" class="toolbar" id="chatForm" {{ 'style=opacity:.5;pointer-events:none' if not ai_on else '' }}>
   <input type="text" name="message" id="chatMsg" placeholder="Ask a question..." autocomplete="off"
          style="flex:1; min-width:280px" {{ 'disabled' if not ai_on else 'autofocus' }}>
-  <button type="submit">Send</button>
+  <button type="submit" id="chatSend">Send</button>
   {% if history %}
   <button type="submit" name="clear" value="1" class="ghost small"
           onclick="return confirm('Clear this conversation?')">Clear</button>
   {% endif %}
+  <span id="chatBusy" class="muted" style="display:none">Thinking…</span>
 </form>
 
 <script>
+/* An answer can take a while (the assistant may make several lookups). Without this, a second click
+   or an Enter-key repeat sent the question twice and produced two near-identical replies — the
+   requests overlap, so both append to the same transcript. The server refuses an identical
+   in-flight repeat too; this is the half that keeps the UI honest. */
+var chatForm = document.getElementById('chatForm');
+if (chatForm) {
+  chatForm.addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.name === 'clear') return;   // clearing is instant
+    if (chatForm.dataset.sent === '1') { e.preventDefault(); return; }
+    chatForm.dataset.sent = '1';
+    var b = document.getElementById('chatSend');
+    if (b) { b.disabled = true; b.textContent = 'Sending…'; }
+    var busy = document.getElementById('chatBusy');
+    if (busy) busy.style.display = '';
+  });
+}
 function askChip(btn){
   var box = document.getElementById('chatMsg');
-  if (box){ box.value = btn.textContent.trim(); document.getElementById('chatForm').submit(); }
+  if (box && chatForm.dataset.sent !== '1'){
+    box.value = btn.textContent.trim();
+    if (typeof chatForm.requestSubmit === 'function') chatForm.requestSubmit();
+    else chatForm.submit();
+  }
 }
 // keep the newest message in view after a reply
 window.scrollTo(0, document.body.scrollHeight);

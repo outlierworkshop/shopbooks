@@ -50,6 +50,22 @@ def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = 
     con.commit()
     return RedirectResponse("/mileage", status_code=303)
 
+@router.post("/mileage/update")
+def mileage_update(trip_id: int = Form(...), date: str = Form(...), miles: float = Form(...),
+                   purpose: str = Form(""), from_loc: str = Form(""), to_loc: str = Form(""),
+                   business: str = Form("1"), con=Depends(get_con)):
+    """Edit a logged trip in place — fix a purpose, correct the miles, or reclassify it as personal
+    (which takes it straight out of the deduction). Also how a trip logged before street addresses
+    existed gets its from/to tidied up."""
+    if miles <= 0:
+        return safe_redirect("/mileage", err="Miles must be greater than zero.")
+    con.execute("UPDATE mileage SET date=?, miles=?, purpose=?, from_loc=?, to_loc=?, business=? "
+                "WHERE id=?",
+                (ledger.normalize_date(date), miles, purpose.strip(), from_loc.strip(),
+                 to_loc.strip(), 0 if business in ("0", "", "off") else 1, trip_id))
+    con.commit()
+    return safe_redirect("/mileage", msg="Trip updated.")
+
 @router.post("/mileage/delete")
 def mileage_delete(trip_id: int = Form(...), con=Depends(get_con)):
     # trip_candidates.mileage_id references this row, so it has to be cleared first or the DELETE

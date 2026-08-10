@@ -10,7 +10,7 @@ import db
 import insights
 import ledger
 import timetracking
-from webutil import _write_account_section, ctx, get_con, templates
+from webutil import _write_account_section, ctx, get_con, safe_redirect, templates
 
 router = APIRouter()
 
@@ -131,21 +131,31 @@ def forecast_page(request: Request, horizon: int = 90, explain: str = "", con=De
 CHAT_HISTORY = []  # in-memory transcript for the assistant (single local user; resets on restart)
 
 @router.get("/chat", response_class=HTMLResponse)
-def chat_page(request: Request, con=Depends(get_con)):
+def chat_page(request: Request, err: str = "", con=Depends(get_con)):
     return templates.TemplateResponse(request, "chat.html", ctx(
-        request, con, history=CHAT_HISTORY, err=None))
+        request, con, history=CHAT_HISTORY, err=err or None))
 
-@router.post("/chat", response_class=HTMLResponse)
+@router.post("/chat")
 def chat_send(request: Request, message: str = Form(""), clear: str = Form(""), con=Depends(get_con)):
+    """Ask the assistant. Always ends in a redirect (POST/Redirect/GET) so refreshing the page after
+    a reply re-renders the transcript instead of re-sending the question."""
     if clear:
         CHAT_HISTORY.clear()
         return RedirectResponse("/chat", status_code=303)
     err = None
     msg = message.strip()
     if msg:
+        # A reply can take many seconds while the tool loop runs. If a second submit arrives in that
+        # window (an impatient double-click, or the browser retrying), the transcript ended up with
+        # the question twice and two near-identical answers. The last entry is only a *user* message
+        # while a request is genuinely still in flight, so this is a safe duplicate guard.
+        last = CHAT_HISTORY[-1] if CHAT_HISTORY else None
+        if last and last["role"] == "user" and last["content"] == msg:
+            return RedirectResponse("/chat", status_code=303)
         CHAT_HISTORY.append({"role": "user", "content": msg})
         reply, err = chat.ask(con, CHAT_HISTORY)
         if reply:
             CHAT_HISTORY.append({"role": "assistant", "content": reply})
-    return templates.TemplateResponse(request, "chat.html", ctx(
-        request, con, history=CHAT_HISTORY, err=err))
+        elif CHAT_HISTORY and CHAT_HISTORY[-1]["role"] == "user":
+            CHAT_HISTORY.pop()   # nothing came back: don't strand the question in the transcript
+    return safe_redirect("/chat", err=err) if err else RedirectResponse("/chat", status_code=303)

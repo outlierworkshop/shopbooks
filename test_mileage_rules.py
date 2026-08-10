@@ -151,5 +151,33 @@ ok(con.execute("SELECT business FROM mileage WHERE purpose='Legacy row'").fetcho
    "a row inserted without a type defaults to business (past deductions are unchanged)")
 
 ok(client.get("/mileage").status_code == 200, "the mileage page renders with rules")
+
+# --- editing a logged trip in place ---------------------------------------------------------------
+mid = con.execute("SELECT id FROM mileage WHERE purpose='Job'").fetchone()["id"]
+r = client.post("/mileage/update", follow_redirects=False, data={
+    "trip_id": mid, "date": "2026-03-04", "miles": "12.5", "purpose": "Client delivery",
+    "from_loc": "14 William Street, Somerville, MA", "to_loc": "319 Huron Avenue, Cambridge, MA",
+    "business": "1"})
+ok(r.status_code == 303, "editing a logged trip redirects")
+row = con.execute("SELECT * FROM mileage WHERE id=?", (mid,)).fetchone()
+ok(row["miles"] == 12.5 and row["purpose"] == "Client delivery", "miles and purpose are updated")
+ok(row["date"] == "2026-03-04", "the date is updated")
+ok(row["from_loc"].startswith("14 William"), "from/to can be corrected to street addresses")
+
+# switching a logged trip to personal pulls it out of the deduction straight away
+before = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE business=1").fetchone()["m"]
+client.post("/mileage/update", follow_redirects=False, data={
+    "trip_id": mid, "date": row["date"], "miles": row["miles"], "purpose": row["purpose"],
+    "from_loc": row["from_loc"], "to_loc": row["to_loc"], "business": "0"})
+after = con.execute("SELECT COALESCE(SUM(miles),0) m FROM mileage WHERE business=1").fetchone()["m"]
+ok(con.execute("SELECT business FROM mileage WHERE id=?", (mid,)).fetchone()["business"] == 0,
+   "a logged trip can be reclassified as personal")
+ok(after == before - 12.5, "...and its miles leave the deductible total immediately")
+
+r = client.post("/mileage/update", follow_redirects=False,
+                data={"trip_id": mid, "date": "2026-03-04", "miles": "0", "business": "1"})
+ok("err=" in r.headers["location"], "zero miles is refused rather than silently saved")
+ok(client.get("/mileage").text.count('action="/mileage/update"') >= 1,
+   "the log rows are editable in place on the page")
 con.close()
 print("\nMILEAGE RULES TESTS DONE")

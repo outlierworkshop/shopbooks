@@ -151,21 +151,43 @@ rule (same start <em>and</em> end) wins over a destination rule when both fit.</
   <button type="submit">Add</button>
 </form>
 
-<table class="sortable">
+{# Each row is editable in place. The <form> lives outside the table (it can't legally sit inside a
+   <tr>) and the row's inputs point at it with form="trip-<id>", the same trick the pending-trips
+   table uses above. #}
+{% for t in trips %}
+<form id="trip-{{ t.id }}" method="post" action="/mileage/update">
+  <input type="hidden" name="trip_id" value="{{ t.id }}"></form>
+{% endfor %}
+<table>
   <tr><th>Date</th><th class="num">Miles</th><th>Type</th><th>Purpose</th><th>From</th><th>To</th><th></th></tr>
   {% for t in trips %}
   <tr>
-    <td>{{ t.date }}</td><td class="num">{{ '%.1f'|format(t.miles) }}</td>
-    <td>{% if t.business %}Business{% else %}<span class="muted" title="Logged, but not part of the deduction">Personal</span>{% endif %}</td>
-    <td>{{ t.purpose }}</td><td class="muted">{{ t.from_loc }}</td><td class="muted">{{ t.to_loc }}</td>
-    <td><form class="inline" method="post" action="/mileage/delete">
-      <input type="hidden" name="trip_id" value="{{ t.id }}">
-      <button class="small danger" type="submit">✕</button></form></td>
+    <td><input type="date" name="date" value="{{ t.date }}" form="trip-{{ t.id }}" required style="width:140px"></td>
+    <td class="num"><input type="number" name="miles" value="{{ '%.1f'|format(t.miles) }}" step="0.1" min="0.1"
+                           form="trip-{{ t.id }}" required style="width:75px"></td>
+    <td>
+      <select name="business" form="trip-{{ t.id }}" title="Personal trips stay in the log but aren't deducted">
+        <option value="1" {{ 'selected' if t.business else '' }}>Business</option>
+        <option value="0" {{ '' if t.business else 'selected' }}>Personal</option>
+      </select>
+    </td>
+    <td><input type="text" name="purpose" value="{{ t.purpose }}" form="trip-{{ t.id }}" style="width:170px"></td>
+    <td><input type="text" name="from_loc" value="{{ t.from_loc }}" form="trip-{{ t.id }}" style="width:190px"></td>
+    <td><input type="text" name="to_loc" value="{{ t.to_loc }}" form="trip-{{ t.id }}" style="width:190px"></td>
+    <td style="white-space:nowrap">
+      <button class="small" type="submit" form="trip-{{ t.id }}">Save</button>
+      <form class="inline" method="post" action="/mileage/delete"
+            onsubmit="return confirm('Delete this trip from the mileage log?')">
+        <input type="hidden" name="trip_id" value="{{ t.id }}">
+        <button class="small danger" type="submit" title="Delete this trip">✕</button></form>
+    </td>
   </tr>
   {% else %}
   <tr><td colspan="7" class="muted">No trips logged yet.</td></tr>
   {% endfor %}
 </table>
+<p class="muted" style="font-size:12px">Edit any row and hit <strong>Save</strong> — switching a trip
+to <em>Personal</em> takes it out of the deduction immediately.</p>
 <p class="muted">The IRS standard mileage rate changes each January - update it in Settings.
 The deduction shows on Reports for your tax advisor; it is not posted to the books.
 {% if not trips_watch_on %}<br><strong>Automatic capture:</strong> your phone can log drives for you —
