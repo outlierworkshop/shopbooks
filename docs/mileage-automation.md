@@ -47,7 +47,10 @@ instead of being eaten as a "driveway blip". A drive that ends where it began (a
 up with ~0 point-to-point miles — edit the miles at approval.
 
 The **Trips folder** setting may point at either the folder *or* the log file itself
-(e.g. `…\TravelLog\triplog.txt`) — both work.
+(e.g. `…\TravelLog\triplog.txt`) — both work. And because the log lives in Dropbox, the same
+setting works on **both machines**: a path saved on Windows (`C:\Users\…\Dropbox\Phone\TravelLog\…`)
+is automatically re-rooted onto the Mac's Dropbox (`~/Library/CloudStorage/Dropbox/…`) and vice
+versa, whenever the same file exists there.
 
 ### B. One file per event
 

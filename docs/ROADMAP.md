@@ -45,6 +45,11 @@ boring tech, built for exactly one user.
 - **The trips watch setting may point at the log file itself.** Ben's real setting was
   `…\TravelLog\triplog.txt`; `watcher._list_files` required a directory, so it silently scanned
   nothing. A file target now watches that one file (folders still work as before).
+- **Watch paths work on both machines.** The books move between the Windows machine and the Mac,
+  but a stored watch path only existed on one. `watcher.resolve_path` re-roots a missing path's
+  Dropbox/OneDrive remainder onto this machine's copy of that cloud folder (Dropbox's own
+  `info.json` is consulted first, then conventional locations), used only when the re-rooted path
+  actually exists. Applies to all three watchers — statements, receipts, trips.
 
 ### 2026-08-10 — Assistant: six business reports (tax, services, customers, pipeline, quotes, vendors)
 - **`tax_position`** — the "money that isn't yours" view: sales tax owed to the state (a liability,
