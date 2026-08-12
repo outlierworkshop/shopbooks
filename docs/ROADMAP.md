@@ -34,6 +34,21 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-12 — Shop-log time import (`shoplog.py`, fourth folder watcher)
+- Ben's end-of-day shop-log routine writes one curated CSV per day
+  (`ShopLog/data/YYYY-MM-DD.csv`, header `date,start,end,minutes,client,job,work_type,billable,notes,friction`)
+  into a synced Dropbox folder. A new **Shop log folder** watcher imports those rows straight into
+  `time_entries` — no approval queue, because the rows are already human-confirmed by the routine
+  and time is records-only (no ledger impact, same class as mileage).
+- Corrections in that folder are new files (`-rev2` supersedes plain, `-rev3` supersedes `-rev2`),
+  so the import keys on the day: `time_entries.source` = `shoplog:<date>:rev<N>` (new column,
+  guarded ALTER), a higher rev **replaces** that day's imported rows, a lower rev is skipped as
+  superseded, and manual entries (empty source) are never touched. This is what stops a corrected
+  day from double-counting.
+- Jobs auto-create from the log's slugs; on creation only, the client name is matched to an
+  existing customer (all name words present, unique hit — `AndrewRyan` → "Andrew Ryan" but a bare
+  `Ryan` refuses to guess). `minutes`→hours, `work_type`→category, `billable` y/n → flag;
+  `start`/`end`/`friction` deliberately stay in the ShopLog folder — SB's reports only use hours.
 ### 2026-08-12 — Mileage: read the whole trip log, not just one drive
 - **Pairing skips the phone logger's shadow `[END]`s.** The real triplog shows every `[START]`
   shadowed by an `[END]` in the same minute at the same spot, with the drive's real `[END]` coming

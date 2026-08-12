@@ -82,8 +82,10 @@ def _start_watchers():
     # Deferred to the startup event (not called at import time). TestClient(app.app) used without
     # `with` (the pattern this repo's tests use) never fires this, so tests never spin up a real
     # background thread — they call watcher.run_once(...) directly instead.
+    import shoplog
     import trips
-    watcher.start(staging._watch_statement, staging._watch_receipt, trips._watch_trip_event)
+    watcher.start(staging._watch_statement, staging._watch_receipt, trips._watch_trip_event,
+                  shoplog.ingest_csv)
 
 
 @app.on_event("shutdown")

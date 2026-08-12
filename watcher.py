@@ -153,11 +153,12 @@ def scan_folder(con, folder, kind, exts, process_fn):
     return {"scanned": scanned, "counts": counts, "errors": errors, "enabled": True}
 
 
-def run_once(con, statement_fn, receipt_fn, trip_fn=None):
+def run_once(con, statement_fn, receipt_fn, trip_fn=None, time_fn=None):
     """One tick: scan the configured folders (if set). The callbacks are
     (con, path, data) -> (status, note), supplied by the caller (app.py), so this module has no
     dependency on the import/ingestion pipelines themselves. `trip_fn` (Bluetooth mileage events —
-    see trips.py) is optional so older callers/tests keep working unchanged."""
+    see trips.py) and `time_fn` (shop-log time CSVs — see shoplog.py) are optional so older
+    callers/tests keep working unchanged."""
     global _LAST
     statements = scan_folder(con, db.get_setting(con, "statements_watch_folder", ""),
                              "statement", {".pdf", ".csv"}, statement_fn)
@@ -167,6 +168,9 @@ def run_once(con, statement_fn, receipt_fn, trip_fn=None):
     if trip_fn is not None:
         summary["trips"] = scan_folder(con, db.get_setting(con, "trips_watch_folder", ""),
                                        "trip", {".txt", ".csv"}, trip_fn)
+    if time_fn is not None:
+        summary["time"] = scan_folder(con, db.get_setting(con, "time_watch_folder", ""),
+                                      "time", {".csv"}, time_fn)
     _LAST = summary
     return summary
 
@@ -175,11 +179,11 @@ def status():
     return _LAST
 
 
-def _loop(statement_fn, receipt_fn, trip_fn, interval):
+def _loop(statement_fn, receipt_fn, trip_fn, time_fn, interval):
     while not _stop.is_set():
         con = db.connect()
         try:
-            run_once(con, statement_fn, receipt_fn, trip_fn)
+            run_once(con, statement_fn, receipt_fn, trip_fn, time_fn)
             con.commit()
         except Exception as e:
             log.warning("watcher tick failed: %s", e)  # a tick must never crash the background thread
@@ -188,13 +192,14 @@ def _loop(statement_fn, receipt_fn, trip_fn, interval):
         _stop.wait(interval)
 
 
-def start(statement_fn, receipt_fn, trip_fn=None, interval=DEFAULT_INTERVAL):
+def start(statement_fn, receipt_fn, trip_fn=None, time_fn=None, interval=DEFAULT_INTERVAL):
     """Start the background thread (idempotent — a second call while one is running is a no-op)."""
     global _thread
     if _thread and _thread.is_alive():
         return
     _stop.clear()
-    _thread = threading.Thread(target=_loop, args=(statement_fn, receipt_fn, trip_fn, interval), daemon=True)
+    _thread = threading.Thread(target=_loop, args=(statement_fn, receipt_fn, trip_fn, time_fn, interval),
+                               daemon=True)
     _thread.start()
 
 

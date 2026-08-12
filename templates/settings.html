@@ -292,6 +292,13 @@ test backup so you can confirm it works.</p>
       title="Where your phone drops car-Bluetooth trip events (a Dropbox subfolder) — see docs/mileage-automation.md">
     <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('trips_watch_folder')">📁 Browse…</button>
   </div>
+  <label>Shop log folder (time)</label>
+  <div class="folder-field">
+    <input type="text" name="time_watch_folder" id="time_watch_folder" value="{{ s.time_watch_folder }}"
+      placeholder="leave blank to turn off"
+      title="Your shop-log data folder (e.g. Dropbox\ShopLog\data) — daily YYYY-MM-DD.csv files become time entries; a -rev2 correction file replaces that day's imported rows">
+    <button type="button" class="btn ghost small folder-picker-btn" onclick="openFolderPicker('time_watch_folder')">📁 Browse…</button>
+  </div>
 </div>
 <p class="muted">Drop a bank/card statement (PDF/CSV) or a receipt (photo/PDF) into these folders — e.g. your
 Downloads folder, or wherever your bank/phone already saves them — and ShopBooks checks for new files about
@@ -302,6 +309,11 @@ The <strong>Trips folder</strong> powers automatic mileage: your phone drops a t
 connects/disconnects from your car's Bluetooth, and detected drives appear on <a href="/mileage">Mileage</a>
 for approval — phone setup guide in
 <a href="/help/mileage">the automatic-mileage guide</a>.
+The <strong>Shop log folder</strong> imports your daily shop-log CSVs (<code>YYYY-MM-DD.csv</code>) straight
+into <a href="/time">Time tracking</a> — the hours are already yours, confirmed at day's end, so there's no
+approval step. Jobs are created from the log's job names automatically, and a correction file
+(<code>YYYY-MM-DD-rev2.csv</code>) replaces that day's imported entries without touching anything you typed
+by hand.
 Paths inside a <strong>Dropbox or OneDrive folder</strong> work on both of your computers: a path saved on one
 machine (like <code>C:\Users\…\Dropbox\…</code>) is automatically found in the same cloud folder on the
 other, so you don't have to re-enter it after switching machines.</p>

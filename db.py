@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS time_entries(
   note TEXT NOT NULL DEFAULT '',
   billable INTEGER NOT NULL DEFAULT 0,  -- 0/1
   rate_cents INTEGER,                   -- per-hour billing rate; NULL = use default_hourly_rate
+  source TEXT NOT NULL DEFAULT '',      -- ''=manual; 'shoplog:<date>:rev<N>'=imported (shoplog.py)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_time_job ON time_entries(job_id);
@@ -606,6 +607,12 @@ def _column_migrations(con):
       entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
       PRIMARY KEY (document_id, entry_id)
     )""")
+
+    have = {r["name"] for r in con.execute("PRAGMA table_info(time_entries)").fetchall()}
+    if "source" not in have:
+        # provenance for imported time rows (shoplog.py): 'shoplog:<date>:rev<N>'. A corrected
+        # shop-log day replaces exactly its own rows; manual entries (empty source) are untouched.
+        con.execute("ALTER TABLE time_entries ADD COLUMN source TEXT NOT NULL DEFAULT ''")
 
     have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
     if "sha256" not in have:
