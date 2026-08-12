@@ -113,7 +113,16 @@ def _list_files(folder):
 def scan_folder(con, folder, kind, exts, process_fn):
     """Scan one folder for files with an extension in `exts`; call process_fn(con, path, data) ->
     (status, note) for each new-or-changed file (per `watched_files`); record the result. Returns
-    a summary dict. process_fn exceptions are caught per-file so one bad file doesn't stop the scan."""
+    a summary dict. process_fn exceptions are caught per-file so one bad file doesn't stop the scan.
+
+    The status a callback returns decides whether the file is ever looked at again. **`error` alone
+    is retried** on every tick (see the NOTE below); every other status is terminal for that version
+    of the file. So a callback must return `error` only when the failure might be OURS and a later
+    fix could succeed ("couldn't tell which account this is for"), and a terminal status —
+    `skipped`, `empty`, `duplicate` — when the verdict is a settled fact about the file's content
+    ("this CSV has no date/description/amount columns, so it isn't a statement"). Getting that
+    backwards means either a file that's never retried after a parser fix, or a permanent one-a-
+    minute failure in the log."""
     counts = {}
     errors = []
     if not str(folder or "").strip():

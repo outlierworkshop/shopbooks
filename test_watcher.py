@@ -191,6 +191,37 @@ watcher.scan_folder(con, str(STMT_DIR), "statement", {".csv"}, _now_succeeds)
 con.commit()
 ok("unreadable.csv" not in seen, "once it succeeds, the unchanged file is a no-op again")
 
+# A non-statement CSV in the statements folder is SKIPPED, not errored — and never retried.
+# Ben's statements folder legitimately holds QuickBooks exports (an invoice list, a
+# product/service list). They have no date/description/amount columns, so they can never be a
+# statement; as 'error' they logged a fresh failure on every 60s tick, forever.
+QBO_INVOICES = (b"Num,Customer,Amount,A/R Paid,Date\n"
+                b"1885,Ryan L. Soltis,3258.87,Paid,2026-01-07\n")
+(STMT_DIR / "invoices_2026.csv").write_bytes(QBO_INVOICES)
+rq = watcher.run_once(con, app._watch_statement, app._watch_receipt)
+con.commit()
+ok(rq["statements"]["counts"].get("skipped") == 1,
+   "a CSV with no date/description/amount columns is reported 'skipped', not 'error'")
+ok(not rq["statements"]["errors"], "...and doesn't show up as a folder error")
+row = con.execute("SELECT status, note FROM watched_files WHERE path=?",
+                  (str(STMT_DIR / "invoices_2026.csv"),)).fetchone()
+ok(row["status"] == "skipped" and "not a bank statement" in row["note"],
+   "the skip and its reason are recorded against the file")
+rq2 = watcher.run_once(con, app._watch_statement, app._watch_receipt)
+con.commit()
+ok(rq2["statements"]["scanned"] == 0,
+   "the skipped file is NOT retried on the next tick (unlike an error)")
+ok(con.execute("SELECT COUNT(*) c FROM batches WHERE filename='invoices_2026.csv'").fetchone()["c"] == 0,
+   "nothing from the non-statement CSV reached the books")
+
+# the QBO product/service list (quoted header, no date column at all) is skipped the same way
+(STMT_DIR / "ProductsServicesList_Outlier_Workshop_7_6_2026.csv").write_bytes(
+    b'"Product/Service Name","Variant Name","Quantity on hand","Item type","Price","Cost"\n'
+    b'"3d Printing","3d Printing",0,"Service",,\n')
+rq3 = watcher.run_once(con, app._watch_statement, app._watch_receipt)
+con.commit()
+ok(rq3["statements"]["counts"].get("skipped") == 1, "the QBO product/service list is skipped too")
+
 # a DIFFERENT file with the same content -> caught by is_duplicate_statement, not double-staged
 (STMT_DIR / "Business_Checking_Statement_v2.csv").write_bytes(CSV)
 staged_before = con.execute("SELECT COUNT(*) c FROM staged").fetchone()["c"]

@@ -289,7 +289,15 @@ def _watch_statement(con, path, data):
     name = path.name.lower()
     if name.endswith(".csv"):
         text = data.decode("utf-8-sig", errors="replace")
-        txns = importer.parse_csv(data)
+        try:
+            txns = importer.parse_csv(data)
+        except ValueError as e:
+            # A CSV with no date/description/amount columns is not a bank statement and never will
+            # be — a settled fact about the file, not a parser shortcoming. Return the terminal
+            # 'skipped' rather than 'error' so the watcher stops retrying it every tick: the
+            # statements folder legitimately holds other exports (QuickBooks invoice and
+            # product/service lists), which otherwise logged a failure once a minute forever.
+            return "skipped", f"not a bank statement ({e})"
     elif name.endswith(".pdf"):
         text = importer.pdf_text(path)  # the file is still on disk in the watch folder
         extracted = None
@@ -311,10 +319,12 @@ def _watch_statement(con, path, data):
         else:
             txns = importer.regex_parse_statement(text)
     else:
-        return "error", "not a .pdf or .csv"
+        return "skipped", "not a .pdf or .csv"
 
     account_id = importer.detect_account_id(con, path.name, text)
     if not account_id:
+        # NOT terminal: adding the account (or a naming rule) later makes this file importable,
+        # so it stays an 'error' and gets retried.
         return "error", "couldn't tell which account this statement is for"
     if not txns:
         return "empty", "no transactions found in the file"
