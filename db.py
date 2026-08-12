@@ -361,7 +361,8 @@ CREATE TABLE IF NOT EXISTS square_invoices(
 );
 
 CREATE TABLE IF NOT EXISTS watched_files(
-  path TEXT PRIMARY KEY,                -- absolute path of a file seen by a folder watcher
+  path TEXT PRIMARY KEY,                -- watcher.watch_key(): 'cloud:dropbox/<rel>' for a synced
+                                        -- file (same on both machines), else the absolute path
   kind TEXT NOT NULL,                   -- 'statement' | 'receipt'
   mtime REAL NOT NULL,                  -- last-seen mtime; a changed file is reprocessed
   size INTEGER NOT NULL,
@@ -591,6 +592,36 @@ def connect():
     return con                               # out brief lock contention instead of erroring
 
 
+def _rekey_watched_files(con):
+    """Re-key `watched_files` rows for cloud-synced files onto their machine-independent key.
+
+    The table used to be keyed on the absolute local path, so the same synced file had one row per
+    computer ('C:\\Users\\...\\x.csv' AND '/Users/.../CloudStorage/Dropbox/.../x.csv') and was
+    re-processed once on each switch. Without this rewrite the change would look like every watched
+    file is brand new, re-processing the whole backlog once. Where both machines' rows collapse onto
+    one key, the most recently processed wins — it reflects the newest code and the newest verdict.
+
+    Runs on every `init()`: rows already stored as keys map to themselves (`watch_key` is
+    idempotent), so a second pass is a no-op."""
+    import watcher  # deferred: watcher imports db, and this runs long after both are loaded
+    rows = con.execute("SELECT path, processed_at FROM watched_files").fetchall()
+    moves = [(r["path"], watcher.watch_key(r["path"]), r["processed_at"] or "") for r in rows]
+    if not any(old != new for old, new, _ in moves):
+        return
+    winner = {}
+    for old, new, when in moves:
+        if new not in winner or when > winner[new][1]:
+            winner[new] = (old, when)
+    for old, new, _ in moves:
+        if old == new:
+            continue
+        if winner[new][0] == old:
+            con.execute("DELETE FROM watched_files WHERE path=?", (new,))   # a stale row on the key
+            con.execute("UPDATE watched_files SET path=? WHERE path=?", (new, old))
+        else:
+            con.execute("DELETE FROM watched_files WHERE path=?", (old,))   # superseded duplicate
+
+
 def _column_migrations(con):
     """Add columns to existing tables. `CREATE TABLE IF NOT EXISTS` never alters an existing
     table, so every new column on a shipped table needs a guarded ALTER here. Existing user
@@ -613,6 +644,8 @@ def _column_migrations(con):
         # provenance for imported time rows (shoplog.py): 'shoplog:<date>:rev<N>'. A corrected
         # shop-log day replaces exactly its own rows; manual entries (empty source) are untouched.
         con.execute("ALTER TABLE time_entries ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+
+    _rekey_watched_files(con)
 
     have = {r["name"] for r in con.execute("PRAGMA table_info(documents)").fetchall()}
     if "sha256" not in have:

@@ -110,6 +110,56 @@ ok(r6["enabled"] and r6["scanned"] == 1 and log == ["triplog.txt"],
    "scan_folder reads a folder configured in the other machine's path format")
 watcher._cloud_roots = _real_roots
 
+# ------------------------------------------------- one row per synced FILE, not per machine
+# The books sync between the Mac and the PC. Keyed on the absolute path, the same Dropbox file had
+# a row per machine and was re-processed once on every switch.
+WIN = r"C:\Users\outli\Dropbox\BP Admin\ShopBooks\Downloads\statement.csv"
+MAC = "/Users/bpow/Library/CloudStorage/Dropbox/BP Admin/ShopBooks/Downloads/statement.csv"
+ok(watcher.watch_key(WIN) == watcher.watch_key(MAC),
+   "the same synced file gets one key from either machine's path")
+ok(watcher.watch_key(WIN) == "cloud:dropbox/bp admin/shopbooks/downloads/statement.csv",
+   f"the key is the path within the cloud folder ({watcher.watch_key(WIN)})")
+ok(watcher.watch_key(r"C:\Users\outli\Dropbox (Personal)\a\b.csv") == watcher.watch_key("/home/x/Dropbox/a/b.csv"),
+   "a differently-named Dropbox folder still agrees")
+ok(watcher.watch_key("/Users/bpow/OneDrive/Books/s.csv") == "cloud:onedrive/books/s.csv",
+   "OneDrive is keyed the same way")
+ok(watcher.watch_key(watcher.watch_key(WIN)) == watcher.watch_key(WIN),
+   "watch_key is idempotent (it re-runs on every boot)")
+ok(watcher.watch_key("cloud:dropbox/Dropbox Backups/x.csv") == "cloud:dropbox/Dropbox Backups/x.csv",
+   "a key that itself contains 'Dropbox' is not re-derived")
+LOCAL_ONLY = str(TMP / "not-cloud" / "s.csv")
+ok(watcher.watch_key(LOCAL_ONLY) == LOCAL_ONLY,
+   "a file outside any cloud folder keeps its absolute path (local folders ARE per-machine)")
+
+# the migration collapses the old per-machine rows onto the shared key, newest verdict winning
+con.execute("DELETE FROM watched_files")
+con.execute("INSERT INTO watched_files(path,kind,mtime,size,status,note,processed_at) "
+            "VALUES(?,?,?,?,?,?,?)", (WIN, "statement", 111.0, 9, "error", "old PC verdict",
+                                      "2026-07-13 18:20:16"))
+con.execute("INSERT INTO watched_files(path,kind,mtime,size,status,note,processed_at) "
+            "VALUES(?,?,?,?,?,?,?)", (MAC, "statement", 111.0, 9, "skipped", "newer Mac verdict",
+                                      "2026-08-12 18:58:56"))
+con.execute("INSERT INTO watched_files(path,kind,mtime,size,status,note,processed_at) "
+            "VALUES(?,?,?,?,?,?,?)", (LOCAL_ONLY, "statement", 1.0, 1, "imported", "", "2026-08-01 00:00:00"))
+con.commit()
+db._rekey_watched_files(con)
+con.commit()
+merged = con.execute("SELECT path, status, note FROM watched_files WHERE path=?",
+                     (watcher.watch_key(WIN),)).fetchone()
+ok(merged is not None and merged["status"] == "skipped" and merged["note"] == "newer Mac verdict",
+   "the two machines' rows merge into one, newest processed_at winning")
+ok(con.execute("SELECT COUNT(*) c FROM watched_files WHERE path IN (?,?)", (WIN, MAC)).fetchone()["c"] == 0,
+   "...and the old per-machine paths are gone")
+ok(con.execute("SELECT COUNT(*) c FROM watched_files WHERE path=?", (LOCAL_ONLY,)).fetchone()["c"] == 1,
+   "a non-cloud row is left exactly as it was")
+before_rows = con.execute("SELECT path, status FROM watched_files ORDER BY path").fetchall()
+db._rekey_watched_files(con)
+con.commit()
+ok([tuple(r) for r in con.execute("SELECT path, status FROM watched_files ORDER BY path").fetchall()]
+   == [tuple(r) for r in before_rows], "re-running the migration changes nothing")
+con.execute("DELETE FROM watched_files")
+con.commit()
+
 # ---------------------------------------------------------------- run_once (reads settings)
 
 r = watcher.run_once(con, stub_process, stub_process)
