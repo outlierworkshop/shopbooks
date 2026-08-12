@@ -146,6 +146,44 @@ trips.pair_events(con)
 after = con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"]
 ok(after == before, "driveway blip (tiny distance, tiny duration) makes no candidate")
 
+# --- the spurious same-minute [END] the phone logger really writes ----------------
+# Ben's actual triplog shows every [START] shadowed by an [END] in the same minute at the same
+# spot, with the drive's REAL [END] coming later. Pairing must skip the shadow — the old
+# next-disconnect-only pairing ate the START as a "driveway blip" and orphaned the real end,
+# so whole drives vanished.
+SHADOWED = b"""[START] 8-7-26 14.28 | Location 42.3958823,-71.1172199 (Lat/Long: 42.3959688,-71.1172687)
+[END] 8-7-26 14.28 | Location 42.3958823,-71.1172199 (Lat/Long: 42.3959683,-71.1172662)
+[END] 8-7-26 14.49 | Location 42.3958823,-71.1172199 (Lat/Long: 42.3959637,-71.1172659)
+"""
+before = con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"]
+trips.ingest_event_file(con, Path("triplog.txt"), SHADOWED)
+trips.pair_events(con)
+c = con.execute("SELECT * FROM trip_candidates ORDER BY id DESC LIMIT 1").fetchone()
+ok(con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"] == before + 1,
+   "a START shadowed by a same-minute END still becomes one candidate")
+ok(c["start_ts"] == "2026-08-07T14:28:00" and c["end_ts"] == "2026-08-07T14:49:00",
+   "the candidate spans start -> the REAL end, not the shadow")
+ok(con.execute("SELECT COUNT(*) c FROM trip_events WHERE ts LIKE '2026-08-07T14%' "
+               "AND status != 'paired'").fetchone()["c"] == 0,
+   "the shadow END is consumed as the same trip's noise (nothing left to orphan)")
+# a loop drive (ends where it started) reads ~0 point-to-point miles but still shows up to edit
+ok(c["miles"] < 0.1, f"loop trip surfaces with ~0 mi for manual correction ({c['miles']} mi)")
+
+# shadow + real end at a NEW place, then a later drive: the next connect bounds the search
+SHADOW2 = (b"connect,2026-08-07T17:00:00,42.3959,-71.1172\n"
+           b"disconnect,2026-08-07T17:00:30,42.3959,-71.1172\n"     # the shadow
+           b"disconnect,2026-08-07T17:25:00,42.3819,-71.1365\n"     # the real end
+           b"connect,2026-08-07T20:00:00,42.3819,-71.1365\n"
+           b"disconnect,2026-08-07T20:15:00,42.3959,-71.1172\n")
+before = con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"]
+trips.ingest_event_file(con, Path("shadow2.txt"), SHADOW2)
+trips.pair_events(con)
+ok(con.execute("SELECT COUNT(*) c FROM trip_candidates").fetchone()["c"] == before + 2,
+   "a shadowed drive and the following drive both become candidates")
+c = con.execute("SELECT * FROM trip_candidates ORDER BY id DESC LIMIT 2").fetchall()[-1]
+ok(c["start_ts"] == "2026-08-07T17:00:00" and c["end_ts"] == "2026-08-07T17:25:00"
+   and c["miles"] > 0.5, f"the shadowed drive pairs to its real end with real miles ({c['miles']} mi)")
+
 # dangling connect stays pending inside the window, orphans once it's stale
 fresh = (datetime.now() - timedelta(hours=1)).isoformat(timespec="seconds")
 stale = (datetime.now() - timedelta(hours=30)).isoformat(timespec="seconds")
@@ -178,6 +216,23 @@ r2 = watcher.run_once(con, lambda *a: ("skipped", ""), lambda *a: ("skipped", ""
 ok(r2["trips"]["scanned"] == 0, "re-scan is idempotent (watched_files dedup)")
 r3 = watcher.run_once(con, lambda *a: ("skipped", ""), lambda *a: ("skipped", ""))
 ok("trips" not in r3, "run_once without trip_fn keeps the old shape (back-compat)")
+
+# the watch setting may point at the LOG FILE itself, not its folder — Ben's real setting does.
+# A file target must scan that one file instead of silently reading nothing.
+logfile = Path(tempfile.mkdtemp(prefix="trips_file_")) / "triplog.txt"
+f_start = (datetime.now() - timedelta(hours=4)).replace(microsecond=0)
+f_end = f_start + timedelta(minutes=20)
+logfile.write_text(f"connect,{f_start.isoformat(timespec='seconds')},36.1627,-86.7816\n"
+                   f"disconnect,{f_end.isoformat(timespec='seconds')},35.9251,-86.8689\n")
+db.set_setting(con, "trips_watch_folder", str(logfile))
+con.commit()
+r = watcher.run_once(con, lambda *a: ("skipped", ""), lambda *a: ("skipped", ""), trips._watch_trip_event)
+ok(r["trips"]["enabled"] and r["trips"]["scanned"] == 1,
+   "a watch path that IS the log file scans that file")
+ok(con.execute("SELECT COUNT(*) c FROM trip_candidates WHERE start_ts=?",
+               (f_start.isoformat(timespec="seconds"),)).fetchone()["c"] == 1,
+   "events from a file-target watch pair into a candidate")
+db.set_setting(con, "trips_watch_folder", str(inbox))   # the flow tests below expect the folder
 con.commit()  # release the write lock before TestClient opens its own connections
 
 # --- /mileage flow -------------------------------------------------------------

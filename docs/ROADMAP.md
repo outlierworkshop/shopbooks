@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-12 — Mileage: read the whole trip log, not just one drive
+- **Pairing skips the phone logger's shadow `[END]`s.** The real triplog shows every `[START]`
+  shadowed by an `[END]` in the same minute at the same spot, with the drive's real `[END]` coming
+  at parking. Old pairing took the very next disconnect, so the shadow ate the start as a
+  "driveway blip" and the real end was orphaned — whole drives silently vanished (of Aug 6's three
+  drives, only one survived). A start now pairs with the first end that isn't a same-spot-same-minute
+  blip; skipped shadows are consumed as the same trip's noise. Round trips (end ≈ start) surface
+  with ~0 point-to-point miles to edit at approval rather than being dropped.
+- **The trips watch setting may point at the log file itself.** Ben's real setting was
+  `…\TravelLog\triplog.txt`; `watcher._list_files` required a directory, so it silently scanned
+  nothing. A file target now watches that one file (folders still work as before).
+- **Watch paths work on both machines.** The books move between the Windows machine and the Mac,
+  but a stored watch path only existed on one. `watcher.resolve_path` re-roots a missing path's
+  Dropbox/OneDrive remainder onto this machine's copy of that cloud folder (Dropbox's own
+  `info.json` is consulted first, then conventional locations), used only when the re-rooted path
+  actually exists. Applies to all three watchers — statements, receipts, trips.
+
 ### 2026-08-10 — Assistant: six business reports (tax, services, customers, pipeline, quotes, vendors)
 - **`tax_position`** — the "money that isn't yours" view: sales tax owed to the state (a liability,
   not income), the mileage deduction (business miles × rate), and estimated income tax by quarter

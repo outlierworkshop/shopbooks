@@ -71,6 +71,45 @@ con.commit()
 ok(r5["counts"].get("error") == 1 and len(r5["errors"]) == 1,
    "a process_fn exception is caught and recorded as an 'error', not raised")
 
+# ------------------------------------------------- cross-machine path translation (resolve_path)
+# The books move between the Windows machine and the Mac; a watch path saved on one must find the
+# same Dropbox/OneDrive folder on the other.
+droproot = TMP / "Dropbox"
+(droproot / "Phone" / "TravelLog").mkdir(parents=True)
+(droproot / "Phone" / "TravelLog" / "triplog.txt").write_text("x")
+local_hit = str(droproot / "Phone" / "TravelLog" / "triplog.txt")
+
+win = r"C:\Users\outli\Dropbox\Phone\TravelLog\triplog.txt"
+ok(watcher.resolve_path(win, roots=[droproot]) == local_hit,
+   "a Windows Dropbox path resolves onto this machine's Dropbox")
+mac = "/Users/nobody9x/Library/CloudStorage/Dropbox/Phone/TravelLog/triplog.txt"
+ok(watcher.resolve_path(mac, roots=[droproot]) == local_hit,
+   "a mac Dropbox path resolves the other way too")
+ok(watcher.resolve_path(r"C:\Users\outli\Dropbox (Personal)\Phone\TravelLog\triplog.txt",
+                        roots=[droproot]) == local_hit,
+   "team/personal-suffixed Dropbox folder names still match")
+ok(watcher.resolve_path(str(scratch / "a.txt"), roots=[droproot]) == str(scratch / "a.txt"),
+   "a path that exists locally is returned untouched")
+missing = r"C:\Users\outli\Dropbox\Phone\TravelLog\nope.txt"
+ok(watcher.resolve_path(missing, roots=[droproot]) == missing,
+   "no local match -> the configured path comes back unchanged")
+noncloud = r"C:\Users\outli\Documents\f.txt"
+ok(watcher.resolve_path(noncloud, roots=[droproot]) == noncloud,
+   "a non-cloud path is never translated")
+ok(watcher.resolve_path("", roots=[droproot]) == "" and watcher.resolve_path(None, roots=[droproot]) == "",
+   "blank/None are harmless")
+
+# end-to-end: scan_folder handed the OTHER machine's path format reads the local file.
+# _cloud_roots is stubbed so the test never touches this machine's real Dropbox.
+_real_roots = watcher._cloud_roots
+watcher._cloud_roots = lambda: [droproot]
+log.clear()
+r6 = watcher.scan_folder(con, r"C:\Users\outli\Dropbox\Phone\TravelLog", "x", {".txt"}, stub_process)
+con.commit()
+ok(r6["enabled"] and r6["scanned"] == 1 and log == ["triplog.txt"],
+   "scan_folder reads a folder configured in the other machine's path format")
+watcher._cloud_roots = _real_roots
+
 # ---------------------------------------------------------------- run_once (reads settings)
 
 r = watcher.run_once(con, stub_process, stub_process)
