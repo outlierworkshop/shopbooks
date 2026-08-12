@@ -34,6 +34,20 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-12 — Version single-sourced in `VERSION`; app is 1.1.0
+- The version was hardcoded in TWO places — `shopbooks.spec` (the mac .app's
+  `CFBundleShortVersionString`) and `installer.iss` (the Windows installer's `AppVersion`) — so
+  the platforms could drift, and neither had moved off `1.0.0` even as the app gained features.
+  A rebuilt .app was indistinguishable from a months-old one in Finder.
+- Both now read the repo-root **`VERSION`** file, so cutting a release is a one-file change.
+  `CFBundleVersion` is set too (it was absent, which lets Finder/LaunchServices disagree).
+  Deliberately no fallback: an unreadable VERSION fails the build rather than shipping an
+  unlabelled bundle.
+- **1.1.0** covers everything shipped today: the trip-log pairing fix, cross-machine watch paths,
+  the shop-log time import, non-statement files skipped instead of retried, and per-file
+  `watched_files` keying.
+
+
 ### 2026-08-12 — Watchers: one `watched_files` row per synced file, not per machine
 - `watched_files` was keyed on the absolute local path, so the same Dropbox file had a row per
   computer (`C:\Users\outli\...\x.csv` AND `/Users/bpow/Library/CloudStorage/Dropbox/...\x.csv`)
