@@ -7,8 +7,10 @@ stopped at shutdown, same lifetime as the existing backup/sync-on-boot behavior.
 posts to the ledger: every processed file lands exactly where a manual upload would (pending in
 Review, or an unmatched/matched receipt) — the human-confirmed Review step is unchanged.
 
-Reprocessing is cheap: `watched_files` tracks (path, mtime, size) per file, so an unchanged file is a
-fast no-op on every tick; a replaced file (mtime/size changed) is picked up again.
+Reprocessing is cheap: `watched_files` tracks (key, mtime, size) per file, so an unchanged file is a
+fast no-op on every tick; a replaced file (mtime/size changed) is picked up again. The key is
+`watch_key()` — machine-independent for a cloud-synced file — so the Mac and the PC share one row
+per file instead of re-processing everything after each switch.
 """
 import json
 import os
@@ -57,6 +59,45 @@ def _cloud_roots():
     return out
 
 
+CLOUD_NAMES = ("dropbox", "onedrive")
+KEY_PREFIX = "cloud:"
+
+
+def _cloud_split(raw):
+    """(canonical cloud name, [components after it]) for a path inside a synced cloud folder, else
+    None. Purely textual — the path needn't exist here, which is what lets this read the OTHER
+    machine's paths. The folder's own name is canonicalised ('Dropbox (Personal)' -> 'dropbox') so
+    the two machines agree even when their cloud folders are named differently."""
+    parts = [s for s in re.split(r"[\\/]+", str(raw or "")) if s and not s.endswith(":")]
+    for i, s in enumerate(parts):
+        name = s.lower().replace("-", " ").split(" ")[0]
+        if name in CLOUD_NAMES:
+            return name, parts[i + 1:]
+    return None
+
+
+def watch_key(path):
+    """The `watched_files` identity for a file: machine-independent when it lives in a cloud folder.
+
+    The books sync between the Mac and the PC, but the same synced file has a different absolute
+    path on each — so keying on that path gave one row per machine and re-processed every file once
+    per switch. A file under Dropbox/OneDrive is therefore keyed by its path *within* the cloud
+    folder (`cloud:dropbox/BP Admin/ShopBooks/Downloads/x.csv`), which both machines compute
+    identically. Anything outside a cloud folder keeps its absolute path, which is correct: a
+    local-only folder really is per-machine.
+
+    Lower-cased because the components before the filename come from the watch-folder SETTING as
+    typed, and the two machines may have typed it with different case. Never raises."""
+    raw = str(path or "")
+    if raw.startswith(KEY_PREFIX):
+        return raw                      # already a key — keep this idempotent (it re-runs on boot)
+    split = _cloud_split(raw)
+    if not split or not split[1]:
+        return raw
+    name, rel = split
+    return (KEY_PREFIX + "/".join([name] + rel)).lower()
+
+
 def resolve_path(raw, roots=None):
     """A watch path saved on the OTHER machine, translated to this one (or returned untouched).
 
@@ -76,12 +117,10 @@ def resolve_path(raw, roots=None):
             return raw
     except OSError:
         return raw
-    parts = [s for s in re.split(r"[\\/]+", raw) if s and not s.endswith(":")]
-    marker = next((i for i, s in enumerate(parts)
-                   if s.lower().replace("-", " ").split(" ")[0] in ("dropbox", "onedrive")), None)
-    if marker is None or marker == len(parts) - 1:
+    split = _cloud_split(raw)
+    if not split or not split[1]:
         return raw
-    rel = parts[marker + 1:]
+    rel = split[1]
     for root in (_cloud_roots() if roots is None else roots):
         cand = Path(root).joinpath(*rel)
         try:
@@ -136,9 +175,14 @@ def scan_folder(con, folder, kind, exts, process_fn):
         except OSError:
             continue
         mtime, size = st.st_mtime, st.st_size
+        key = watch_key(f)
         row = con.execute("SELECT mtime, size, status FROM watched_files WHERE path=?",
-                          (str(f),)).fetchone()
-        if row and row["mtime"] == mtime and row["size"] == size and row["status"] != "error":
+                          (key,)).fetchone()
+        # Whole seconds, not exact float equality: the row may have been written by the OTHER
+        # machine, whose filesystem stores mtime at a different resolution than this one's. A real
+        # edit moves the mtime by far more than a second (and usually changes the size too).
+        if (row and int(row["mtime"]) == int(mtime) and row["size"] == size
+                and row["status"] != "error"):
             continue  # already processed this exact version of the file
         # NOTE the `status != "error"` above: a file that FAILED is retried on every tick even though
         # it hasn't changed, because the failure is often ours, not the file's — the trip log sat
@@ -157,7 +201,7 @@ def scan_folder(con, folder, kind, exts, process_fn):
             "INSERT INTO watched_files(path,kind,mtime,size,status,note,processed_at) "
             "VALUES(?,?,?,?,?,?,datetime('now')) "
             "ON CONFLICT(path) DO UPDATE SET kind=?, mtime=?, size=?, status=?, note=?, processed_at=datetime('now')",
-            (str(f), kind, mtime, size, status, note, kind, mtime, size, status, note))
+            (key, kind, mtime, size, status, note, kind, mtime, size, status, note))
         counts[status] = counts.get(status, 0) + 1
     return {"scanned": scanned, "counts": counts, "errors": errors, "enabled": True}
 

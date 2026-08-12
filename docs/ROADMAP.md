@@ -34,6 +34,25 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-12 — Watchers: one `watched_files` row per synced file, not per machine
+- `watched_files` was keyed on the absolute local path, so the same Dropbox file had a row per
+  computer (`C:\Users\outli\...\x.csv` AND `/Users/bpow/Library/CloudStorage/Dropbox/...\x.csv`)
+  and every watched file was re-processed once on each machine switch. Safe today only because the
+  callbacks happen to be idempotent (duplicate detection, event dedup, shop-log replace-per-day) —
+  a latent trap for the next watcher whose callback isn't.
+- New `watcher.watch_key()`: a file inside a cloud folder is keyed by its path *within* it
+  (`cloud:dropbox/bp admin/shopbooks/downloads/x.csv`), which both machines compute identically;
+  anything outside keeps its absolute path, since a local-only folder really is per-machine. The
+  cloud folder's own name is canonicalised (`Dropbox (Personal)` → `dropbox`) and the key is
+  lower-cased, because the leading components come from the watch-folder setting as typed.
+- `db._rekey_watched_files()` migrates existing rows on boot and merges each machine-pair onto the
+  shared key, newest `processed_at` winning — without it the change would look like every watched
+  file is new and re-process the whole backlog once. On Ben's real books: 80 rows → 46, zero files
+  re-processed, and the two stale Windows `error` rows folded into the Mac's newer `skipped`.
+- Freshness now compares mtime in whole seconds, since the row may have been written by the other
+  machine's filesystem at a different resolution.
+
+
 ### 2026-08-12 — Watchers: a non-statement file is skipped, not retried forever
 - The statements folder legitimately holds other exports — Ben's has the QuickBooks invoice list
   and product/service list he migrated from. They have no date/description/amount columns, so
