@@ -34,6 +34,19 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-12 — Watchers: a non-statement file is skipped, not retried forever
+- The statements folder legitimately holds other exports — Ben's has the QuickBooks invoice list
+  and product/service list he migrated from. They have no date/description/amount columns, so
+  `parse_csv` raised, the watcher recorded `error`, and (by the deliberate retry-on-error rule) it
+  re-failed them on **every 60s tick, forever**.
+- `_watch_statement` now returns the terminal **`skipped`** for a determinate verdict — a CSV that
+  isn't a statement, or a file that's neither .pdf nor .csv. "Couldn't tell which account this is
+  for" stays an `error`, because adding the account later makes the file importable.
+- The rule is now documented on `watcher.scan_folder`, which is where the retry lives: return
+  `error` only when the failure might be OURS and a later fix could succeed; return a terminal
+  status (`skipped`/`empty`/`duplicate`) when it's a settled fact about the file's content.
+
+
 ### 2026-08-12 — Shop-log time import (`shoplog.py`, fourth folder watcher)
 - Ben's end-of-day shop-log routine writes one curated CSV per day
   (`ShopLog/data/YYYY-MM-DD.csv`, header `date,start,end,minutes,client,job,work_type,billable,notes,friction`)
