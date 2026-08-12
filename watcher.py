@@ -27,10 +27,15 @@ _LAST = None  # last run_once() summary, for the Settings page
 
 def _list_files(folder):
     """Top-level files in `folder` (not recursive — keeps behavior predictable), or [] if the
-    folder is missing / not yet accessible (e.g. an undownloaded Dropbox placeholder). Never raises
-    — a watcher tick must never take down the background thread over a transient path problem."""
+    folder is missing / not yet accessible (e.g. an undownloaded Dropbox placeholder). A path that
+    IS a file watches just that file — the trips setting pointed at `...\\TravelLog\\triplog.txt`
+    itself and silently read nothing, so a file target must work, not be a config mistake. Never
+    raises — a watcher tick must never take down the background thread over a transient path
+    problem."""
     try:
         p = Path(folder)
+        if p.is_file():
+            return [p]
         if not p.is_dir():
             return []
         return [f for f in sorted(p.iterdir()) if f.is_file() and not f.name.startswith(".")]

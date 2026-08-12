@@ -302,9 +302,16 @@ def apply_rules_to_pending(con):
 
 
 def pair_events(con):
-    """Chronologically pair pending connect -> next disconnect into trip candidates. Driveway blips
+    """Chronologically pair pending connect -> disconnect into trip candidates. Driveway blips
     (barely moved, barely any time) are consumed silently; a connect with no partner inside
-    MAX_TRIP_HOURS is marked orphan once the window has passed. Returns candidates created."""
+    MAX_TRIP_HOURS is marked orphan once the window has passed. Returns candidates created.
+
+    A connect is NOT simply paired with the very next disconnect: the phone's trip logger writes a
+    spurious [END] in the same minute as each [START] (same spot, zero minutes), with the real [END]
+    arriving when the drive actually finishes. So the partner is the first disconnect before the next
+    connect that isn't a blip relative to the start; the skipped blips are consumed as noise of the
+    same trip. When every disconnect in the span is a blip, the last one is taken and the whole thing
+    falls through to the existing driveway-blip rule — consumed, no candidate."""
     pending = con.execute(
         "SELECT * FROM trip_events WHERE status='pending' ORDER BY ts, id").fetchall()
     created = 0
@@ -313,23 +320,31 @@ def pair_events(con):
         if ev["id"] in used or ev["event"] != "connect":
             continue
         partner = None
+        noise = []   # blip disconnects between the connect and its real partner
         for nxt in pending[i + 1:]:
             if nxt["id"] in used:
                 continue
             if nxt["event"] == "connect":
-                break   # a newer drive started; this connect never got its disconnect
-            if _minutes_between(ev["ts"], nxt["ts"]) <= MAX_TRIP_HOURS * 60:
-                partner = nxt
-            break
+                break   # a newer drive started; whatever we have is this trip's best end
+            if _minutes_between(ev["ts"], nxt["ts"]) > MAX_TRIP_HOURS * 60:
+                break   # too far out to belong to this drive
+            is_blip = (haversine_miles(ev["lat"], ev["lon"], nxt["lat"], nxt["lon"]) < MIN_TRIP_MILES
+                       and _minutes_between(ev["ts"], nxt["ts"]) < MIN_TRIP_MINUTES)
+            if partner is not None:
+                noise.append(partner)
+            partner = nxt
+            if not is_blip:
+                break   # the real end of the drive
         if partner is None:
             # no disconnect (yet). Orphan it only once the pairing window has passed.
             age_min = _minutes_between(ev["ts"], datetime.now().isoformat(timespec="seconds"))
             if age_min > MAX_TRIP_HOURS * 60:
                 con.execute("UPDATE trip_events SET status='orphan' WHERE id=?", (ev["id"],))
             continue
-        used.add(ev["id"])
-        used.add(partner["id"])
-        con.execute("UPDATE trip_events SET status='paired' WHERE id IN (?,?)", (ev["id"], partner["id"]))
+        consumed = [ev["id"], partner["id"]] + [n["id"] for n in noise]
+        used.update(consumed)
+        con.execute("UPDATE trip_events SET status='paired' WHERE id IN (%s)"
+                    % ",".join("?" * len(consumed)), consumed)
         crow = haversine_miles(ev["lat"], ev["lon"], partner["lat"], partner["lon"])
         mins = _minutes_between(ev["ts"], partner["ts"])
         if crow < MIN_TRIP_MILES and mins < MIN_TRIP_MINUTES:

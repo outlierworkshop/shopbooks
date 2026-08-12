@@ -40,6 +40,15 @@ The watcher re-reads the file whenever it grows and stores only the lines it has
 keyed on event + timestamp), so an ever-growing log is safe to leave in place — nothing is
 double-counted and old lines are never re-imported.
 
+The logger often writes a spurious `[END]` in the same minute as each `[START]` (same spot, zero
+minutes), with the drive's real `[END]` arriving at parking. Pairing skips those shadows: a start is
+matched to the first end that isn't a same-spot-same-minute blip, so the whole drive comes through
+instead of being eaten as a "driveway blip". A drive that ends where it began (a round trip) shows
+up with ~0 point-to-point miles — edit the miles at approval.
+
+The **Trips folder** setting may point at either the folder *or* the log file itself
+(e.g. `…\TravelLog\triplog.txt`) — both work.
+
 ### B. One file per event
 
 Any `.txt`/`.csv` name, containing one line:
