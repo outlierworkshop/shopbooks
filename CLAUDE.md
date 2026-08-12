@@ -25,6 +25,9 @@ Desktop launches: `run-mac.command` execs `desktop.py` (app-mode Chrome/Edge win
 on close; tab fallback). `./build-mac.sh` builds a **signed `dist/ShopBooks.app`** (PyInstaller,
 arm64, ad-hoc signed by default — set `IDENTITY`/`NOTARIZE=1` for Developer ID + notarization);
 on another Mac the first ad-hoc launch is right-click → Open. Books stay in the per-OS data dir.
+**The app version lives in the repo-root `VERSION` file** — read by both `shopbooks.spec` (mac
+`CFBundleShortVersionString`) and `installer.iss` (Windows `AppVersion`). Bump that one file to cut
+a release; never hardcode a version in either build file again.
 **Windows installer:** `desktop.py` is cross-platform, so the same entry point powers Windows.
 `shopbooks.spec` is platform-conditional (mac `.app` / Windows onedir `.exe`); `installer.iss`
 (Inno Setup) wraps the onedir into `dist/ShopBooks-Setup.exe` (per-user, no admin; Start-Menu +

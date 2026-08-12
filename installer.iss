@@ -11,7 +11,16 @@
 ; SignTool= directive and pass the tool via ISCC /S, or sign the PyInstaller exe upstream.
 
 #define MyAppName "ShopBooks"
-#define MyAppVersion "1.0.0"
+; The version is single-sourced in the repo-root VERSION file, read by BOTH this installer and
+; shopbooks.spec (the mac .app's CFBundleShortVersionString), so the two platforms can't drift.
+; Bump that one file to cut a release. SourcePath is this .iss file's own folder, so this works
+; whether ISCC runs from the repo root (CI) or anywhere else.
+#define VersionFile FileOpen(AddBackslash(SourcePath) + "VERSION")
+#define MyAppVersion Trim(FileRead(VersionFile))
+#expr FileClose(VersionFile)
+#if MyAppVersion == ""
+  #error Could not read the version from the repo-root VERSION file.
+#endif
 #define MyAppPublisher "Outlier Workshop"
 #define MyAppURL "https://shopbooks.co/"
 #define MyAppExeName "ShopBooks.exe"
