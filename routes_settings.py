@@ -322,7 +322,7 @@ async def settings_save(request: Request, con=Depends(get_con)):
              "business_phone", "invoice_terms", "smtp_host", "smtp_port", "smtp_user",
              "email_subject", "email_body", "reminder_subject", "reminder_body",
              "estimated_income_tax_rate", "statements_watch_folder", "receipts_watch_folder",
-             "trips_watch_folder", "gsa_api_key",
+             "trips_watch_folder", "time_watch_folder", "gsa_api_key",
              "square_location_id", "square_environment", "square_deposit_account_id")
     for k in plain:
         if k in form:
@@ -433,8 +433,10 @@ def settings_logo_get(con=Depends(get_con)):
 
 @router.post("/watch/scan-now")
 def watch_scan_now(con=Depends(get_con)):
+    import shoplog
     import trips
-    r = watcher.run_once(con, _watch_statement, _watch_receipt, trips._watch_trip_event)
+    r = watcher.run_once(con, _watch_statement, _watch_receipt, trips._watch_trip_event,
+                         shoplog.ingest_csv)
     con.commit()
     def summarize(label, r):
         if not r["enabled"]:
@@ -444,6 +446,7 @@ def watch_scan_now(con=Depends(get_con)):
         parts = ", ".join(f"{v} {k}" for k, v in r["counts"].items())
         return f"{label}: {parts}"
     parts = [p for p in (summarize("Statements", r["statements"]), summarize("Receipts", r["receipts"]),
-                         summarize("Trips", r.get("trips", {"enabled": False}))) if p]
+                         summarize("Trips", r.get("trips", {"enabled": False})),
+                         summarize("Shop log", r.get("time", {"enabled": False}))) if p]
     note = "; ".join(parts) if parts else "No watch folders are set up yet."
     return safe_redirect("/settings", msg=note)
