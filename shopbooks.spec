@@ -11,8 +11,15 @@
 # live in the per-OS data dir (~/Library/Application Support/ShopBooks on mac,
 # %USERPROFILE%\ShopBooks on Windows) — never inside the bundle, so updates never touch them.
 import sys
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
+
+# The version is single-sourced in the repo-root VERSION file, read by BOTH this spec (the mac
+# .app's CFBundleShortVersionString) and installer.iss (the Windows installer's AppVersion), so
+# the two platforms can't drift. Bump that one file to cut a release. No fallback on purpose:
+# a missing/unreadable VERSION should fail the build loudly, not ship an unlabelled bundle.
+VERSION = (Path(SPECPATH) / "VERSION").read_text(encoding="utf-8").strip()
 
 datas = [("templates", "templates"), ("static", "static"), ("docs", "docs")]
 # docs/ is bundled because the in-app Help menu (helpdocs.py) renders docs/*.md at runtime
@@ -55,7 +62,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "ShopBooks",
             "CFBundleDisplayName": "ShopBooks",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
             "LSApplicationCategoryType": "public.app-category.finance",
         },
