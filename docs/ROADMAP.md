@@ -46,7 +46,7 @@ boring tech, built for exactly one user.
 - Apply-rules and Refresh-addresses no longer hide when no watch folder is configured; they act on
   trips already captured, so the folder is irrelevant to them.
 - Fixed a watcher test that only passed on machines WITHOUT the path it names: it asserted a Windows
-  Dropbox path gets translated onto the local Dropbox, but used the real  path,
+  Dropbox path gets translated onto the local Dropbox, but used the real `C:\Users\outli\...` path,
   which exists on the Windows box — so resolve_path rightly returned it untouched and the check
   failed there while passing in CI. It now uses a username that cannot exist locally.
 
