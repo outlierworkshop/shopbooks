@@ -34,6 +34,11 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Version 1.3.0
+- **VERSION bumped to 1.3.0** for the trip-memo line and the dashboard's Write check / Mileage
+  shortcuts. The installed Windows app was still on 1.2.0 (from the mileage-rules-edit /
+  weekend-tint work); this rebuild brings it current.
+
 ### 2026-08-18 — Two more dashboard shortcuts
 - Added **Write check** and **Mileage** to the dashboard's quick-actions row, alongside Import
   statement / Review / Match receipts / New invoice / New entry / Reports. Both were previously
