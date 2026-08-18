@@ -6,7 +6,9 @@
 {% if err %}<p class="error">{{ err }}</p>{% endif %}
 <p class="muted">Set up the predictable bills and income you see every month (rent, subscriptions,
 loan payments). When one comes due, post it in a click — nothing is posted automatically, so your
-books stay confirmed. These also feed the cash-flow forecast.</p>
+books stay confirmed. These also feed the cash-flow forecast. If a due item's charge already showed
+up and got categorized through a bank import, it's flagged as <strong>already posted</strong> instead
+of offering to post it again — link it instead to move on without a duplicate.</p>
 
 {% set due = items|selectattr('due')|list %}
 {% if due %}
@@ -27,8 +29,18 @@ books stay confirmed. These also feed the cash-flow forecast.</p>
       <td class="muted">{{ r.account_name }}</td>
       <td class="muted">{{ r.category_name }}</td>
       <td>
+        {% if r.matched %}
+        <div class="muted" style="font-size:12px; margin-bottom:4px" title="Same account, same category, same amount, {{ r.matched.date }}">
+          Looks already posted: {{ r.matched.date }}{% if r.matched.payee %} — {{ r.matched.payee }}{% endif %}
+        </div>
+        <form class="inline" method="post" action="/recurring/{{ r.id }}/match">
+          <input type="hidden" name="entry_id" value="{{ r.matched.id }}">
+          <button class="small" type="submit"
+                  title="Don't create another entry — just move this item to its next date">Link, don't duplicate</button></form>
+        {% else %}
         <form class="inline" method="post" action="/recurring/{{ r.id }}/post">
           <button class="small" type="submit">Post</button></form>
+        {% endif %}
         <form class="inline" method="post" action="/recurring/{{ r.id }}/skip"
               onsubmit="return confirm('Skip this one without posting?')">
           <button class="small ghost" type="submit">Skip</button></form>

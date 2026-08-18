@@ -39,13 +39,18 @@ def _rows(con, where="", args=()):
 
 
 def list_all(con, today=None):
-    """Every template with account/category names and a `due`/`days_overdue` flag for the UI."""
+    """Every template with account/category names, a `due`/`days_overdue` flag, and — for a due
+    item only, since that's the only time it matters to the UI — `matched`: the posted entry that
+    looks like this occurrence already happened some other way, or None."""
     today = today or date.today().isoformat()
     out = []
     for r in _rows(con):
         due = bool(r["active"]) and r["next_date"] <= today
         days = (datetime.strptime(today, "%Y-%m-%d") - datetime.strptime(r["next_date"], "%Y-%m-%d")).days
-        out.append({**dict(r), "due": due, "days_overdue": max(days, 0) if due else 0})
+        hit = find_posted_elsewhere(con, r) if due else None
+        matched = dict(hit) if hit else None
+        out.append({**dict(r), "due": due, "days_overdue": max(days, 0) if due else 0,
+                   "matched": matched})
     return out
 
 
@@ -82,6 +87,61 @@ def skip_occurrence(con, rid):
         raise ValueError("recurring item not found")
     con.execute("UPDATE recurring SET next_date=? WHERE id=?",
                 (advance(r["next_date"], r["frequency"]), rid))
+
+
+# --- recognizing a bill that already reached the ledger some other way -------------------
+
+_FREQ_DAYS = {"weekly": 7, "monthly": 30, "yearly": 365}
+MATCH_WINDOW_DAYS = 5   # how far from the due date a same-account/same-category/same-amount entry
+                        # still counts as "this bill, already posted" rather than a coincidence
+
+
+def _signed_legs(r):
+    """(account leg, category leg) cents for this template's occurrence — the exact signs
+    post_occurrence's _splits() would write, so matching an existing entry means matching these."""
+    amt = r["amount_cents"]
+    if r["flow"] == "income":
+        return amt, -amt
+    return -amt, amt
+
+
+def find_posted_elsewhere(con, r):
+    """A posted 2-split entry that looks like this due occurrence, already booked through the
+    normal import/Review flow instead of clicked here — same account leg, same category leg, within
+    MATCH_WINDOW_DAYS of the due date. This is common: the bank charge gets imported and categorized
+    in Review before anyone checks the Recurring page, and clicking Post there would double it.
+
+    Advisory only, like duplicates.find_duplicate_groups — it never touches the ledger by itself,
+    it only changes what the Due-now row offers (Post vs. Link). The window is capped to half the
+    template's own cadence so a weekly item can't reach into its own next cycle."""
+    acct_amt, cat_amt = _signed_legs(r)
+    window = min(MATCH_WINDOW_DAYS, _FREQ_DAYS.get(r["frequency"], 30) // 2)
+    d = datetime.strptime(r["next_date"], "%Y-%m-%d").date()
+    lo = (d - timedelta(days=window)).isoformat()
+    hi = (d + timedelta(days=window)).isoformat()
+    return con.execute(
+        "SELECT e.id, e.date, e.payee, e.memo FROM splits s_acct "
+        "JOIN entries e ON e.id=s_acct.entry_id "
+        "JOIN splits s_cat ON s_cat.entry_id=e.id AND s_cat.account_id=? AND s_cat.amount_cents=? "
+        "WHERE s_acct.account_id=? AND s_acct.amount_cents=? AND e.date BETWEEN ? AND ? "
+        "  AND (SELECT COUNT(*) FROM splits WHERE entry_id=e.id)=2 "
+        "ORDER BY ABS(julianday(e.date) - julianday(?)) LIMIT 1",
+        (r["category_id"], cat_amt, r["account_id"], acct_amt, lo, hi, r["next_date"])).fetchone()
+
+
+def match_occurrence(con, rid, entry_id):
+    """Advance the template to its next period WITHOUT posting — `entry_id` already IS this
+    occurrence, booked some other way. Nothing new is written to the ledger; only the template
+    moves forward, with last_posted_date set to the matched entry's real date (not today, not the
+    template's old next_date) so the history stays honest about when it actually happened."""
+    r = con.execute("SELECT next_date, frequency FROM recurring WHERE id=?", (rid,)).fetchone()
+    if not r:
+        raise ValueError("recurring item not found")
+    entry = con.execute("SELECT date FROM entries WHERE id=?", (entry_id,)).fetchone()
+    if not entry:
+        raise ValueError("that entry no longer exists")
+    con.execute("UPDATE recurring SET next_date=?, last_posted_date=? WHERE id=?",
+                (advance(r["next_date"], r["frequency"]), entry["date"], rid))
 
 
 # --- auto-detection: suggest templates from posted history ---------------------

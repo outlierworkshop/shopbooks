@@ -38,17 +38,27 @@ def recurring_create(name: str = Form(...), amount: str = Form(...), flow: str =
 
 @router.post("/recurring/post-all")
 def recurring_post_all(con=Depends(get_con)):
-    posted = locked = 0
+    """Post everything due — except an item that already looks posted elsewhere (its bank charge
+    was imported and categorized in Review before anyone checked this page), which gets linked to
+    that entry instead of duplicated."""
+    posted = matched = locked = 0
     for r in recurring.due(con):
         try:
-            recurring.post_occurrence(con, r["id"])
-            posted += 1
+            hit = recurring.find_posted_elsewhere(con, r)
+            if hit:
+                recurring.match_occurrence(con, r["id"], hit["id"])
+                matched += 1
+            else:
+                recurring.post_occurrence(con, r["id"])
+                posted += 1
         except ledger.LockedPeriodError:
             locked += 1
         except ValueError:
             pass
     con.commit()
     parts = [f"Posted {posted} due item(s)"]
+    if matched:
+        parts.append(f"{matched} already posted elsewhere — linked instead of duplicated")
     if locked:
         parts.append(f"{locked} skipped (in a closed period)")
     return safe_redirect("/recurring", msg="; ".join(parts) + ".")
@@ -59,6 +69,15 @@ def recurring_post(rid: int, con=Depends(get_con)):
         recurring.post_occurrence(con, rid)
         con.commit()
         return safe_redirect("/recurring", msg="Posted to the ledger and advanced to the next date.")
+    except ValueError as e:
+        return safe_redirect("/recurring", err=str(e))
+
+@router.post("/recurring/{rid}/match")
+def recurring_match(rid: int, entry_id: int = Form(...), con=Depends(get_con)):
+    try:
+        recurring.match_occurrence(con, rid, entry_id)
+        con.commit()
+        return safe_redirect("/recurring", msg="Linked to the existing entry — advanced to the next date without duplicating it.")
     except ValueError as e:
         return safe_redirect("/recurring", err=str(e))
 
