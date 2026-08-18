@@ -38,7 +38,7 @@ def mileage(request: Request, msg: str = "", err: str = "", con=Depends(get_con)
 @router.post("/mileage")
 def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = Form(""),
                 from_loc: str = Form(""), to_loc: str = Form(""), save_route: str = Form(""),
-                business: str = Form("1"), con=Depends(get_con)):
+                business: str = Form("0"), con=Depends(get_con)):
     con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
                 (ledger.normalize_date(date), miles, purpose, from_loc, to_loc,
                  0 if business in ("0", "", "off") else 1))
@@ -53,7 +53,7 @@ def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = 
 @router.post("/mileage/update")
 def mileage_update(trip_id: int = Form(...), date: str = Form(...), miles: float = Form(...),
                    purpose: str = Form(""), from_loc: str = Form(""), to_loc: str = Form(""),
-                   business: str = Form("1"), con=Depends(get_con)):
+                   business: str = Form("0"), con=Depends(get_con)):
     """Edit a logged trip in place — fix a purpose, correct the miles, or reclassify it as personal
     (which takes it straight out of the deduction). Also how a trip logged before street addresses
     existed gets its from/to tidied up."""
@@ -79,7 +79,7 @@ def mileage_delete(trip_id: int = Form(...), con=Depends(get_con)):
 
 @router.post("/mileage/trip/{cand_id}/approve")
 def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = Form(""),
-                         business: str = Form("1"), con=Depends(get_con)):
+                         business: str = Form("0"), con=Depends(get_con)):
     c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
     if not c:
         return RedirectResponse("/mileage", status_code=303)
@@ -117,6 +117,25 @@ def mileage_scan(con=Depends(get_con)):
         bits.append(f"{auto} auto-logged by a rule")
     bits.append(f"{waiting} trip(s) waiting" if waiting else "nothing waiting for approval")
     return safe_redirect("/mileage", msg="Checked for new trips: " + " · ".join(bits))
+
+@router.post("/mileage/rules/apply")
+def mileage_rules_apply(con=Depends(get_con)):
+    """Run the standing rules over every trip still waiting for approval.
+
+    Rules are applied automatically when a trip is detected and when one is created, but a rule
+    written (or re-enabled, or edited) afterwards would otherwise only affect drives you haven't
+    taken yet — this sweeps the backlog."""
+    waiting_before = len(tripsmod.pending_candidates(con))
+    matched, auto = tripsmod.apply_rules_to_pending(con)
+    con.commit()
+    if not con.execute("SELECT COUNT(*) c FROM mileage_rules WHERE active=1").fetchone()["c"]:
+        return safe_redirect("/mileage", err="No active rules yet — add one from a trip below.")
+    if not matched:
+        return safe_redirect("/mileage", msg=f"No rules matched the {waiting_before} waiting trip(s).")
+    bits = [f"{matched} trip(s) matched a rule"]
+    if auto:
+        bits.append(f"{auto} logged automatically")
+    return safe_redirect("/mileage", msg=" · ".join(bits))
 
 @router.post("/mileage/rules/from-trip/{cand_id}")
 def mileage_rule_from_trip(cand_id: int, name: str = Form(""), purpose: str = Form(""),

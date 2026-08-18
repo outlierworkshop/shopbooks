@@ -34,6 +34,22 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Mileage: watch a file, apply rules on demand, default to personal
+- **A watch path pointing at a FILE now watches that file.** `_list_files` returned `[]` for anything
+  that wasn't a directory, so setting the trips path to `...\TravelLog	riplog.txt` — the obvious
+  thing to do, since the phone appends to one log — made the watcher scan **nothing, silently,
+  forever**. Twelve days of trips never imported and every scan still reported success.
+- **Personal is now the default.** An unmatched trip suggests *personal*, the manual Add-a-trip form
+  offers Personal first, and the approve/add/update routes treat a missing type as personal. A mile
+  only becomes a deduction when something — you, or a rule — positively says it's business, which is
+  the safe direction to be wrong in. A rule still overrides in either direction.
+- **Apply rules** button re-runs the standing rules over every trip still waiting. Rules already run
+  when a trip is detected and when a rule is created, but one written (or re-enabled, or edited)
+  afterwards would otherwise only affect drives not yet taken — this sweeps the backlog.
+- The Apply-rules and Refresh-addresses buttons no longer hide when no watch folder is configured;
+  they act on trips already captured, so the folder is irrelevant to them.
+
+
 ### 2026-08-10 — Assistant: six business reports (tax, services, customers, pipeline, quotes, vendors)
 - **`tax_position`** — the "money that isn't yours" view: sales tax owed to the state (a liability,
   not income), the mileage deduction (business miles × rate), and estimated income tax by quarter

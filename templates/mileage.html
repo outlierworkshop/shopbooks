@@ -12,22 +12,33 @@
   <div class="card"><div class="label">{{ year }} deduction</div><div class="big pos">${{ deduction_cents|money }}</div></div>
 </div>
 
-{% if trips_watch_on %}
-{# Outside the candidates block on purpose: "nothing is showing up" is exactly when you reach for
-   this, and that's when there are no candidates to hang it off. #}
+{# The scan button sits outside the candidates block on purpose: "nothing is showing up" is exactly
+   when you reach for it, and that's when there are no candidates to hang it off. Applying rules and
+   re-geocoding act on trips already captured, so they don't depend on a watch folder at all. #}
+{% if trips_watch_on or candidates %}
 <div class="toolbar" style="margin-bottom:14px">
+  {% if trips_watch_on %}
   <form class="inline" method="post" action="/mileage/scan">
     <button type="submit" title="Read the trips folder now instead of waiting for the next automatic check">
       ↻ Check for new trips</button>
   </form>
+  {% endif %}
+  {% if candidates and rules %}
+  <form class="inline" method="post" action="/mileage/rules/apply">
+    <button type="submit" class="ghost"
+            title="Re-run your mileage rules over every trip still waiting for approval">Apply rules</button>
+  </form>
+  {% endif %}
   {% if candidates %}
   <form class="inline" method="post" action="/mileage/trips/refresh-places">
     <button type="submit" class="ghost"
             title="Look the start/end addresses up again from each trip's coordinates">Refresh addresses</button>
   </form>
   {% endif %}
+  {% if trips_watch_on %}
   <span class="muted" style="font-size:12px">Trips are picked up automatically about once a minute
     while ShopBooks is open — this just checks straight away.</span>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -144,7 +155,7 @@ rule (same start <em>and</em> end) wins over a destination rule when both fit.</
   <input type="text" name="from_loc" placeholder="from" style="width:120px">
   <input type="text" name="to_loc" placeholder="to" style="width:120px">
   <select name="business" title="Personal trips are logged but not deducted">
-    <option value="1">Business</option><option value="0">Personal</option>
+    <option value="0" selected>Personal</option><option value="1">Business</option>
   </select>
   <label class="inline" style="white-space:nowrap" title="Remember this trip as a one-click saved route (named after the purpose)">
     <input type="checkbox" name="save_route" value="1"> save as route</label>

@@ -26,11 +26,17 @@ _LAST = None  # last run_once() summary, for the Settings page
 
 
 def _list_files(folder):
-    """Top-level files in `folder` (not recursive — keeps behavior predictable), or [] if the
-    folder is missing / not yet accessible (e.g. an undownloaded Dropbox placeholder). Never raises
-    — a watcher tick must never take down the background thread over a transient path problem."""
+    """Top-level files in `folder` (not recursive — keeps behavior predictable), or [] if the path
+    is missing / not yet accessible (e.g. an undownloaded Dropbox placeholder). Never raises
+    — a watcher tick must never take down the background thread over a transient path problem.
+
+    A path pointing straight at a FILE is watched as that single file. The phone's trip logger
+    appends to one `triplog.txt`, so "watch this file" is the obvious thing to configure — and
+    setting it to the file used to make the watcher scan nothing at all, silently and forever."""
     try:
         p = Path(folder)
+        if p.is_file():
+            return [p]          # see the docstring: a path straight at a file watches that file
         if not p.is_dir():
             return []
         return [f for f in sorted(p.iterdir()) if f.is_file() and not f.name.startswith(".")]

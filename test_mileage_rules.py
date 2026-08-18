@@ -179,5 +179,52 @@ r = client.post("/mileage/update", follow_redirects=False,
 ok("err=" in r.headers["location"], "zero miles is refused rather than silently saved")
 ok(client.get("/mileage").text.count('action="/mileage/update"') >= 1,
    "the log rows are editable in place on the page")
+# --- personal is the default: a mile is only deducted when something says it's business ----------
+plain = candidate((10.0, 10.0), (11.0, 11.0))     # nowhere near any rule
+con.commit()
+pend = [p for p in trips.pending_candidates(con) if p["id"] == plain][0]
+ok(pend["rule_id"] is None, "a trip matching no rule is untagged")
+ok(pend["suggested_business"] == 0,
+   "an unmatched trip defaults to PERSONAL, so nothing is deducted unless you say so")
+ok('value="0" selected>Personal' in client.get("/mileage").text,
+   "the manual Add-a-trip form offers Personal first")
+
+r = client.post("/mileage", follow_redirects=False, data={
+    "date": "2026-04-01", "miles": "5", "purpose": "unspecified"})   # no business field at all
+ok(r.status_code == 303, "adding a trip without stating a type works")
+ok(con.execute("SELECT business FROM mileage WHERE purpose='unspecified'").fetchone()["business"] == 0,
+   "...and it is logged personal, not silently deducted")
+
+r = client.post("/mileage/trip/%d/approve" % plain, follow_redirects=False,
+                data={"miles": "3", "purpose": "no type given"})     # no business field
+ok(r.status_code == 303, "approving without stating a type works")
+ok(con.execute("SELECT business FROM mileage WHERE purpose='no type given'").fetchone()["business"] == 0,
+   "...and that trip is personal too")
+
+# a rule still overrides the default
+rule("Client site business", CLIENT, purpose="Client visit", business=1)
+con.commit()
+cb = candidate(SHOP, CLIENT)
+con.commit()
+trips.apply_rules_to_pending(con)
+con.commit()
+pb = [p for p in trips.pending_candidates(con) if p["id"] == cb][0]
+ok(pb["suggested_business"] == 1, "a business rule still marks its trips business")
+
+# --- the Apply-rules button sweeps trips captured BEFORE the rule existed -------------------------
+orphan_c = candidate((41.0, -71.5), (41.2, -71.6))
+con.commit()
+ok([p for p in trips.pending_candidates(con) if p["id"] == orphan_c][0]["rule_id"] is None,
+   "a trip with no matching rule starts untagged")
+r = client.post("/mileage/rules/apply", follow_redirects=False)
+ok(r.status_code == 303, "Apply rules runs against the waiting trips")
+rule("Far away", (41.2, -71.6), purpose="Delivery", business=1, radius=500)
+con.commit()
+r = client.post("/mileage/rules/apply", follow_redirects=False)
+ok(r.status_code == 303 and "msg=" in r.headers["location"], "and reports what it matched")
+ok([p for p in trips.pending_candidates(con) if p["id"] == orphan_c][0]["rule_id"] is not None,
+   "a rule written AFTER the trip was captured now classifies it")
+ok("/mileage/rules/apply" in client.get("/mileage").text, "the page offers the Apply rules button")
+
 con.close()
 print("\nMILEAGE RULES TESTS DONE")
