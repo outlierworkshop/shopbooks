@@ -34,6 +34,18 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Weekend drives stand out in the approval queue; version 1.2.0
+- Saturday/Sunday trips in **Trips waiting for approval** get a tinted row (`.row-weekend`, the same
+  soft highlight `.row-dup` already uses, so no new colour enters the palette and both themes are
+  covered). Weekend drives are the likeliest to be personal and the first thing an auditor asks
+  about, so they're worth a second look before approving.
+- Every queue row now also prints its **day name** next to the time (`Sat 09:00`). The tint alone
+  shouldn't be what carries the meaning — that breaks down in print, and for anyone who can't pick
+  the colour out.
+- **VERSION bumped to 1.2.0** for the mileage-rule work (editable rules, both-ways matching) plus
+  this. The previous Windows build and this one were both reporting 1.1.0, which made them
+  indistinguishable in Programs & Features.
+
 ### 2026-08-18 — Mileage rules: editable, and able to work both ways
 - **Rules are editable in place.** The rules table on the Mileage page is now a form per row — name,
   purpose, match kind, radius, business/personal, auto-log — instead of delete-and-recreate, which

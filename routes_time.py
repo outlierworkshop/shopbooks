@@ -25,8 +25,12 @@ def mileage(request: Request, msg: str = "", err: str = "", con=Depends(get_con)
                           (f"{year}%",)).fetchone()["m"]
     candidates = []
     for c in tripsmod.pending_candidates(con):
-        mins = (datetime.fromisoformat(c["end_ts"]) - datetime.fromisoformat(c["start_ts"])).total_seconds() / 60
-        candidates.append({**dict(c), "minutes": round(mins)})
+        started = datetime.fromisoformat(c["start_ts"])
+        mins = (datetime.fromisoformat(c["end_ts"]) - started).total_seconds() / 60
+        # Saturday/Sunday drives get tinted on the page: they're the likeliest to be personal, and
+        # the ones an auditor asks about first, so they're worth a second look before approving.
+        candidates.append({**dict(c), "minutes": round(mins), "day": started.strftime("%a"),
+                           "weekend": started.weekday() >= 5})
     return templates.TemplateResponse(request, "mileage.html", ctx(
         request, con, trips=trips, rate=rate, ytd=ytd, ytd_all=ytd_all, year=year,
         deduction_cents=round(ytd * rate * 100), candidates=candidates,

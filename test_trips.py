@@ -303,5 +303,27 @@ client.post(f"/mileage/routes/{r['id']}/delete", follow_redirects=False)
 ok(con.execute("SELECT COUNT(*) c FROM saved_routes WHERE id=?", (r["id"],)).fetchone()["c"] == 0,
    "saved route deletes (logged trips kept)")
 
+# --- weekend drives are tinted in the approval queue ---------------------------------------------
+# A weekend drive is the likeliest to be personal, so the row is called out. The day name is printed
+# next to the time as well, so the colour isn't the only thing carrying the meaning.
+con.execute(
+    "INSERT INTO trip_candidates(start_ts,end_ts,start_lat,start_lon,end_lat,end_lon,miles,"
+    "distance_source,start_place,end_place) VALUES('2026-08-15T09:00:00','2026-08-15T09:30:00',"
+    "36.16,-86.78,36.20,-86.80,8.0,'osrm','Shop','Client')")          # 2026-08-15 is a Saturday
+con.execute(
+    "INSERT INTO trip_candidates(start_ts,end_ts,start_lat,start_lon,end_lat,end_lon,miles,"
+    "distance_source,start_place,end_place) VALUES('2026-08-17T09:00:00','2026-08-17T09:30:00',"
+    "36.16,-86.78,36.20,-86.80,8.0,'osrm','Shop','Supplier')")        # 2026-08-17 is a Monday
+con.commit()
+page = client.get("/mileage").text
+rows = page.split("<tr")                       # the queue is ordered start_ts DESC, so match by row
+sat_row = [r for r in rows if "2026-08-15" in r][0]
+mon_row = [r for r in rows if "2026-08-17" in r][0]
+ok('class="row-weekend"' in sat_row, "the Saturday drive's row is tinted")
+ok('class="row-weekend"' not in mon_row, "the Monday drive's row is not")
+ok(page.count('class="row-weekend"') == 1, "...and no other row picked up the tint")
+ok("Sat 09:00" in sat_row and "Mon 09:00" in mon_row,
+   "every row names its day, so the tint isn't the only signal")
+
 con.close()
 print("\nTRIP AUTOMATION TESTS DONE")

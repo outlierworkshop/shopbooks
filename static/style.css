@@ -234,6 +234,10 @@ form.inline { display: inline; }
 .thumb { max-width: 90px; max-height: 90px; border-radius: var(--r-sm); border: 1px solid var(--line); }
 .section { margin-bottom: 28px; }
 .row-dup { background: var(--dup-bg); }
+/* Weekend drives in the mileage approval queue. Same soft tint as .row-dup (it's the one
+   row-highlight colour the palette already carries, and it's defined for both themes) but a
+   class of its own, so weekends can be given their own hue later without touching dupes. */
+.row-weekend { background: var(--dup-bg); }
 .toolbar { display: flex; gap: 10px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
 
 /* ---------- floating save + toast ---------- */
