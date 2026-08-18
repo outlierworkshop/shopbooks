@@ -248,6 +248,20 @@ def _within(lat1, lon1, lat2, lon2, radius_m):
     return haversine_miles(lat1, lon1, lat2, lon2) * 1609.344 <= radius_m
 
 
+def _match_key(r, start_lat, start_lon, end_lat, end_lon):
+    """Ranking key if this drive fits the rule as written, else None.
+
+    The key is `(0 for a route rule / 1 for a destination rule, miles from the rule's destination)`,
+    so a lower key is the better match."""
+    if not _within(end_lat, end_lon, r["dest_lat"], r["dest_lon"], r["radius_m"]):
+        return None
+    is_route = r["match_kind"] == "route" and r["start_lat"] is not None
+    if is_route and not _within(start_lat, start_lon, r["start_lat"], r["start_lon"], r["radius_m"]):
+        return None
+    return (0 if is_route else 1,               # route first, then nearest destination
+            haversine_miles(end_lat, end_lon, r["dest_lat"], r["dest_lon"]))
+
+
 def match_rule(con, start_lat, start_lon, end_lat, end_lon):
     """The standing rule that best describes this drive, or None.
 
@@ -257,17 +271,21 @@ def match_rule(con, start_lat, start_lon, end_lat, end_lon):
     A **route** rule (start AND destination both in range) beats a **destination** rule, because it's
     the more specific statement: "shop -> home is personal" should win over "anything ending at home
     is a commute". Within a kind, the rule whose destination is nearest wins, so a tight rule around
-    one loading dock beats a broad one around the whole industrial park."""
+    one loading dock beats a broad one around the whole industrial park.
+
+    A **bidirectional** rule is also tried with the drive reversed, which covers the leg home: a route
+    rule then matches B->A as well as A->B, and a destination rule matches trips that *start* at the
+    place as well as ones that end there. The better of the two orientations is the one that counts."""
     best = None
     best_key = None
     for r in con.execute("SELECT * FROM mileage_rules WHERE active=1"):
-        if not _within(end_lat, end_lon, r["dest_lat"], r["dest_lon"], r["radius_m"]):
+        key = _match_key(r, start_lat, start_lon, end_lat, end_lon)
+        if r["bidirectional"]:
+            back = _match_key(r, end_lat, end_lon, start_lat, start_lon)   # the return leg
+            if back is not None and (key is None or back < key):
+                key = back
+        if key is None:
             continue
-        is_route = r["match_kind"] == "route" and r["start_lat"] is not None
-        if is_route and not _within(start_lat, start_lon, r["start_lat"], r["start_lon"], r["radius_m"]):
-            continue
-        dist = haversine_miles(end_lat, end_lon, r["dest_lat"], r["dest_lon"])
-        key = (0 if is_route else 1, dist)      # route first, then nearest destination
         if best_key is None or key < best_key:
             best, best_key = r, key
     return best
@@ -288,12 +306,16 @@ def apply_rule(con, cand_id, rule):
 def apply_rules_to_pending(con):
     """Re-match every waiting trip against the current rules. Returns (matched, auto_logged).
 
-    Called after a rule is added so the trip you built the rule from is sorted out immediately,
-    instead of the rule only affecting drives you haven't taken yet."""
+    Called after a rule is added or edited so the trip you built the rule from is sorted out
+    immediately, instead of the rule only affecting drives you haven't taken yet. A trip that no
+    longer matches anything (its rule was narrowed, switched to a route, or turned off) is untagged
+    rather than left showing a suggestion the rule no longer makes."""
     matched = logged = 0
     for c in con.execute("SELECT * FROM trip_candidates WHERE status='pending'").fetchall():
         rule = match_rule(con, c["start_lat"], c["start_lon"], c["end_lat"], c["end_lon"])
         if not rule:
+            if c["rule_id"] is not None:
+                con.execute("UPDATE trip_candidates SET rule_id=NULL WHERE id=?", (c["id"],))
             continue
         matched += 1
         if apply_rule(con, c["id"], rule):

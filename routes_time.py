@@ -137,13 +137,27 @@ def mileage_rules_apply(con=Depends(get_con)):
         bits.append(f"{auto} logged automatically")
     return safe_redirect("/mileage", msg=" · ".join(bits))
 
+def _rule_radius(raw):
+    """Clamp a typed radius to something a GPS fix can actually justify (25 m) and to a sane ceiling."""
+    return max(25, min(int(raw or 150), 20000))
+
+
+def _rule_sweep_note(matched, logged):
+    if not matched:
+        return ""
+    return f" {matched} waiting trip(s) matched" + (f", {logged} auto-logged" if logged else "")
+
+
 @router.post("/mileage/rules/from-trip/{cand_id}")
 def mileage_rule_from_trip(cand_id: int, name: str = Form(""), purpose: str = Form(""),
                            match_kind: str = Form("destination"), radius_m: int = Form(150),
                            business: str = Form("1"), auto_log: str = Form(""),
-                           con=Depends(get_con)):
+                           bidirectional: str = Form(""), con=Depends(get_con)):
     """Create a standing rule from a detected trip — the trip supplies the coordinates, which is the
-    only practical way to get them (nobody types latitude by hand)."""
+    only practical way to get them (nobody types latitude by hand).
+
+    The trip's starting point is stored even for a destination rule, which costs nothing and is what
+    lets the rule be switched to a route rule later from the Edit form."""
     c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
     if not c:
         return RedirectResponse("/mileage", status_code=303)
@@ -151,16 +165,45 @@ def mileage_rule_from_trip(cand_id: int, name: str = Form(""), purpose: str = Fo
     kind = "route" if match_kind == "route" else "destination"
     con.execute(
         "INSERT INTO mileage_rules(name,match_kind,dest_lat,dest_lon,start_lat,start_lon,radius_m,"
-        "purpose,business,auto_log) VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (label, kind, c["end_lat"], c["end_lon"],
-         c["start_lat"] if kind == "route" else None, c["start_lon"] if kind == "route" else None,
-         max(25, min(int(radius_m or 150), 20000)), purpose.strip(),
-         0 if business in ("0", "", "off") else 1, 1 if auto_log else 0))
+        "purpose,business,auto_log,bidirectional) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (label, kind, c["end_lat"], c["end_lon"], c["start_lat"], c["start_lon"],
+         _rule_radius(radius_m), purpose.strip(),
+         0 if business in ("0", "", "off") else 1, 1 if auto_log else 0, 1 if bidirectional else 0))
     # classify everything already waiting, so the trip you made the rule from is sorted out too
     matched, logged = tripsmod.apply_rules_to_pending(con)
     con.commit()
-    extra = f" {matched} waiting trip(s) matched" + (f", {logged} auto-logged" if logged else "") if matched else ""
-    return safe_redirect("/mileage", msg=f"Rule '{label}' saved.{extra}")
+    return safe_redirect("/mileage", msg=f"Rule '{label}' saved.{_rule_sweep_note(matched, logged)}")
+
+
+@router.post("/mileage/rules/{rule_id}/update")
+def mileage_rule_update(rule_id: int, name: str = Form(""), purpose: str = Form(""),
+                        match_kind: str = Form("destination"), radius_m: int = Form(150),
+                        business: str = Form("0"), auto_log: str = Form(""),
+                        bidirectional: str = Form(""), con=Depends(get_con)):
+    """Edit a standing rule in place — rename it, widen the radius, flip it to personal, or make it
+    work in both directions. The coordinates aren't editable (they came from a real drive); to move
+    a rule somewhere else, make a new one from a trip that went there.
+
+    The waiting trips are re-classified straight away, so an edit shows its effect on the queue you
+    are looking at rather than only on drives you haven't taken yet."""
+    r = con.execute("SELECT * FROM mileage_rules WHERE id=?", (rule_id,)).fetchone()
+    if not r:
+        return RedirectResponse("/mileage", status_code=303)
+    kind = "route" if match_kind == "route" else "destination"
+    if kind == "route" and r["start_lat"] is None:
+        # rules created before the starting point was kept can't become route rules retroactively
+        return safe_redirect("/mileage", err=(
+            f"'{r['name']}' doesn't have a starting point saved, so it can't become a route rule. "
+            "Add a new rule from a trip that starts where you want it to."))
+    label = name.strip() or r["name"]
+    con.execute("UPDATE mileage_rules SET name=?, match_kind=?, radius_m=?, purpose=?, business=?, "
+                "auto_log=?, bidirectional=? WHERE id=?",
+                (label, kind, _rule_radius(radius_m), purpose.strip(),
+                 0 if business in ("0", "", "off") else 1, 1 if auto_log else 0,
+                 1 if bidirectional else 0, rule_id))
+    matched, logged = tripsmod.apply_rules_to_pending(con)
+    con.commit()
+    return safe_redirect("/mileage", msg=f"Rule '{label}' updated.{_rule_sweep_note(matched, logged)}")
 
 @router.post("/mileage/rules/{rule_id}/delete")
 def mileage_rule_delete(rule_id: int, con=Depends(get_con)):
@@ -173,6 +216,8 @@ def mileage_rule_delete(rule_id: int, con=Depends(get_con)):
 def mileage_rule_toggle(rule_id: int, con=Depends(get_con)):
     con.execute("UPDATE mileage_rules SET active = CASE active WHEN 1 THEN 0 ELSE 1 END WHERE id=?",
                 (rule_id,))
+    # re-sweep so switching a rule off drops its suggestion from the waiting trips straight away
+    tripsmod.apply_rules_to_pending(con)
     con.commit()
     return safe_redirect("/mileage", msg="Rule updated.")
 

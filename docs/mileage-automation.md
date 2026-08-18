@@ -136,6 +136,23 @@ for disconnect.
 - Multi-stop errands under one Bluetooth session appear as one point-to-point trip — bump the miles
   at approval, or split it into manual entries.
 
+## Standing rules (classify drives automatically)
+
+The **+ rule** link on a waiting trip turns that drive into a standing rule, because the trip is the
+only practical source of the coordinates. A rule can say *any trip ending here* (a destination rule)
+or *only this exact route* (start and end both have to match); the route rule wins when both fit.
+Matching is on coordinates within a radius, not the address text — OSM labels drift between
+neighbouring house numbers.
+
+- **Both ways** makes the rule cover the drive back too. A route rule then matches shop → home *and*
+  home → shop; a destination rule also catches trips that *start* at the place. That saves writing a
+  mirror-image second rule for the return leg.
+- **Trusted** (auto-log) skips the approval queue entirely and writes the trip straight to the log.
+- Rules are **editable** in the Mileage rules table — change the name, purpose, radius, business /
+  personal, or either checkbox and hit Save. Trips still waiting are re-checked immediately, so an
+  edit shows its effect on the queue you're looking at. A rule can also be disabled without deleting
+  it; logged trips are never touched by any rule change.
+
 ## Accuracy upgrade path (if ever wanted)
 
 An OBD-II telematics dongle (e.g. Bouncie, ~$90 + $9/mo) records odometer-accurate trips from the

@@ -34,6 +34,20 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Mileage rules: editable, and able to work both ways
+- **Rules are editable in place.** The rules table on the Mileage page is now a form per row — name,
+  purpose, match kind, radius, business/personal, auto-log — instead of delete-and-recreate, which
+  was the only way to fix a typo or widen a radius before. The coordinates stay fixed (they came
+  from a real drive); to move a rule somewhere else, make a new one from a trip that went there.
+- **Both ways.** A rule can now match the same drive reversed: a route rule covers the return leg
+  (shop → home *and* home → shop), and a destination rule also catches trips that *start* at the
+  place. One tick instead of a mirror-image second rule. Existing rules stay one-way (`DEFAULT 0`).
+- Saving, enabling, or disabling a rule re-sweeps the waiting trips, and a trip that no longer
+  matches anything is **untagged** — a narrowed rule used to leave a stale suggestion on the queue.
+- Rules made from a trip now store the trip's starting point even when they're destination rules,
+  which is what lets one be switched to a route rule later. Rules written before this can't be
+  (there's no start point to use), and the edit form says so rather than saving something wrong.
+
 ### 2026-08-18 — Mileage: personal by default, and an Apply-rules button
 - **Personal is now the default.** An unmatched trip suggests *personal*, the manual Add-a-trip form
   offers Personal first, and the approve/add/update routes treat a missing type as personal. A mile
