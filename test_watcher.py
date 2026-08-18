@@ -79,7 +79,10 @@ droproot = TMP / "Dropbox"
 (droproot / "Phone" / "TravelLog" / "triplog.txt").write_text("x")
 local_hit = str(droproot / "Phone" / "TravelLog" / "triplog.txt")
 
-win = r"C:\Users\outli\Dropbox\Phone\TravelLog\triplog.txt"
+# a path from the OTHER machine, deliberately under a username that cannot exist here: the real
+# C:\Users\outli\... path DOES exist on the Windows box, so resolve_path rightly returned it
+# untouched and this check only passed on machines without it (i.e. CI).
+win = r"C:\Users\not-this-user\Dropbox\Phone\TravelLog\triplog.txt"
 ok(watcher.resolve_path(win, roots=[droproot]) == local_hit,
    "a Windows Dropbox path resolves onto this machine's Dropbox")
 mac = "/Users/nobody9x/Library/CloudStorage/Dropbox/Phone/TravelLog/triplog.txt"
@@ -327,6 +330,36 @@ ok(watcher._thread is not None and watcher._thread.is_alive(), "start() launches
 watcher.start(noop, noop, interval=1)  # idempotent
 watcher.stop()
 ok(not watcher._thread.is_alive(), "stop() cleanly joins the background thread")
+
+# --- a watch path pointing at a FILE watches that file ------------------------------------------
+# Regression: the phone's trip logger appends to one triplog.txt, so pointing the setting straight at
+# that file is the obvious thing to do -- and _list_files returned [] for anything that wasn't a
+# directory, so the watcher scanned NOTHING, silently, forever. Weeks of trips never imported.
+one_file = STMT_DIR / "single.csv"
+one_file.write_bytes(CSV)
+ok([q.name for q in watcher._list_files(str(one_file))] == ["single.csv"],
+   "a path pointing at a file lists just that file")
+ok(watcher._list_files(str(STMT_DIR)), "a path pointing at a directory still lists its files")
+ok(watcher._list_files(str(STMT_DIR / "nope.csv")) == [], "a missing path is empty, not an error")
+
+seen_file = []
+
+
+def _note_file(con_, path, data):
+    seen_file.append(Path(path).name)
+    return "imported", "ok"
+
+
+con_f = db.connect()   # the shared `con` is closed further up; this block needs its own
+rf = watcher.scan_folder(con_f, str(one_file), "statement", {".csv"}, _note_file)
+con_f.commit()
+ok(rf["enabled"] and rf["scanned"] == 1 and seen_file == ["single.csv"],
+   "scan_folder processes a file-path setting instead of quietly doing nothing")
+seen_file.clear()
+watcher.scan_folder(con_f, str(one_file), "statement", {".csv"}, _note_file)
+con_f.commit()
+con_f.close()
+ok(seen_file == [], "and an unchanged single file is still a no-op on the next tick")
 
 import shutil  # noqa: E402
 shutil.rmtree(TMP, ignore_errors=True)

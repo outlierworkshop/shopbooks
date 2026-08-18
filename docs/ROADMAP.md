@@ -34,6 +34,23 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Mileage: personal by default, and an Apply-rules button
+- **Personal is now the default.** An unmatched trip suggests *personal*, the manual Add-a-trip form
+  offers Personal first, and the approve/add/update routes treat a missing type as personal. A mile
+  only becomes a deduction when something — you, or a rule — positively says it is business, which is
+  the safe direction to be wrong in. A rule still overrides either way, and the schema default stays
+  1 so previously logged rows keep their past deductions.
+- **Apply rules** re-runs the standing rules over every trip still waiting. Rules already run when a
+  trip is detected and when a rule is created, but one written (or re-enabled, or edited) afterwards
+  would otherwise only affect drives not yet taken — this sweeps the backlog.
+- Apply-rules and Refresh-addresses no longer hide when no watch folder is configured; they act on
+  trips already captured, so the folder is irrelevant to them.
+- Fixed a watcher test that only passed on machines WITHOUT the path it names: it asserted a Windows
+  Dropbox path gets translated onto the local Dropbox, but used the real  path,
+  which exists on the Windows box — so resolve_path rightly returned it untouched and the check
+  failed there while passing in CI. It now uses a username that cannot exist locally.
+
+
 ### 2026-08-12 — Version single-sourced in `VERSION`; app is 1.1.0
 - The version was hardcoded in TWO places — `shopbooks.spec` (the mac .app's
   `CFBundleShortVersionString`) and `installer.iss` (the Windows installer's `AppVersion`) — so
