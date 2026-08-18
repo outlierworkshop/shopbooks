@@ -34,6 +34,20 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Recurring bills recognize a charge already posted elsewhere
+- A due recurring item now checks whether its charge already reached the ledger some other way —
+  same account, same category, same amount, within a few days of the due date. This is the common
+  case where the bank statement gets imported and categorized in Review before anyone checks the
+  Recurring page; clicking **Post** there used to create a genuine duplicate entry.
+- A matched due item shows **"Looks already posted: <date> — <payee>"** with a **Link, don't
+  duplicate** button instead of Post — it advances the template to its next date and records the
+  matched entry's real date, without writing anything new to the ledger. **Post all due** does the
+  same check per item automatically and reports how many it linked vs. actually posted.
+- Matching is conservative by design (mirrors `duplicates.py`'s existing posted-entry check): exact
+  account + category + amount, and the window is capped at half the item's own cadence so a weekly
+  bill can't reach into its own next cycle. Nothing is ever auto-created or auto-skipped — every
+  match still needs the one click, same as Post always has.
+
 ### 2026-08-18 — Version 1.3.0
 - **VERSION bumped to 1.3.0** for the trip-memo line and the dashboard's Write check / Mileage
   shortcuts. The installed Windows app was still on 1.2.0 (from the mileage-rules-edit /
