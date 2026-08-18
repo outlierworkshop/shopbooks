@@ -34,6 +34,16 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — A memo line on every trip
+- `mileage.memo` (guarded `ALTER TABLE`, empty on existing rows). `purpose` was carrying two jobs:
+  the short label you scan the log by, and the detail that substantiates the drive. Now the memo
+  holds the second one. A memo box sits on the approval queue, the Add-a-trip form, and every
+  editable log row.
+- The memo is **searchable** (and shown on the search hit, since it may be why the row matched) and
+  is a **column in the year-end mileage CSV** — a memo that didn't reach the tax package would be
+  a note to nobody.
+- An auto-logged trip has no memo: nothing typed it. The rule fills in the purpose as before.
+
 ### 2026-08-18 — Weekend drives stand out in the approval queue; version 1.2.0
 - Saturday/Sunday trips in **Trips waiting for approval** get a tinted row (`.row-weekend`, the same
   soft highlight `.row-dup` already uses, so no new colour enters the palette and both themes are

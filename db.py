@@ -213,7 +213,8 @@ CREATE TABLE IF NOT EXISTS mileage(
   miles REAL NOT NULL,
   purpose TEXT NOT NULL DEFAULT '',
   from_loc TEXT DEFAULT '',
-  to_loc TEXT DEFAULT ''
+  to_loc TEXT DEFAULT '',
+  memo TEXT NOT NULL DEFAULT ''            -- free-text note: what the drive was actually for
 );
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS customers(
@@ -826,6 +827,11 @@ def _column_migrations(con):
     rule_cols = {r["name"] for r in con.execute("PRAGMA table_info(mileage_rules)").fetchall()}
     if "bidirectional" not in rule_cols:
         con.execute("ALTER TABLE mileage_rules ADD COLUMN bidirectional INTEGER NOT NULL DEFAULT 0")
+
+    # A memo line per trip: `purpose` is the short label ("Supply run"), memo is room for the detail
+    # that substantiates it at tax time. Empty on every existing row.
+    if "memo" not in mile_cols:
+        con.execute("ALTER TABLE mileage ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
 
 
 def init():

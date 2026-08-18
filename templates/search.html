@@ -120,7 +120,9 @@ a vendor, or an invoice number.</p>
   {% for r in results.mileage %}
   <tr>
     <td>{{ r.date }}</td>
-    <td><a href="/mileage">{{ r.purpose or '(trip)' }}</a></td>
+    <td><a href="/mileage">{{ r.purpose or '(trip)' }}</a>
+      {# show the memo: it's searchable, so it may well be WHY this row matched #}
+      {% if r.memo %}<br><span class="muted" style="font-size:12px">{{ r.memo }}</span>{% endif %}</td>
     <td class="muted">{{ r.from_loc }}</td>
     <td class="muted">{{ r.to_loc }}</td>
     <td class="num">{{ '%.1f'|format(r.miles) }}</td>

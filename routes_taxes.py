@@ -181,12 +181,13 @@ def tax_package(year: int, con=Depends(get_con)):
             # asks for total miles as well as business miles, so dropping personal trips from the
             # log would lose a figure the form wants. Only BUSINESS miles feed the deduction.
             rate = float(db.get_setting(con, "mileage_rate", "0.70"))
-            w.writerow(["Date", "Miles", "Business", "Purpose", "From", "To"])
+            w.writerow(["Date", "Miles", "Business", "Purpose", "From", "To", "Memo"])
             tot = biz = 0.0
             for t in con.execute("SELECT * FROM mileage WHERE date BETWEEN ? AND ? ORDER BY date", (start, end)):
                 is_biz = t["business"] if "business" in t.keys() else 1
                 w.writerow([t["date"], t["miles"], "yes" if is_biz else "no",
-                            t["purpose"], t["from_loc"], t["to_loc"]])
+                            t["purpose"], t["from_loc"], t["to_loc"],
+                            t["memo"] if "memo" in t.keys() else ""])
                 tot += t["miles"]
                 if is_biz:
                     biz += t["miles"]
