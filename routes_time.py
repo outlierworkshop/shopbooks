@@ -42,10 +42,11 @@ def mileage(request: Request, msg: str = "", err: str = "", con=Depends(get_con)
 @router.post("/mileage")
 def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = Form(""),
                 from_loc: str = Form(""), to_loc: str = Form(""), save_route: str = Form(""),
-                business: str = Form("0"), con=Depends(get_con)):
-    con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
+                business: str = Form("0"), memo: str = Form(""), con=Depends(get_con)):
+    con.execute("INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business,memo) "
+                "VALUES(?,?,?,?,?,?,?)",
                 (ledger.normalize_date(date), miles, purpose, from_loc, to_loc,
-                 0 if business in ("0", "", "off") else 1))
+                 0 if business in ("0", "", "off") else 1, memo.strip()))
     if save_route:  # remember this trip as a one-click route
         name = purpose.strip() or f"{from_loc.strip()} → {to_loc.strip()}".strip(" →")
         if name and not con.execute("SELECT 1 FROM saved_routes WHERE name=?", (name,)).fetchone():
@@ -57,16 +58,16 @@ def mileage_add(date: str = Form(...), miles: float = Form(...), purpose: str = 
 @router.post("/mileage/update")
 def mileage_update(trip_id: int = Form(...), date: str = Form(...), miles: float = Form(...),
                    purpose: str = Form(""), from_loc: str = Form(""), to_loc: str = Form(""),
-                   business: str = Form("0"), con=Depends(get_con)):
+                   business: str = Form("0"), memo: str = Form(""), con=Depends(get_con)):
     """Edit a logged trip in place — fix a purpose, correct the miles, or reclassify it as personal
     (which takes it straight out of the deduction). Also how a trip logged before street addresses
     existed gets its from/to tidied up."""
     if miles <= 0:
         return safe_redirect("/mileage", err="Miles must be greater than zero.")
-    con.execute("UPDATE mileage SET date=?, miles=?, purpose=?, from_loc=?, to_loc=?, business=? "
-                "WHERE id=?",
+    con.execute("UPDATE mileage SET date=?, miles=?, purpose=?, from_loc=?, to_loc=?, business=?, "
+                "memo=? WHERE id=?",
                 (ledger.normalize_date(date), miles, purpose.strip(), from_loc.strip(),
-                 to_loc.strip(), 0 if business in ("0", "", "off") else 1, trip_id))
+                 to_loc.strip(), 0 if business in ("0", "", "off") else 1, memo.strip(), trip_id))
     con.commit()
     return safe_redirect("/mileage", msg="Trip updated.")
 
@@ -83,7 +84,7 @@ def mileage_delete(trip_id: int = Form(...), con=Depends(get_con)):
 
 @router.post("/mileage/trip/{cand_id}/approve")
 def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = Form(""),
-                         business: str = Form("0"), con=Depends(get_con)):
+                         business: str = Form("0"), memo: str = Form(""), con=Depends(get_con)):
     c = con.execute("SELECT * FROM trip_candidates WHERE id=?", (cand_id,)).fetchone()
     if not c:
         return RedirectResponse("/mileage", status_code=303)
@@ -91,7 +92,7 @@ def mileage_trip_approve(cand_id: int, miles: float = Form(...), purpose: str = 
         return safe_redirect("/mileage", err="Miles must be greater than zero.")
     is_biz = 0 if business in ("0", "", "off") else 1
     tripsmod.approve(con, cand_id, miles, purpose.strip(), c["start_place"], c["end_place"],
-                     business=is_biz)
+                     business=is_biz, memo=memo.strip())
     con.commit()
     kind = "business" if is_biz else "personal (not deducted)"
     return safe_redirect("/mileage", msg=f"Trip logged: {miles:g} mi on {c['start_ts'][:10]} — {kind}.")

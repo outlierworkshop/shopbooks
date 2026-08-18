@@ -54,7 +54,7 @@ second look before approving.</p>
 <form id="cand-{{ c.id }}" method="post" action="/mileage/trip/{{ c.id }}/approve"></form>
 {% endfor %}
 <table>
-  <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th>Type</th><th></th></tr>
+  <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th>Memo</th><th>Type</th><th></th></tr>
   {% for c in candidates %}
   <tr class="{{ 'row-weekend' if c.weekend else '' }}">
     <td>{{ c.start_ts[:10] }} <span class="muted">{{ c.day }} {{ c.start_ts[11:16] }}</span></td>
@@ -64,7 +64,9 @@ second look before approving.</p>
     <td class="num">{{ c.minutes }} min</td>
     <td class="num"><input type="number" name="miles" value="{{ c.miles }}" step="0.1" min="0.1" style="width:80px" required form="cand-{{ c.id }}"></td>
     <td><input type="text" name="purpose" placeholder="purpose" value="{{ c.rule_purpose or '' }}"
-               style="width:180px" form="cand-{{ c.id }}"></td>
+               style="width:150px" form="cand-{{ c.id }}"></td>
+    <td><input type="text" name="memo" placeholder="memo (what it was for)" style="width:190px"
+               form="cand-{{ c.id }}" title="A note kept with the trip — the detail that backs up the purpose at tax time"></td>
     <td>
       <select name="business" form="cand-{{ c.id }}" title="Personal trips are logged but not deducted">
         <option value="1" {{ 'selected' if c.suggested_business else '' }}>Business</option>
@@ -188,9 +190,10 @@ trips still waiting for approval are re-checked against the new version right aw
 <form method="post" class="toolbar">
   <input type="date" name="date" value="{{ today }}" required>
   <input type="number" name="miles" step="0.1" min="0" placeholder="miles" style="width:90px" required>
-  <input type="text" name="purpose" placeholder="purpose (client visit, supply run...)" style="width:240px">
+  <input type="text" name="purpose" placeholder="purpose (client visit, supply run...)" style="width:200px">
   <input type="text" name="from_loc" placeholder="from" style="width:120px">
   <input type="text" name="to_loc" placeholder="to" style="width:120px">
+  <input type="text" name="memo" placeholder="memo (optional note)" style="width:200px">
   <select name="business" title="Personal trips are logged but not deducted">
     <option value="0" selected>Personal</option><option value="1">Business</option>
   </select>
@@ -207,7 +210,7 @@ trips still waiting for approval are re-checked against the new version right aw
   <input type="hidden" name="trip_id" value="{{ t.id }}"></form>
 {% endfor %}
 <table>
-  <tr><th>Date</th><th class="num">Miles</th><th>Type</th><th>Purpose</th><th>From</th><th>To</th><th></th></tr>
+  <tr><th>Date</th><th class="num">Miles</th><th>Type</th><th>Purpose</th><th>From</th><th>To</th><th>Memo</th><th></th></tr>
   {% for t in trips %}
   <tr>
     <td><input type="date" name="date" value="{{ t.date }}" form="trip-{{ t.id }}" required style="width:140px"></td>
@@ -222,6 +225,8 @@ trips still waiting for approval are re-checked against the new version right aw
     <td><input type="text" name="purpose" value="{{ t.purpose }}" form="trip-{{ t.id }}" style="width:170px"></td>
     <td><input type="text" name="from_loc" value="{{ t.from_loc }}" form="trip-{{ t.id }}" style="width:190px"></td>
     <td><input type="text" name="to_loc" value="{{ t.to_loc }}" form="trip-{{ t.id }}" style="width:190px"></td>
+    <td><input type="text" name="memo" value="{{ t.memo or '' }}" form="trip-{{ t.id }}" style="width:200px"
+               placeholder="note" title="A note kept with the trip — the detail that backs up the purpose at tax time"></td>
     <td style="white-space:nowrap">
       <button class="small" type="submit" form="trip-{{ t.id }}">Save</button>
       <form class="inline" method="post" action="/mileage/delete"
@@ -231,7 +236,7 @@ trips still waiting for approval are re-checked against the new version right aw
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="7" class="muted">No trips logged yet.</td></tr>
+  <tr><td colspan="8" class="muted">No trips logged yet.</td></tr>
   {% endfor %}
 </table>
 <p class="muted" style="font-size:12px">Edit any row and hit <strong>Save</strong> — switching a trip

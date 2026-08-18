@@ -99,9 +99,10 @@ def run(con, q):
 
     # Mileage
     out["mileage"] = [dict(r) for r in con.execute(
-        "SELECT id, date, miles, purpose, from_loc, to_loc FROM mileage "
-        "WHERE purpose LIKE ? OR from_loc LIKE ? OR to_loc LIKE ? ORDER BY date DESC LIMIT ?",
-        (like, like, like, LIMIT)).fetchall()]
+        "SELECT id, date, miles, purpose, from_loc, to_loc, memo FROM mileage "
+        "WHERE purpose LIKE ? OR from_loc LIKE ? OR to_loc LIKE ? OR memo LIKE ? "
+        "ORDER BY date DESC LIMIT ?",
+        (like, like, like, like, LIMIT)).fetchall()]
 
     out["total"] = sum(len(out[k]) for k in out if k != "total")
     return out

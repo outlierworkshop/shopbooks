@@ -411,17 +411,18 @@ def pending_candidates(con):
         "WHERE c.status='pending' ORDER BY c.start_ts DESC, c.id DESC").fetchall()
 
 
-def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=0):
+def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=0, memo=""):
     """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone.
     Defaults to PERSONAL (`business=0`): a trip is only deducted when something — you, or a rule —
-    positively says it's business. `business=0` still logs the trip, it just isn't deducted."""
+    positively says it's business. `business=0` still logs the trip, it just isn't deducted.
+    `memo` is the free-text note typed at approval; an auto-logged trip has none."""
     c = con.execute("SELECT * FROM trip_candidates WHERE id=? AND status='pending'", (cand_id,)).fetchone()
     if not c:
         return None
     date = c["start_ts"][:10]
     cur = con.execute(
-        "INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business) VALUES(?,?,?,?,?,?)",
-        (date, miles, purpose, from_loc, to_loc, 1 if business else 0))
+        "INSERT INTO mileage(date,miles,purpose,from_loc,to_loc,business,memo) VALUES(?,?,?,?,?,?,?)",
+        (date, miles, purpose, from_loc, to_loc, 1 if business else 0, memo))
     con.execute("UPDATE trip_candidates SET status='approved', mileage_id=? WHERE id=?",
                 (cur.lastrowid, cand_id))
     return cur.lastrowid

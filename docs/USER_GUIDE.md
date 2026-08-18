@@ -116,6 +116,11 @@ stay unmatched; after you import more statements, click **Re-check matches** to 
 Log trips as they happen (date, miles, purpose). The deduction is computed for you and
 included in reports — you don't need to do anything else with it.
 
+Each trip also has a **memo** line: the purpose is the short label ("Supply run"), the memo is
+room for the detail that backs it up ("3 sheets of ply, receipt in the truck"). Memos are
+searchable and they ride along into the mileage CSV in your year-end tax package, which is
+exactly where a question about a drive from ten months ago gets answered.
+
 ## Invoicing
 
 **Importing invoices from QuickBooks:** export Reports → **Invoice List** to CSV, then use

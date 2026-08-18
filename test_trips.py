@@ -325,5 +325,47 @@ ok(page.count('class="row-weekend"') == 1, "...and no other row picked up the ti
 ok("Sat 09:00" in sat_row and "Mon 09:00" in mon_row,
    "every row names its day, so the tint isn't the only signal")
 
+# --- a memo line per trip ------------------------------------------------------------------------
+# `purpose` is the short label; the memo is room for the detail that substantiates it at tax time.
+cand3 = con.execute("SELECT * FROM trip_candidates WHERE status='pending' ORDER BY id LIMIT 1").fetchone()
+client.post(f"/mileage/trip/{cand3['id']}/approve", follow_redirects=False,
+            data={"miles": "9.2", "purpose": "Supply run", "business": "1",
+                  "memo": "3 sheets 3/4 ply + edge banding, receipt in the truck"})
+m = con.execute("SELECT * FROM mileage ORDER BY id DESC LIMIT 1").fetchone()
+ok(m["memo"].startswith("3 sheets 3/4 ply"), "a memo typed at approval is kept on the logged trip")
+
+client.post("/mileage", follow_redirects=False,
+            data={"date": "2026-08-10", "miles": "4", "purpose": "Bank", "memo": "deposited the Kelly check"})
+m2 = con.execute("SELECT * FROM mileage WHERE purpose='Bank'").fetchone()
+ok(m2["memo"] == "deposited the Kelly check", "the Add-a-trip form saves a memo")
+
+client.post("/mileage/update", follow_redirects=False, data={
+    "trip_id": m2["id"], "date": m2["date"], "miles": m2["miles"], "purpose": m2["purpose"],
+    "from_loc": "", "to_loc": "", "business": "1", "memo": "  deposited the Kelly check + got quarters  "})
+ok(con.execute("SELECT memo FROM mileage WHERE id=?", (m2["id"],)).fetchone()["memo"]
+   == "deposited the Kelly check + got quarters",
+   "editing a trip updates the memo, trimmed")
+
+# a trip logged with no memo keeps an empty string, not NULL (the column is NOT NULL DEFAULT '')
+client.post("/mileage", follow_redirects=False, data={"date": "2026-08-11", "miles": "2", "purpose": "No memo"})
+ok(con.execute("SELECT memo FROM mileage WHERE purpose='No memo'").fetchone()["memo"] == "",
+   "a trip logged without a memo stores an empty memo")
+
+page = client.get("/mileage").text
+ok(page.count('name="memo"') >= 3,
+   "the page offers a memo box on the queue, the Add form, and every log row")
+
+# the memo reaches the tax package CSV and is searchable
+import search as searchmod  # noqa: E402
+hits = searchmod.run(con, "Kelly check")["mileage"]
+ok(any(h["id"] == m2["id"] for h in hits), "a trip is findable by its memo text")
+zipped = client.get("/taxes/package.zip?year=2026")
+ok(zipped.status_code == 200, "the tax package still builds")
+import io as _io, zipfile  # noqa: E402
+with zipfile.ZipFile(_io.BytesIO(zipped.content)) as z:
+    mile_csv = [n for n in z.namelist() if "mileage" in n.lower()]
+    body = z.read(mile_csv[0]).decode("utf-8") if mile_csv else ""
+ok("Memo" in body and "Kelly check" in body, "the mileage CSV in the tax package carries the memo")
+
 con.close()
 print("\nTRIP AUTOMATION TESTS DONE")
