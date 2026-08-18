@@ -380,18 +380,19 @@ def _watch_trip_event(con, path, data):
 
 def pending_candidates(con):
     """Pending trips, each carrying the matched rule's suggestion (rule_name/purpose/business) so the
-    page can pre-fill it. `business` defaults to 1 for an unmatched trip — the same assumption the
-    mileage log made before rules existed."""
+    page can pre-fill it. An unmatched trip suggests **personal**: a drive only becomes a deduction
+    when you say so, which is the safe direction to be wrong in. A rule that says otherwise wins."""
     return con.execute(
         "SELECT c.*, r.name rule_name, r.purpose rule_purpose, "
-        "       COALESCE(r.business, 1) suggested_business "
+        "       COALESCE(r.business, 0) suggested_business "
         "FROM trip_candidates c LEFT JOIN mileage_rules r ON r.id = c.rule_id "
         "WHERE c.status='pending' ORDER BY c.start_ts DESC, c.id DESC").fetchall()
 
 
-def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=1):
+def approve(con, cand_id, miles, purpose, from_loc, to_loc, business=0):
     """Turn a candidate into a real mileage-log row. Returns the mileage id, or None if gone.
-    `business=0` logs the trip but keeps it out of the mileage deduction."""
+    Defaults to PERSONAL (`business=0`): a trip is only deducted when something — you, or a rule —
+    positively says it's business. `business=0` still logs the trip, it just isn't deducted."""
     c = con.execute("SELECT * FROM trip_candidates WHERE id=? AND status='pending'", (cand_id,)).fetchone()
     if not c:
         return None
