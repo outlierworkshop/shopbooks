@@ -45,7 +45,9 @@
 {% if candidates %}
 <h2>Trips waiting for approval <span class="badge">{{ candidates|length }}</span></h2>
 <p class="muted">Detected from your phone's car-Bluetooth events. Check the miles (a routed estimate —
-edit if you took a detour), add a purpose, and approve to log it.</p>
+edit if you took a detour), add a purpose, and approve to log it.
+<strong>Weekend drives are tinted</strong> — they're the likeliest to be personal, so give those a
+second look before approving.</p>
 {# one form per candidate, referenced by the row's inputs via the form= attribute
    (a <form> can't legally live inside a <tr>) #}
 {% for c in candidates %}
@@ -54,8 +56,8 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
 <table>
   <tr><th>Date</th><th>From → To</th><th class="num">Duration</th><th class="num">Miles</th><th>Purpose</th><th>Type</th><th></th></tr>
   {% for c in candidates %}
-  <tr>
-    <td>{{ c.start_ts[:10] }} <span class="muted">{{ c.start_ts[11:16] }}</span></td>
+  <tr class="{{ 'row-weekend' if c.weekend else '' }}">
+    <td>{{ c.start_ts[:10] }} <span class="muted">{{ c.day }} {{ c.start_ts[11:16] }}</span></td>
     <td>{{ c.start_place }} → {{ c.end_place }}
       {% if c.distance_source != 'osrm' %}<span class="warn" title="Routing service was unreachable — this is a straight-line estimate x1.3. Double-check the miles."> (estimated)</span>{% endif %}
       {% if c.rule_name %}<br><span class="muted" style="font-size:12px">rule: <strong>{{ c.rule_name }}</strong></span>{% endif %}</td>
