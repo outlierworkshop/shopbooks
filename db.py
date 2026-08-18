@@ -429,6 +429,7 @@ CREATE TABLE IF NOT EXISTS mileage_rules(
   purpose TEXT NOT NULL DEFAULT '',      -- pre-filled onto the trip
   business INTEGER NOT NULL DEFAULT 1,   -- 0 = personal: logged, but not deducted
   auto_log INTEGER NOT NULL DEFAULT 0,   -- 1 = trusted: skip the approval queue
+  bidirectional INTEGER NOT NULL DEFAULT 0,  -- 1 = the return leg counts too (B->A as well as A->B)
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -819,6 +820,12 @@ def _column_migrations(con):
     cand_cols = {r["name"] for r in con.execute("PRAGMA table_info(trip_candidates)").fetchall()}
     if "rule_id" not in cand_cols:   # which standing rule classified this trip (NULL = none matched)
         con.execute("ALTER TABLE trip_candidates ADD COLUMN rule_id INTEGER REFERENCES mileage_rules(id)")
+
+    # A rule can match the drive home as well as the drive out. DEFAULT 0 leaves every existing rule
+    # one-way, exactly as it was written.
+    rule_cols = {r["name"] for r in con.execute("PRAGMA table_info(mileage_rules)").fetchall()}
+    if "bidirectional" not in rule_cols:
+        con.execute("ALTER TABLE mileage_rules ADD COLUMN bidirectional INTEGER NOT NULL DEFAULT 0")
 
 
 def init():

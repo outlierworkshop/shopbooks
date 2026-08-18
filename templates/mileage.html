@@ -91,6 +91,9 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
             Within <input type="number" name="radius_m" value="150" min="25" max="20000" style="width:70px"> m
           </label>
           <label class="muted" style="font-size:12px; display:block; margin-bottom:6px">
+            <input type="checkbox" name="bidirectional" value="1"> Both ways — the trip back counts too
+          </label>
+          <label class="muted" style="font-size:12px; display:block; margin-bottom:6px">
             <input type="checkbox" name="auto_log" value="1"> Trusted — log these automatically
           </label>
           <button type="submit" class="small">Save rule</button>
@@ -124,18 +127,48 @@ edit if you took a detour), add a purpose, and approve to log it.</p>
 <h2>Mileage rules <span class="badge">{{ rules|length }}</span></h2>
 <p class="muted">Standing rules classify a detected trip automatically. They match on the trip's
 <em>coordinates</em>, not the address text, so a drifting house number doesn't break them. A route
-rule (same start <em>and</em> end) wins over a destination rule when both fit.</p>
+rule (same start <em>and</em> end) wins over a destination rule when both fit. Tick <strong>both
+ways</strong> and the rule covers the drive back as well — a route rule then matches the return leg,
+and a destination rule also catches trips that <em>start</em> at the place.</p>
+{# Rules are editable in place: the <form> sits outside the table and the row's inputs point at it
+   with form="rule-<id>", the same trick the trip tables use. The coordinates aren't editable — they
+   came from a real drive — so everything else about a rule can be fixed without deleting it. #}
+{% for r in rules %}
+<form id="rule-{{ r.id }}" method="post" action="/mileage/rules/{{ r.id }}/update"></form>
+{% endfor %}
 <table>
-  <tr><th>Rule</th><th>Matches</th><th>Purpose</th><th>Type</th><th>Auto-log</th><th></th></tr>
+  <tr><th>Rule</th><th>Matches</th><th class="num">Within</th><th>Both ways</th><th>Purpose</th>
+    <th>Type</th><th>Auto-log</th><th></th></tr>
   {% for r in rules %}
   <tr {{ 'style=opacity:.5' if not r.active else '' }}>
-    <td>{{ r.name }}{% if not r.active %} <span class="muted">(off)</span>{% endif %}</td>
-    <td class="muted">{{ 'This exact route' if r.match_kind == 'route' else 'Any trip ending there' }},
-      within {{ r.radius_m }} m</td>
-    <td>{{ r.purpose }}</td>
-    <td>{% if r.business %}Business{% else %}<span class="muted">Personal</span>{% endif %}</td>
-    <td>{% if r.auto_log %}<strong>yes</strong>{% else %}<span class="muted">no — waits for approval</span>{% endif %}</td>
+    <td><input type="text" name="name" value="{{ r.name }}" form="rule-{{ r.id }}" style="width:150px" required>
+      {% if not r.active %}<span class="muted">(off)</span>{% endif %}</td>
+    <td>
+      <select name="match_kind" form="rule-{{ r.id }}" style="width:180px">
+        <option value="destination" {{ 'selected' if r.match_kind != 'route' else '' }}>Any trip ending there</option>
+        <option value="route" {{ 'selected' if r.match_kind == 'route' else '' }}
+                {{ 'disabled' if r.start_lat is none else '' }}>Only this exact route</option>
+      </select>
+    </td>
+    <td class="num"><input type="number" name="radius_m" value="{{ r.radius_m }}" min="25" max="20000"
+                           form="rule-{{ r.id }}" style="width:80px"
+                           title="How close to the saved spot still counts as being there"> m</td>
+    <td><input type="checkbox" name="bidirectional" value="1" form="rule-{{ r.id }}"
+               {{ 'checked' if r.bidirectional else '' }}
+               title="Also match the same drive in reverse — the trip home as well as the trip out"></td>
+    <td><input type="text" name="purpose" value="{{ r.purpose }}" form="rule-{{ r.id }}" style="width:150px"
+               placeholder="purpose to fill in"></td>
+    <td>
+      <select name="business" form="rule-{{ r.id }}" title="Personal trips are logged but not deducted">
+        <option value="1" {{ 'selected' if r.business else '' }}>Business</option>
+        <option value="0" {{ '' if r.business else 'selected' }}>Personal</option>
+      </select>
+    </td>
+    <td><input type="checkbox" name="auto_log" value="1" form="rule-{{ r.id }}"
+               {{ 'checked' if r.auto_log else '' }}
+               title="Trusted — log these trips straight away instead of waiting for approval"></td>
     <td style="white-space:nowrap">
+      <button class="small" type="submit" form="rule-{{ r.id }}">Save</button>
       <form class="inline" method="post" action="/mileage/rules/{{ r.id }}/toggle">
         <button class="small ghost" type="submit">{{ 'Disable' if r.active else 'Enable' }}</button></form>
       <form class="inline" method="post" action="/mileage/rules/{{ r.id }}/delete"
@@ -145,6 +178,8 @@ rule (same start <em>and</em> end) wins over a destination rule when both fit.</
   </tr>
   {% endfor %}
 </table>
+<p class="muted" style="font-size:12px">Change anything on a row and hit <strong>Save</strong> — the
+trips still waiting for approval are re-checked against the new version right away.</p>
 {% endif %}
 
 <h2>Add a trip</h2>

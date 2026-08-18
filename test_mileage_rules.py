@@ -226,5 +226,89 @@ ok([p for p in trips.pending_candidates(con) if p["id"] == orphan_c][0]["rule_id
    "a rule written AFTER the trip was captured now classifies it")
 ok("/mileage/rules/apply" in client.get("/mileage").text, "the page offers the Apply rules button")
 
+# --- rules that work in both directions -----------------------------------------------------------
+# Start from a clean slate: rule_id is a FK, so the candidates have to let go of the rules first.
+con.execute("UPDATE trip_candidates SET rule_id=NULL")
+con.execute("DELETE FROM mileage_rules")
+con.commit()
+
+r_out = rule("Shop run", CLIENT, kind="route", start=SHOP, purpose="Supply run", business=1)
+con.commit()
+ok(trips.match_rule(con, SHOP[0], SHOP[1], CLIENT[0], CLIENT[1]) is not None,
+   "a one-way route rule matches the drive out")
+ok(trips.match_rule(con, CLIENT[0], CLIENT[1], SHOP[0], SHOP[1]) is None,
+   "...and NOT the drive back, while it stays one-way")
+
+con.execute("UPDATE mileage_rules SET bidirectional=1 WHERE id=?", (r_out,))
+con.commit()
+back = trips.match_rule(con, CLIENT[0], CLIENT[1], SHOP[0], SHOP[1])
+ok(back and back["id"] == r_out, "ticking both ways makes the same rule match the return leg")
+ok(trips.match_rule(con, SHOP[0], SHOP[1], CLIENT[0], CLIENT[1]) is not None,
+   "...without losing the original direction")
+ok(trips.match_rule(con, HOME[0], HOME[1], CLIENT[0], CLIENT[1]) is None,
+   "a route rule still refuses a drive that starts somewhere else entirely")
+
+# a bidirectional DESTINATION rule also catches trips that *start* at the place
+r_dest = rule("Around the client site", CLIENT, purpose="Client visit")
+con.execute("UPDATE mileage_rules SET bidirectional=1, business=0 WHERE id=?", (r_dest,))
+con.execute("UPDATE mileage_rules SET active=0 WHERE id=?", (r_out,))   # keep the route rule out of it
+con.commit()
+m = trips.match_rule(con, CLIENT[0], CLIENT[1], HOME[0], HOME[1])
+ok(m and m["id"] == r_dest, "a both-ways destination rule matches a trip that STARTS there")
+con.execute("UPDATE mileage_rules SET bidirectional=0 WHERE id=?", (r_dest,))
+con.commit()
+ok(trips.match_rule(con, CLIENT[0], CLIENT[1], HOME[0], HOME[1]) is None,
+   "...and a one-way one does not")
+con.execute("UPDATE mileage_rules SET active=1 WHERE id=?", (r_out,))
+con.commit()
+
+# --- editing a rule in place ----------------------------------------------------------------------
+r = client.post("/mileage/rules/%d/update" % r_dest, follow_redirects=False, data={
+    "name": "Client site (either way)", "purpose": "Client visit", "match_kind": "destination",
+    "radius_m": "400", "business": "1", "auto_log": "", "bidirectional": "1"})
+ok(r.status_code == 303 and "msg=" in r.headers["location"], "a rule can be edited from the page")
+row = con.execute("SELECT * FROM mileage_rules WHERE id=?", (r_dest,)).fetchone()
+ok(row["name"] == "Client site (either way)" and row["purpose"] == "Client visit",
+   "the name and purpose are saved")
+ok(row["radius_m"] == 400 and row["business"] == 1 and row["bidirectional"] == 1,
+   "the radius, type and both-ways flag are saved")
+ok(row["auto_log"] == 0, "an unticked checkbox turns the flag off rather than leaving it set")
+
+# an out-of-range radius is clamped, not stored as typed
+client.post("/mileage/rules/%d/update" % r_dest, follow_redirects=False, data={
+    "name": row["name"], "match_kind": "destination", "radius_m": "5", "business": "1"})
+ok(con.execute("SELECT radius_m FROM mileage_rules WHERE id=?", (r_dest,)).fetchone()["radius_m"] == 25,
+   "a radius tighter than a GPS fix can justify is clamped to 25 m")
+
+# a rule with no saved starting point can't be turned into a route rule
+r = client.post("/mileage/rules/%d/update" % r_dest, follow_redirects=False, data={
+    "name": "Client site", "match_kind": "route", "radius_m": "150", "business": "1"})
+ok("err=" in r.headers["location"], "switching a rule with no start point to a route rule is refused")
+ok(con.execute("SELECT match_kind FROM mileage_rules WHERE id=?", (r_dest,)).fetchone()["match_kind"]
+   == "destination", "...and the rule is left as it was")
+
+# editing re-classifies the trips still waiting, both ways
+con.execute("UPDATE mileage_rules SET active=0")
+con.commit()
+c_back = candidate(CLIENT, HOME)
+con.commit()
+ok([p for p in trips.pending_candidates(con) if p["id"] == c_back][0]["rule_id"] is None,
+   "a waiting trip starts untagged with every rule off")
+client.post("/mileage/rules/%d/toggle" % r_dest, follow_redirects=False)
+client.post("/mileage/rules/%d/update" % r_dest, follow_redirects=False, data={
+    "name": "Client site", "match_kind": "destination", "radius_m": "150", "business": "1",
+    "bidirectional": "1"})
+tagged = [p for p in trips.pending_candidates(con) if p["id"] == c_back][0]
+ok(tagged["rule_id"] == r_dest, "saving a both-ways rule tags the waiting return trip")
+client.post("/mileage/rules/%d/update" % r_dest, follow_redirects=False, data={
+    "name": "Client site", "match_kind": "destination", "radius_m": "150", "business": "1",
+    "bidirectional": ""})   # one-way again: this trip no longer qualifies
+ok([p for p in trips.pending_candidates(con) if p["id"] == c_back][0]["rule_id"] is None,
+   "narrowing the rule untags the trip instead of leaving a stale suggestion")
+
+page = client.get("/mileage").text
+ok('action="/mileage/rules/%d/update"' % r_dest in page, "the rules table is editable in place")
+ok('name="bidirectional"' in page, "and offers the both-ways checkbox")
+
 con.close()
 print("\nMILEAGE RULES TESTS DONE")
