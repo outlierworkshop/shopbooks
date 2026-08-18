@@ -34,6 +34,11 @@ Guiding constraints (unchanged) live in `ARCHITECTURE.md` §Design goals — loc
 boring tech, built for exactly one user.
 
 ## Changelog
+### 2026-08-18 — Two more dashboard shortcuts
+- Added **Write check** and **Mileage** to the dashboard's quick-actions row, alongside Import
+  statement / Review / Match receipts / New invoice / New entry / Reports. Both were previously
+  reachable only through the nav — worth a one-click shortcut given how often they come up.
+
 ### 2026-08-18 — A memo line on every trip
 - `mileage.memo` (guarded `ALTER TABLE`, empty on existing rows). `purpose` was carrying two jobs:
   the short label you scan the log by, and the detail that substantiates the drive. Now the memo

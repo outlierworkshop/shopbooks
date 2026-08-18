@@ -29,6 +29,10 @@ ok(page.index('account-tiles') < page.index('Today at a glance'),
    "account tiles come before the day-brief hero (top row)")
 ok("Registers ▾" in page, "the nav has a Registers dropdown to reach each account's register")
 
+# ---- quick-action shortcuts on the dashboard ----
+ok('href="/mileage"' in page, "the dashboard has a shortcut to Mileage")
+ok('href="/checks/new"' in page, "the dashboard has a shortcut to Write check")
+
 # ---- seed pending transactions via a CSV import ----
 csv = ("Date,Description,Amount\n"
        "02/03/2026,BLUE BOTTLE COFFEE,-6.75\n"
